@@ -532,7 +532,14 @@ export class CellEditingEngine {
       if (value.length < 2) {
         return 'Formula cannot be empty';
       }
-      // TODO: Add more formula validation
+      // Basic formula syntax check (balanced parentheses)
+      let openParens = 0;
+      for (let i = 0; i < value.length; i++) {
+        if (value[i] === '(') openParens++;
+        if (value[i] === ')') openParens--;
+        if (openParens < 0) return 'Unbalanced parentheses';
+      }
+      if (openParens !== 0) return 'Unbalanced parentheses';
     } else {
       // Number validation
       const num = parseFloat(value);

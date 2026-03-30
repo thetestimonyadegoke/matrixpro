@@ -8,6 +8,7 @@ import { Matrix } from "./Matrix";
 import { EmptyState } from "./EmptyState";
 import { exportToCSV } from "../export/csv";
 import { exportToXLSX } from "../export/xlsx";
+import { exportToPDF } from "../export/pdf";
 import { TooltipServiceWrapper } from "../powerbi/tooltip";
 import { createQuickCalcView } from "../analytics/quickCalcs";
 import { Ribbon, RibbonTab, ToolbarMode } from "./Ribbon";
@@ -174,10 +175,8 @@ export const App: React.FC<AppProps> = ({
 
   const handleExportPDF = useCallback(() => {
     if (!allowInteractions) return;
-    alert("Export to PDF is not yet implemented. Use browser print functionality for now.");
-    // In a real implementation, you would use a library like jsPDF or trigger a browser print.
-    // window.print();
-  }, [allowInteractions]);
+    exportToPDF(sortedRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
+  }, [sortedRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
 
   const toggleExplorer = useCallback(() => {
     setExplorerOpen((prev) => !prev);
