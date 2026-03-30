@@ -466,10 +466,27 @@ export const Matrix: React.FC<MatrixProps> = ({
       const used = new Set<string>();
 
       for (const key of colOrder) {
-        const found = baseResult.find(c => c.key === key);
-        if (found) {
-          sorted.push(found);
-          used.add(key);
+        // If the key is a measure key (starts with "m_"), we filter for all columns with this measure.
+        if (key.startsWith("m_")) {
+          const mIdx = parseInt(key.replace("m_", ""), 10);
+          if (!isNaN(mIdx)) {
+            const matches = baseResult.filter(c => c.measureIndex === mIdx);
+            for (const match of matches) {
+              if (!used.has(match.key)) {
+                sorted.push(match);
+                used.add(match.key);
+              }
+            }
+          }
+        } else {
+          // Otherwise, it's a column key. Filter for all measures in this column.
+          const matches = baseResult.filter(c => c.col.key === key);
+          for (const match of matches) {
+            if (!used.has(match.key)) {
+              sorted.push(match);
+              used.add(match.key);
+            }
+          }
         }
       }
 

@@ -115,19 +115,23 @@ export function buildMatrixModel(options: DataModelBuilderOptions): MatrixModel 
     ? buildColumnTree(columns.root, columnLevelSources)
     : createDefaultColumnTree();
 
+  const hiddenRowLevels = JSON.parse(settings.totals.rowSubtotalLevels || "[]");
   const flattenedRows = flattenTree(
     rowTree,
     rowExpandedState,
     settings.totals.showRowSubtotals,
-    settings.totals.subtotalPosition
+    settings.totals.subtotalPosition,
+    hiddenRowLevels
   );
 
+  const hiddenColLevels = JSON.parse(settings.totals.colSubtotalLevels || "[]");
   const flattenedColumns = flattenColumnTree(
     columnTree,
     columnExpandedState,
     settings.totals.showColumnSubtotals,
     settings.totals.subtotalPosition,
-    measures.length
+    measures.length,
+    hiddenColLevels
   );
 
   const cellMap = buildCellMap(rows.root, columnTree, measures);
@@ -593,26 +597,26 @@ function applyHierarchyRollupsFromTree(
 
   // Build a map of row keys to tree nodes for quick lookup
   const rowKeyToNode = new Map<string, TreeNode>();
-  function indexRowTree(node: TreeNode): void {
+  const indexRowTree = (node: TreeNode): void => {
     rowKeyToNode.set(node.key, node);
     for (const child of node.children) {
       indexRowTree(child);
     }
-  }
+  };
   for (const child of rowTree.children) {
     indexRowTree(child);
   }
 
   // Get all leaf columns from the full column tree
   const leafColumns: TreeNode[] = [];
-  function collectLeafColumns(node: TreeNode): void {
+  const collectLeafColumns = (node: TreeNode): void => {
     if (node.isLeaf && node.level > 0) {
       leafColumns.push(node);
     }
     for (const child of node.children) {
       collectLeafColumns(child);
     }
-  }
+  };
   for (const child of columnTree.children) {
     collectLeafColumns(child);
   }
@@ -626,7 +630,7 @@ function applyHierarchyRollupsFromTree(
 
     // Collect all leaf descendants from the full tree (not just flattened)
     const leafDescendants: TreeNode[] = [];
-    function collectLeaves(node: TreeNode): void {
+    const collectLeaves = (node: TreeNode): void => {
       if (node.isLeaf || node.children.length === 0) {
         leafDescendants.push(node);
       } else {
@@ -760,69 +764,3 @@ function applyHierarchyRollupsFromTree(
   }
 }
 
-// Keep the old function for backward compatibility but it's now unused
-function applyHierarchyRollups(
-  rows: FlattenedNode[],
-  columns: FlattenedNode[],
-  cellMap: Map<string, CellValue>,
-  measures: MeasureInfo[],
-): void {
-  if (rows.length === 0 || columns.length === 0 || measures.length === 0) {
-    return;
-  }
-
-  for (let i = 0; i < rows.length; i++) {
-    const parent = rows[i];
-    if (parent.isSubtotal || parent.isGrandTotal) continue;
-
-    const parentIndent = parent.indent;
-    const next = rows[i + 1];
-    if (!next || next.indent <= parentIndent) continue; // no children
-
-    const descendants: FlattenedNode[] = [];
-    for (let j = i + 1; j < rows.length; j++) {
-      const r = rows[j];
-      if (r.indent <= parentIndent) break;
-      if (r.isGrandTotal) continue;
-      // Include all non-subtotal descendants for aggregation
-      if (!r.isSubtotal) {
-        descendants.push(r);
-      }
-    }
-
-    if (descendants.length === 0) continue;
-
-    for (const col of columns) {
-      const colKey = col.key;
-      for (let m = 0; m < measures.length; m++) {
-        const values: number[] = [];
-        for (const child of descendants) {
-          const childCell = getCellValue(cellMap, child.key, colKey, m);
-          const v = childCell?.value;
-          if (v !== null && v !== undefined && !Number.isNaN(v)) {
-            values.push(v);
-          }
-        }
-
-        if (values.length === 0) continue;
-
-        const sum = values.reduce((acc, v) => acc + v, 0);
-        const cellKey = generateCellKey(parent.key, colKey, m);
-        const existing = cellMap.get(cellKey);
-        const base: CellValue = existing || {
-          value: null,
-          formattedValue: "—",
-          measureIndex: m,
-          rowKey: parent.key,
-          colKey: colKey,
-        };
-
-        cellMap.set(cellKey, {
-          ...base,
-          value: sum,
-          formattedValue: formatValue(sum, measures[m]?.format || ""),
-        });
-      }
-    }
-  }
-}

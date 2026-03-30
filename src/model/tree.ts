@@ -158,6 +158,7 @@ export function flattenTree(
   expandedState: Map<string, boolean>,
   showSubtotals: boolean,
   subtotalPosition: "top" | "bottom",
+  hiddenLevels: string[] = [],
   result: FlattenedNode[] = [],
   indent: number = 0,
   seenKeys: Set<string> = new Set<string>()
@@ -165,8 +166,9 @@ export function flattenTree(
   const isExpanded = expandedState.get(node.key) ?? node.isExpanded;
   const hasChildren = node.children.length > 0;
 
-  if (node.isSubtotal && !showSubtotals && !node.isGrandTotal) {
-    return result;
+  if (node.isSubtotal && !node.isGrandTotal) {
+    if (!showSubtotals) return result;
+    if (hiddenLevels && hiddenLevels.includes(String(node.level))) return result;
   }
 
   // Prevent duplicate nodes
@@ -185,7 +187,7 @@ export function flattenTree(
     });
   }
 
-  if (hasChildren && isExpanded) {
+  if ((isExpanded && hasChildren) || node.level === 0) {
     const subtotalNodes: TreeNode[] = [];
     const regularNodes: TreeNode[] = [];
 
@@ -199,17 +201,17 @@ export function flattenTree(
 
     if (subtotalPosition === "top") {
       for (const subtotal of subtotalNodes) {
-        flattenTree(subtotal, expandedState, showSubtotals, subtotalPosition, result, indent, seenKeys);
+        flattenTree(subtotal, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent, seenKeys);
       }
     }
 
     for (const child of regularNodes) {
-      flattenTree(child, expandedState, showSubtotals, subtotalPosition, result, indent + 1, seenKeys);
+      flattenTree(child, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent + 1, seenKeys);
     }
 
     if (subtotalPosition === "bottom") {
       for (const subtotal of subtotalNodes) {
-        flattenTree(subtotal, expandedState, showSubtotals, subtotalPosition, result, indent, seenKeys);
+        flattenTree(subtotal, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent, seenKeys);
       }
     }
   }
@@ -222,10 +224,11 @@ export function flattenColumnTree(
   expandedState: Map<string, boolean>,
   showSubtotals: boolean,
   subtotalPosition: "top" | "bottom",
-  measureCount: number
+  measureCount: number,
+  hiddenLevels: string[] = []
 ): FlattenedNode[] {
   const result: FlattenedNode[] = [];
-  flattenColumnTreeRecursive(node, expandedState, showSubtotals, subtotalPosition, result, 0);
+  flattenColumnTreeRecursive(node, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, 0);
   return result;
 }
 
@@ -234,14 +237,16 @@ function flattenColumnTreeRecursive(
   expandedState: Map<string, boolean>,
   showSubtotals: boolean,
   subtotalPosition: "top" | "bottom",
+  hiddenLevels: string[],
   result: FlattenedNode[],
   indent: number
 ): void {
   const isExpanded = expandedState.get(node.key) ?? node.isExpanded;
   const hasChildren = node.children.length > 0;
 
-  if (node.isSubtotal && !showSubtotals && !node.isGrandTotal) {
-    return;
+  if (node.isSubtotal && !node.isGrandTotal) {
+    if (!showSubtotals) return;
+    if (hiddenLevels && hiddenLevels.includes(String(node.level))) return;
   }
 
   if (node.level > 0 || node.isGrandTotal) {
@@ -254,7 +259,7 @@ function flattenColumnTreeRecursive(
     });
   }
 
-  if (hasChildren && isExpanded) {
+  if ((isExpanded && hasChildren) || node.level === 0) {
     const subtotalNodes: TreeNode[] = [];
     const regularNodes: TreeNode[] = [];
 
@@ -268,17 +273,17 @@ function flattenColumnTreeRecursive(
 
     if (subtotalPosition === "top") {
       for (const subtotal of subtotalNodes) {
-        flattenColumnTreeRecursive(subtotal, expandedState, showSubtotals, subtotalPosition, result, indent);
+        flattenColumnTreeRecursive(subtotal, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent);
       }
     }
 
     for (const child of regularNodes) {
-      flattenColumnTreeRecursive(child, expandedState, showSubtotals, subtotalPosition, result, indent + 1);
+      flattenColumnTreeRecursive(child, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent + 1);
     }
 
     if (subtotalPosition === "bottom") {
       for (const subtotal of subtotalNodes) {
-        flattenColumnTreeRecursive(subtotal, expandedState, showSubtotals, subtotalPosition, result, indent);
+        flattenColumnTreeRecursive(subtotal, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent);
       }
     }
   }
