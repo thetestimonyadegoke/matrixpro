@@ -100,6 +100,9 @@ export interface RibbonProps {
   onExportPDF?: () => void;
   onOpenCalcMeasurePanel?: () => void;
   onOpenCalcRowPanel?: () => void;
+  onOpenTotalsPanel?: () => void;
+  onOpenManageColumnsPanel?: () => void;
+  onOpenCondFormatPanel?: () => void;
   onOpenBulkOperations?: () => void;
   onToolbarModeChange?: (mode: ToolbarMode) => void;
   onToolbarPinChange?: (pinned: boolean) => void;
@@ -131,6 +134,9 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   onExportPDF,
   onOpenCalcMeasurePanel,
   onOpenCalcRowPanel,
+  onOpenTotalsPanel,
+  onOpenManageColumnsPanel,
+  onOpenCondFormatPanel,
   onOpenBulkOperations,
   onToolbarModeChange,
   onToolbarPinChange,
@@ -257,6 +263,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               disabled={!allowInteractions}
               type="button"
               title="Manage Columns"
+              onClick={onOpenManageColumnsPanel}
             >
               <IconManageColumns size={16} />
               <span className="ribbon-btn-label">Manage Columns</span>
@@ -538,8 +545,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               {sectionTitle("Chart")}
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconChart size={16} />, "Chart", () => {
-                    alert("Chart allows adding mini-charts to cells. Enable sparklines in the Format pane to add in-cell charts.");
-                  }, false, !hasValues, "Insert Chart")}
+                  }, false, true, "Coming soon")}
               </div>
             </div>
 
@@ -551,10 +557,12 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 {toolbarBtn(
                   <IconCondFormat size={16} />,
                   "Conditional Formatting",
-                  () => toggle("conditionalFormatting", "enabled", settings.conditionalFormatting.enabled),
+                  () => {
+                    if (onOpenCondFormatPanel) onOpenCondFormatPanel();
+                  },
                   settings.conditionalFormatting.enabled,
                   !hasValues,
-                  "Toggle conditional formatting"
+                  "Manage Conditional Formatting"
                 )}
                 {toolbarBtn(
                   <IconTotals size={16} />,
@@ -570,12 +578,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                   }, settings.general.topN > 0, !hasData, "Top N Analysis")}
                 {toolbarBtn(<IconExplorer size={16} />, "Explorer", onToggleExplorer, explorerOpen, !allowInteractions, "Toggle Explorer panel")}
                 {toolbarBtn(<IconSort size={16} />, "Sort", () => {
-                    const direction = prompt("Enter sort direction (asc, desc, none):", "none");
-                    if (direction === "asc" || direction === "desc" || direction === "none") {
-                      // This would need integration with the Matrix sort state
-                      alert(`Sort direction set to: ${direction}. Click column headers to sort.`);
-                    }
-                  }, false, !hasData, "Sort data")}
+                  }, false, true, "Coming soon")}
               </div>
             </div>
 
@@ -585,8 +588,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               {sectionTitle("Annotate")}
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconNote size={16} />, "Notes", () => {
-                    alert("Notes allow adding comments to cells. Double-click a cell and use the notes feature in the context menu.");
-                  }, false, !allowInteractions, "Add notes")}
+                  }, false, true, "Coming soon")}
               </div>
             </div>
 
@@ -596,19 +598,15 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               {sectionTitle("Actions")}
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconTemplate size={16} />, "Templates", () => {
-                    alert("Templates allow saving and reusing visual configurations. Use the Format pane to save current settings as a template.");
-                  }, false, !allowInteractions, "Templates")}
+                  }, false, true, "Coming soon")}
                 {toolbarBtn(<IconDisplay size={16} />, "Display", () => {
-                    alert("Display options control visual density and layout. Use the Theme section in the Design tab to adjust display settings.");
-                  }, false, !allowInteractions, "Display options")}
+                  }, false, true, "Coming soon")}
                 <div className="ribbon-btn-group vertical">
                   <div className="toolbar-row">
                     {toolbarBtn(<IconUndo size={16} />, "", () => {
-                    alert("Undo is not yet implemented. Changes are persisted immediately. Use the Format pane to revert settings.");
-                  }, false, !allowInteractions, "Undo")}
+                  }, false, true, "Coming soon")}
                     {toolbarBtn(<IconRedo size={16} />, "", () => {
-                    alert("Redo is not yet implemented. Changes are persisted immediately. Use the Format pane to modify settings.");
-                  }, false, !allowInteractions, "Redo")}
+                  }, false, true, "Coming soon")}
                   </div>
                   <div className="toolbar-row">
                     {toolbarBtn(<IconGrid size={16} />, "", () => toggle("general", "showGridlines", settings.general.showGridlines), settings.general.showGridlines, !allowInteractions, "Toggle gridlines")}
@@ -622,178 +620,80 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
         {activeTab === "insert" && (
           <>
-            <div className="ribbon-section" aria-label="Row">
-              {sectionTitle("Row")}
-              <div className="ribbon-btn-group vertical">
+            <div className="ribbon-section" aria-label="Structure">
+              {sectionTitle("Structure")}
+              <div className="ribbon-btn-group">
                 {toolbarBtn(
                   <IconInsertRow size={16} />, 
                   "Insert Row", 
-                  () => {
-                    const rowName = prompt("Enter new calculated row name:");
-                    if (rowName) {
-                       const currentRows = JSON.parse(settings.calculations.rows || "[]");
-                       const newRow = {
-                         id: `row_${Date.now()}`,
-                         name: rowName,
-                         formulaType: "custom",
-                         rowReferences: [] as string[],
-                         customFormula: "0",
-                         enabled: true,
-                         order: currentRows.length,
-                         style: { bold: false, italic: false, backgroundColor: "", textColor: "", borderTop: "none", borderBottom: "none", indentOverride: null as number | null },
-                         includeInTotals: true,
-                         isSubtotal: false,
-                         parentRowKey: null as string | null,
-                         insertAfterRowKey: null as string | null,
-                         insertAtTop: false
-                       };
-                       onPersistProperty("calculations", "rows", JSON.stringify([...currentRows, newRow]));
-                    }
-                  }, 
+                  onOpenCalcRowPanel,
                   false, 
                   !allowInteractions, 
-                  "Insert Row"
+                  "Insert Calculated Row"
                 )}
-                {toolbarBtn(<IconRows size={16} />, "Manage Rows", onOpenCalcRowPanel, false, !allowInteractions || !hasData, "Manage Rows")}
+                {toolbarBtn(
+                  <IconColumns size={16} />,
+                  "Insert Column",
+                  onOpenCalcMeasurePanel,
+                  false,
+                  !allowInteractions,
+                  "Insert Calculated Measure"
+                )}
               </div>
             </div>
 
             {divider()}
 
-            <div className="ribbon-section" aria-label="Formula">
-              {sectionTitle("Formula")}
+            <div className="ribbon-section" aria-label="Calculations">
+              {sectionTitle("Calculations")}
               <div className="ribbon-btn-group vertical">
                 {toolbarBtn(
                   <IconCalculator size={16} />, 
                   "Quick Formula", 
                   () => {
-                    alert("Quick formula feature allows one-click calculations like % of Total. Currently available via column header right-click.");
                   }, 
                   false, 
-                  !allowInteractions, 
-                  "Quick Formula"
+                  true,
+                  "Coming soon"
                 )}
                 {toolbarBtn(
                   <IconFormula size={16} />, 
-                  "Insert Formula", 
+                  "Advanced Formula",
                   onOpenCalcMeasurePanel, 
                   false, 
                   !allowInteractions, 
-                  "Insert Formula"
+                  "Open Formula Editor"
                 )}
-                {toolbarBtn(<IconBlend size={16} />, "Blend", () => {
-                    alert("Blend allows combining multiple measures into a single column. Use the column header right-click menu to access this feature.");
-                  }, false, !allowInteractions, "Blend")}
+                {toolbarBtn(<IconBlend size={16} />, "Combine Measures", () => {
+                  }, false, true, "Coming soon")}
               </div>
             </div>
 
             {divider()}
 
-            <div className="ribbon-section" aria-label="Column">
-              {sectionTitle("Column")}
-              <div className="ribbon-btn-group vertical">
-                {toolbarBtn(<IconSimulate size={16} />, "Simulate", () => {
-                    alert("Simulation allows creating what-if scenarios. Use the calculated measures feature to define simulations.");
-                  }, false, !allowInteractions, "Simulate")}
-                {toolbarBtn(
-                  <IconColumns size={16} />, 
-                  "Insert", 
-                  onOpenCalcMeasurePanel, 
-                  false, 
-                  !allowInteractions, 
-                  "Insert Column"
-                )}
-                {toolbarBtn(<IconDataInput size={16} />, "Data Input", () => {
-                    alert("Data Input allows manual entry of values. Enable writeback to use this feature.");
-                  }, false, !allowInteractions, "Data Input")}
-              </div>
-            </div>
-
-            {divider()}
-
-            <div className="ribbon-section" aria-label="Manage Measures">
-              {sectionTitle("Manage Measures")}
-              <div className="ribbon-btn-group vertical">
-                {toolbarBtn(<IconKpi size={16} />, "Manage Measures", onOpenCalcMeasurePanel, false, !allowInteractions || !hasValues, "Manage Measures")}
-              </div>
-            </div>
-
-            {divider()}
-
-            <div className="ribbon-section" aria-label="Global">
-              {sectionTitle("Global")}
-              <div className="ribbon-btn-group vertical">
-                {toolbarBtn(<IconVariables size={16} />, "Variables", () => {
-                    alert("Variables allow defining reusable values across formulas. Create calculated measures to define variables.");
-                  }, false, !allowInteractions, "Variables")}
-              </div>
-            </div>
-
-            {divider()}
-
-            <div className="ribbon-section" aria-label="Forecast">
-              {sectionTitle("Forecast")}
+            <div className="ribbon-section" aria-label="Data Input">
+              {sectionTitle("Data Input")}
               <div className="ribbon-btn-group vertical">
                 {toolbarBtn(<IconNote size={16} />, "Edit Cell", () => {
-                    alert("Edit Cell allows direct editing of values. Double-click a cell to edit its value.");
-                  }, false, !allowInteractions, "Edit Cell")}
-                {toolbarBtn(<IconGoalSeek size={16} />, "Goal Seek", () => {
-                    alert("Goal Seek allows finding input values that produce a desired result. This feature requires writeback to be enabled.");
-                  }, false, !allowInteractions, "Goal Seek")}
-                {toolbarBtn(<IconBulkEdit size={16} />, "Bulk", onOpenBulkOperations, false, !allowInteractions, "Bulk Edit/Clear Operations")}
-                {toolbarBtn(<IconSmartAnalysis size={16} />, "Smart Analysis", () => {
-                    alert("Smart Analysis provides AI-powered insights. This feature requires integration with external AI services.");
-                  }, false, !allowInteractions, "Smart Analysis")}
+                  }, false, true, "Coming soon")}
+                {toolbarBtn(<IconBulkEdit size={16} />, "Bulk Input", onOpenBulkOperations, false, !allowInteractions, "Bulk Edit Operations")}
+                {toolbarBtn(<IconSimulate size={16} />, "Simulate", () => {
+                  }, false, true, "Coming soon")}
+                {toolbarBtn(<IconVariables size={16} />, "Variables", () => {
+                  }, false, true, "Coming soon")}
               </div>
             </div>
 
             {divider()}
 
-            <div className="ribbon-section" aria-label="Customize">
-              {sectionTitle("Customize")}
+            <div className="ribbon-section" aria-label="Management">
+              {sectionTitle("Management")}
               <div className="ribbon-btn-group vertical">
-                {toolbarBtn(<IconGroup size={16} />, "Group", () => {
-                    alert("Group allows combining rows into groups. Use the row header right-click menu to create groups.");
-                  }, false, !allowInteractions, "Group")}
-                {toolbarBtn(<IconAggregation size={16} />, "Aggregation", () => {
-                    alert("Aggregation allows changing how values are summarized. Use the column header right-click menu to change aggregation.");
-                  }, false, !allowInteractions, "Aggregation")}
-              </div>
-            </div>
-
-            {divider()}
-
-            <div className="ribbon-section" aria-label="Compare">
-              {sectionTitle("Compare")}
-              <div className="ribbon-btn-group vertical">
-                {toolbarBtn(<IconVersion size={16} />, "Set Version", () => {
-                    alert("Set Version allows creating snapshots of data for comparison. This feature requires version history to be enabled.");
-                  }, false, !allowInteractions, "Set Version")}
-              </div>
-            </div>
-
-            {divider()}
-
-            <div className="ribbon-section" aria-label="Measure">
-              {sectionTitle("Measure")}
-              <div className="ribbon-btn-group vertical">
-                {toolbarBtn(<IconFilter size={16} />, "Filter", () => {
-                    alert("Filter allows hiding specific rows or values. Use the Explorer panel to filter data.");
-                  }, false, !allowInteractions, "Filter")}
-                {toolbarBtn(<IconContext size={16} />, "Context", () => {
-                    alert("Context allows showing additional information for measures. Use the column settings to configure context.");
-                  }, false, !allowInteractions, "Context")}
-              </div>
-            </div>
-
-            {divider()}
-
-            <div className="ribbon-section" aria-label="Audit">
-              {sectionTitle("Audit")}
-              <div className="ribbon-btn-group vertical">
-                {toolbarBtn(<IconAudit size={16} />, "Audit", () => {
-                    alert("Audit tracks changes and provides lineage information. This feature requires audit logging to be enabled.");
-                  }, false, !allowInteractions, "Audit")}
+                {toolbarBtn(<IconRows size={16} />, "Manage Rows", onOpenCalcRowPanel, false, !allowInteractions || !hasData, "Manage Rows")}
+                {toolbarBtn(<IconColumns size={16} />, "Manage Columns", () => {
+                    if (onOpenManageColumnsPanel) onOpenManageColumnsPanel();
+                  }, false, !allowInteractions || !hasData, "Manage Columns")}
+                {toolbarBtn(<IconKpi size={16} />, "Manage Measures", onOpenCalcMeasurePanel, false, !allowInteractions || !hasValues, "Manage Measures")}
               </div>
             </div>
           </>
@@ -805,11 +705,9 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               {sectionTitle("Layout")}
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconHeaderFooter size={16} />, "Header & Footer", () => {
-                    alert("Header & Footer customization allows adding titles, logos, and page numbers. This feature is available in the Format pane.");
-                  }, false, !allowInteractions, "Header & Footer")}
+                  }, false, true, "Coming soon")}
                 {toolbarBtn(<IconTheme size={16} />, "Enterprise Themes", () => {
-                    alert("Enterprise Themes allow applying corporate branding. Use the Theme dropdown to select from available themes.");
-                  }, false, !allowInteractions, "Enterprise Themes")}
+                  }, false, true, "Coming soon")}
               </div>
             </div>
 
@@ -845,8 +743,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                   </select>
                 </div>
                 {toolbarBtn(<IconPageBreak size={16} />, "Section Break", () => {
-                    alert("Section Break allows inserting visual breaks between row groups. Use the row header right-click menu to insert section breaks.");
-                  }, false, !allowInteractions, "Section Break")}
+                  }, false, true, "Coming soon")}
               </div>
             </div>
 
@@ -856,11 +753,10 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               {sectionTitle("Report+")}
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconReport size={16} />, "Report+", () => {
-                    alert("Report+ provides advanced reporting features like cross-visual interactions and drill-through. Available in the Format pane.");
-                  }, false, !allowInteractions, "Report+")}
-                {toolbarBtn(<IconPageTotal size={16} />, "Page Total", () => {
-                    alert("Page Total shows running totals at page breaks. Enable this in the Totals settings.");
-                  }, false, !allowInteractions, "Page Total")}
+                  }, false, true, "Coming soon")}
+                {toolbarBtn(<IconPageTotal size={16} />, "Totals", () => {
+                    if (onOpenTotalsPanel) onOpenTotalsPanel();
+                  }, false, !allowInteractions, "Manage Totals & Subtotals")}
                 <button className="ribbon-btn style-btn" disabled={!allowInteractions} title="Style">
                   <span className="style-icon" style={{ fontSize: '16px', fontWeight: 'bold' }}>S</span>
                   <span className="ribbon-btn-label">Style</span>
@@ -947,8 +843,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               {sectionTitle("Page Setup")}
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconPageTotal size={16} />, "Page Setup", () => {
-                    alert("Page Setup allows configuring print layout, margins, and orientation. Use browser print settings for PDF export.");
-                  }, false, !allowInteractions, "Page Setup")}
+                  }, false, true, "Coming soon")}
               </div>
             </div>
 
@@ -959,8 +854,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconGrid size={16} />, "Entire Matrix", onExportCSV, false, !allowInteractions || !hasData, "Export entire matrix")}
                 {toolbarBtn(<IconColumns size={16} />, "Selected Columns", () => {
-                    alert("Select columns by clicking column headers while holding Ctrl, then use Export to CSV.");
-                  }, false, !allowInteractions || !hasData, "Export selected columns")}
+                  }, false, true, "Coming soon")}
                 {toolbarBtn(<IconPdf size={16} />, "PDF Report", onExportPDF, false, !allowInteractions || !hasData, "Export to PDF")}
               </div>
             </div>
@@ -972,15 +866,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconExcel size={16} />, "Export Report", onExportXLSX, false, !allowInteractions || !hasData, "Export to Excel")}
                 {toolbarBtn(<IconGrid size={16} />, "Copy to Clipboard", () => {
-                    // Copy to clipboard functionality
-                    try {
-                      const text = "Matrix data - use Export to CSV for full data export";
-                      navigator.clipboard.writeText(text);
-                      alert("Copied to clipboard! For full data export, use Export to CSV or Excel.");
-                    } catch (e) {
-                      alert("Use Ctrl+C to copy selected cells, or Export to CSV for full data.");
-                    }
-                  }, false, !allowInteractions || !hasData, "Copy to Clipboard")}
+                  }, false, true, "Coming soon")}
               </div>
             </div>
 
@@ -990,8 +876,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               {sectionTitle("Writeback")}
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconWriteback size={16} />, "Writeback", () => {
-                    alert("Writeback allows saving edits back to the data source. This feature requires writeback permissions to be enabled in Power BI.");
-                  }, false, !allowInteractions, "Writeback")}
+                  }, false, true, "Coming soon")}
               </div>
             </div>
 
@@ -1001,14 +886,11 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               {sectionTitle("Schedule")}
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconNew size={16} />, "New Subscription", () => {
-                    alert("Subscriptions allow scheduling automatic report delivery via email. Configure in Power BI service settings.");
-                  }, false, !allowInteractions, "New Subscription")}
+                  }, false, true, "Coming soon")}
                 {toolbarBtn(<IconSchedule size={16} />, "Manage Subscriptions", () => {
-                    alert("Manage your report subscriptions in Power BI service. Go to Workspace > Report > Subscribe.");
-                  }, false, !allowInteractions, "Manage Subscriptions")}
+                  }, false, true, "Coming soon")}
                 {toolbarBtn(<IconSettings size={16} />, "Settings", () => {
-                    alert("Configure export and subscription settings in the Format pane under Export options.");
-                  }, false, !allowInteractions, "Settings")}
+                  }, false, true, "Coming soon")}
               </div>
             </div>
 
@@ -1018,11 +900,9 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               {sectionTitle("Backup")}
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconConfig size={16} />, "Config", () => {
-                    alert("Configuration backup allows saving and restoring visual settings. Use the Format pane to export/import settings.");
-                  }, false, !allowInteractions, "Configuration")}
+                  }, false, true, "Coming soon")}
                 {toolbarBtn(<IconReuse size={16} />, "Reuse Theme", () => {
-                    alert("Reuse Theme allows applying the current theme to other visuals. Copy theme settings from the Format pane.");
-                  }, false, !allowInteractions, "Reuse Theme")}
+                  }, false, true, "Coming soon")}
               </div>
             </div>
           </>

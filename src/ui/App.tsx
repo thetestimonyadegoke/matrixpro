@@ -15,6 +15,9 @@ import { Ribbon, RibbonTab, ToolbarMode } from "./Ribbon";
 import { ExplorerPanel } from "./ExplorerPanel";
 import { CalcMeasureWizard } from "./CalcMeasureWizard";
 import { CalcRowWizard } from "./CalcRowWizard";
+import { TotalsControlPanel } from "./TotalsControlPanel";
+import { ManageColumnsPanel } from "./ManageColumnsPanel";
+import { ConditionalFormattingPanel } from "./ConditionalFormattingPanel";
 
 export interface AppProps {
   model: MatrixModel;
@@ -68,6 +71,9 @@ export const App: React.FC<AppProps> = ({
   const [explorerOpen, setExplorerOpen] = useState(false);
   const [calcMeasureWizardOpen, setCalcMeasureWizardOpen] = useState(false);
   const [calcRowWizardOpen, setCalcRowWizardOpen] = useState(false);
+  const [totalsPanelOpen, setTotalsPanelOpen] = useState(false);
+  const [manageColumnsPanelOpen, setManageColumnsPanelOpen] = useState(false);
+  const [condFormatPanelOpen, setCondFormatPanelOpen] = useState(false);
 
   const [sortConfig, setSortConfig] = useState<SortConfig>({
     columnKey: null,
@@ -364,6 +370,9 @@ export const App: React.FC<AppProps> = ({
           onExportPDF={handleExportPDF}
           onOpenCalcMeasurePanel={openCalcMeasureWizard}
           onOpenCalcRowPanel={openCalcRowWizard}
+          onOpenTotalsPanel={() => setTotalsPanelOpen(true)}
+          onOpenManageColumnsPanel={() => setManageColumnsPanelOpen(true)}
+          onOpenCondFormatPanel={() => setCondFormatPanelOpen(true)}
           onOpenBulkOperations={() => {
             // Trigger the matrix to open bulk operations via global
             (window as any).__openBulkOperations?.();
@@ -437,6 +446,36 @@ export const App: React.FC<AppProps> = ({
           rows={sortedRows}
           onSave={handleSaveCalcRow}
           onClose={closeCalcRowWizard}
+        />
+      )}
+
+      {totalsPanelOpen && (
+        <TotalsControlPanel
+          settings={settings}
+          rowLevels={model.flattenedRows.length > 0 ? (model.flattenedRows[0] as any).hierarchyLevels || [] : []}
+          columnLevels={model.flattenedColumns.length > 0 ? (model.flattenedColumns[0] as any).hierarchyLevels || [] : []}
+          onPersistProperty={onPersistProperty}
+          onClose={() => setTotalsPanelOpen(false)}
+        />
+      )}
+
+      {manageColumnsPanelOpen && (
+        <ManageColumnsPanel
+          columns={model.flattenedColumns}
+          measures={model.measures}
+          settings={settings}
+          onClose={() => setManageColumnsPanelOpen(false)}
+          onPersistProperty={onPersistProperty}
+          onOpenCalcMeasureWizard={openCalcMeasureWizard}
+        />
+      )}
+
+      {condFormatPanelOpen && (
+        <ConditionalFormattingPanel
+          settings={settings}
+          measures={model.measures}
+          onClose={() => setCondFormatPanelOpen(false)}
+          onPersistProperty={onPersistProperty}
         />
       )}
     </div>

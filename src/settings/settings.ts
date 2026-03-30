@@ -44,6 +44,8 @@ export interface TotalSettings {
   subtotalPosition: "top" | "bottom";
   backgroundColor: string;
   textColor: string;
+  rowSubtotalLevels?: string; // JSON string array of hidden levels
+  colSubtotalLevels?: string; // JSON string array of hidden levels
 }
 
 export interface ConditionalFormattingSettings {
@@ -193,6 +195,8 @@ export const defaultSettings: VisualSettings = {
     subtotalPosition: "bottom",
     backgroundColor: "#e8e8e8",
     textColor: "#333333",
+    rowSubtotalLevels: "[]",
+    colSubtotalLevels: "[]",
   },
   conditionalFormatting: {
     enabled: false,
@@ -348,6 +352,8 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
           : getValue(objects, "totals", "subtotalPosition", defaultSettings.totals.subtotalPosition)),
       backgroundColor: getColor(objects, "totals", "backgroundColor", defaultSettings.totals.backgroundColor),
       textColor: getColor(objects, "totals", "textColor", defaultSettings.totals.textColor),
+      rowSubtotalLevels: getValue(objects, "totals", "rowSubtotalLevels", defaultSettings.totals.rowSubtotalLevels),
+      colSubtotalLevels: getValue(objects, "totals", "colSubtotalLevels", defaultSettings.totals.colSubtotalLevels),
     },
     conditionalFormatting: {
       enabled: getValue(objects, "conditionalFormatting", "enabled", defaultSettings.conditionalFormatting.enabled),

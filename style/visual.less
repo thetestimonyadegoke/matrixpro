@@ -2793,7 +2793,8 @@
 
   // Active selection glow
   .matrix-row.selected {
-    position: relative;
+    position: absolute; /* Keep it absolute to match default rows to not break virtualization */
+    box-sizing: border-box;
 
     &::before {
       content: '';
@@ -2804,6 +2805,7 @@
       width: 4px;
       background: var(--mx-accent, #0071e3);
       z-index: 10;
+      box-sizing: border-box;
     }
   }
 

@@ -9,6 +9,7 @@ export async function exportToPDF(
   measures: MeasureInfo[],
   settings: VisualSettings
 ): Promise<void> {
-  alert("Export to PDF is not fully implemented natively to avoid bundle bloat. Please use standard browser print functionality.");
+  // Use standard browser print functionality for lightweight PDF generation
+  // without bloating the MatrixPro custom visual bundle.
   window.print();
 }
