@@ -1,0 +1,1011 @@
+{
+  "dataRoles": [
+    {
+      "name": "Rows",
+      "displayName": "Rows",
+      "displayNameKey": "Role_Rows",
+      "kind": "Grouping",
+      "description": "Row hierarchy fields"
+    },
+    {
+      "name": "Columns",
+      "displayName": "Columns",
+      "displayNameKey": "Role_Columns",
+      "kind": "Grouping",
+      "description": "Column hierarchy fields"
+    },
+    {
+      "name": "Values",
+      "displayName": "Values",
+      "displayNameKey": "Role_Values",
+      "kind": "Measure",
+      "description": "Measure values to display"
+    },
+    {
+      "name": "SparklineMeasure",
+      "displayName": "Sparkline Measure",
+      "displayNameKey": "Role_SparklineMeasure",
+      "kind": "Measure",
+      "description": "Optional measure for sparklines (defaults to first Value)"
+    },
+    {
+      "name": "Tooltips",
+      "displayName": "Tooltips",
+      "displayNameKey": "Role_Tooltips",
+      "kind": "Measure",
+      "description": "Optional fields used in tooltips"
+    }
+  ],
+  "dataViewMappings": [
+    {
+      "conditions": [
+        {
+          "Rows": {
+            "max": 10
+          },
+          "Columns": {
+            "max": 10
+          },
+          "Values": {
+            "max": 20
+          },
+          "SparklineMeasure": {
+            "max": 1
+          },
+          "Tooltips": {
+            "max": 10
+          }
+        }
+      ],
+      "matrix": {
+        "rows": {
+          "for": {
+            "in": "Rows"
+          },
+          "dataReductionAlgorithm": {
+            "top": {
+              "count": 30000
+            }
+          }
+        },
+        "columns": {
+          "for": {
+            "in": "Columns"
+          },
+          "dataReductionAlgorithm": {
+            "top": {
+              "count": 500
+            }
+          }
+        },
+        "values": {
+          "select": [
+            {
+              "for": {
+                "in": "Values"
+              }
+            },
+            {
+              "for": {
+                "in": "SparklineMeasure"
+              }
+            },
+            {
+              "for": {
+                "in": "Tooltips"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "objects": {
+    "general": {
+      "displayName": "General",
+      "properties": {
+        "rowHeight": {
+          "displayName": "Row Height",
+          "type": {
+            "numeric": true
+          }
+        },
+        "defaultColumnWidth": {
+          "displayName": "Default Column Width",
+          "type": {
+            "numeric": true
+          }
+        },
+        "freezeFirstColumn": {
+          "displayName": "Freeze First Column",
+          "type": {
+            "bool": true
+          }
+        },
+        "showGridlines": {
+          "displayName": "Show Gridlines",
+          "type": {
+            "bool": true
+          }
+        },
+        "rowBanding": {
+          "displayName": "Row Banding",
+          "type": {
+            "bool": true
+          }
+        },
+        "fontFamily": {
+          "displayName": "Font Family",
+          "type": {
+            "text": true
+          }
+        },
+        "rowHeaderWidth": {
+          "displayName": "Row Header Width",
+          "type": {
+            "numeric": true
+          }
+        },
+        "rowHighlight": {
+          "displayName": "Row Highlight",
+          "type": {
+            "bool": true
+          }
+        },
+        "topN": {
+          "displayName": "Top N",
+          "type": {
+            "numeric": true
+          }
+        }
+      }
+    },
+    "layout": {
+      "displayName": "Layout",
+      "properties": {
+        "mode": {
+          "displayName": "Layout Mode",
+          "type": {
+            "enumeration": [
+              {
+                "value": "hierarchy",
+                "displayName": "Hierarchy"
+              },
+              {
+                "value": "outline",
+                "displayName": "Outline"
+              },
+              {
+                "value": "table",
+                "displayName": "Table"
+              },
+              {
+                "value": "stepped",
+                "displayName": "Stepped"
+              },
+              {
+                "value": "drilldown",
+                "displayName": "Drilldown"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "theme": {
+      "displayName": "Theme",
+      "properties": {
+        "preset": {
+          "displayName": "Theme Preset",
+          "type": {
+            "enumeration": [
+              {
+                "value": "modern-light",
+                "displayName": "Modern Light"
+              },
+              {
+                "value": "modern-dark",
+                "displayName": "Modern Dark"
+              },
+              {
+                "value": "finance-statement",
+                "displayName": "Finance Statement"
+              },
+              {
+                "value": "minimal",
+                "displayName": "Minimal"
+              },
+              {
+                "value": "tableau-like",
+                "displayName": "Tableau Enterprise"
+              },
+              {
+                "value": "figma-like",
+                "displayName": "Design Canvas"
+              },
+              {
+                "value": "apple-glass",
+                "displayName": "Cupertino Glass"
+              }
+            ]
+          }
+        },
+        "density": {
+          "displayName": "Density",
+          "type": {
+            "enumeration": [
+              {
+                "value": "compact",
+                "displayName": "Compact"
+              },
+              {
+                "value": "comfortable",
+                "displayName": "Comfortable"
+              }
+            ]
+          }
+        },
+        "customAccentColor": {
+          "displayName": "Custom Accent Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "appearance": {
+      "displayName": "Appearance",
+      "properties": {
+        "surfaceColor": {
+          "displayName": "Surface Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "toolbarBackgroundColor": {
+          "displayName": "Toolbar Background",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "borderColor": {
+          "displayName": "Border Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "accentColor": {
+          "displayName": "Accent Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "cornerRadius": {
+          "displayName": "Corner Radius",
+          "type": {
+            "numeric": true
+          }
+        },
+        "showToolbar": {
+          "displayName": "Show Toolbar",
+          "type": {
+            "bool": true
+          }
+        }
+      }
+    },
+    "headers": {
+      "displayName": "Headers",
+      "properties": {
+        "fontSize": {
+          "displayName": "Font Size",
+          "type": {
+            "numeric": true
+          }
+        },
+        "bold": {
+          "displayName": "Bold",
+          "type": {
+            "bool": true
+          }
+        },
+        "backgroundColor": {
+          "displayName": "Background Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "textColor": {
+          "displayName": "Text Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "values": {
+      "displayName": "Values",
+      "properties": {
+        "fontSize": {
+          "displayName": "Font Size",
+          "type": {
+            "numeric": true
+          }
+        },
+        "alignment": {
+          "displayName": "Alignment",
+          "type": {
+            "enumeration": [
+              {
+                "value": "left",
+                "displayName": "Left"
+              },
+              {
+                "value": "center",
+                "displayName": "Center"
+              },
+              {
+                "value": "right",
+                "displayName": "Right"
+              }
+            ]
+          }
+        },
+        "numberFormat": {
+          "displayName": "Number Format",
+          "type": {
+            "text": true
+          }
+        },
+        "textColor": {
+          "displayName": "Text Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "backgroundColor": {
+          "displayName": "Background Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "bold": {
+          "displayName": "Bold",
+          "type": {
+            "bool": true
+          }
+        },
+        "italic": {
+          "displayName": "Italic",
+          "type": {
+            "bool": true
+          }
+        },
+        "underline": {
+          "displayName": "Underline",
+          "type": {
+            "bool": true
+          }
+        },
+        "borderStyle": {
+          "displayName": "Border Style",
+          "type": {
+            "enumeration": [
+              {
+                "value": "none",
+                "displayName": "None"
+              },
+              {
+                "value": "all",
+                "displayName": "All"
+              },
+              {
+                "value": "horizontal",
+                "displayName": "Horizontal"
+              },
+              {
+                "value": "vertical",
+                "displayName": "Vertical"
+              },
+              {
+                "value": "outline",
+                "displayName": "Outline"
+              }
+            ]
+          }
+        },
+        "borderColor": {
+          "displayName": "Border Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "totals": {
+      "displayName": "Totals",
+      "properties": {
+        "showRowSubtotals": {
+          "displayName": "Show Row Subtotals",
+          "type": {
+            "bool": true
+          }
+        },
+        "showColumnSubtotals": {
+          "displayName": "Show Column Subtotals",
+          "type": {
+            "bool": true
+          }
+        },
+        "showGrandTotals": {
+          "displayName": "Show Grand Totals",
+          "type": {
+            "bool": true
+          }
+        },
+        "subtotalPosition": {
+          "displayName": "Subtotal Position",
+          "type": {
+            "enumeration": [
+              {
+                "value": "bottom",
+                "displayName": "Bottom"
+              },
+              {
+                "value": "top",
+                "displayName": "Top"
+              }
+            ]
+          }
+        },
+        "backgroundColor": {
+          "displayName": "Background Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "textColor": {
+          "displayName": "Text Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "conditionalFormatting": {
+      "displayName": "Conditional Formatting",
+      "properties": {
+        "enabled": {
+          "displayName": "Enable",
+          "type": {
+            "bool": true
+          }
+        },
+        "ruleType": {
+          "displayName": "Rule Type",
+          "type": {
+            "enumeration": [
+              {
+                "value": "thresholds",
+                "displayName": "Thresholds (Min/Mid/Max)"
+              },
+              {
+                "value": "bands",
+                "displayName": "3-Rule Bands"
+              }
+            ]
+          }
+        },
+        "lowColor": {
+          "displayName": "Low Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "midColor": {
+          "displayName": "Mid Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "highColor": {
+          "displayName": "High Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "lowThreshold": {
+          "displayName": "Low Threshold (%)",
+          "type": {
+            "numeric": true
+          }
+        },
+        "highThreshold": {
+          "displayName": "High Threshold (%)",
+          "type": {
+            "numeric": true
+          }
+        },
+        "applyToAllMeasures": {
+          "displayName": "Apply to All Measures",
+          "type": {
+            "bool": true
+          }
+        },
+        "targetMeasure": {
+          "displayName": "Target Measure Index",
+          "type": {
+            "numeric": true
+          }
+        }
+      }
+    },
+    "quickCalcs": {
+      "displayName": "Quick Calcs",
+      "properties": {
+        "enabled": {
+          "displayName": "Enable",
+          "type": {
+            "bool": true
+          }
+        },
+        "type": {
+          "displayName": "Calculation",
+          "type": {
+            "enumeration": [
+              {
+                "value": "none",
+                "displayName": "None"
+              },
+              {
+                "value": "percentOfTotal",
+                "displayName": "% of Total"
+              },
+              {
+                "value": "runningTotal",
+                "displayName": "Running Total"
+              },
+              {
+                "value": "variance",
+                "displayName": "Variance"
+              },
+              {
+                "value": "percentChange",
+                "displayName": "% Change"
+              },
+              {
+                "value": "rank",
+                "displayName": "Rank"
+              }
+            ]
+          }
+        },
+        "targetMeasure": {
+          "displayName": "Target Measure Index",
+          "type": {
+            "numeric": true
+          }
+        }
+      }
+    },
+    "dataBars": {
+      "displayName": "Data Bars",
+      "properties": {
+        "enabled": {
+          "displayName": "Enable",
+          "type": {
+            "bool": true
+          }
+        },
+        "showValueText": {
+          "displayName": "Show Value Text",
+          "type": {
+            "bool": true
+          }
+        },
+        "positiveColor": {
+          "displayName": "Positive Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "negativeColor": {
+          "displayName": "Negative Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "normalizeBy": {
+          "displayName": "Normalize By",
+          "type": {
+            "enumeration": [
+              {
+                "value": "column",
+                "displayName": "Per Column"
+              },
+              {
+                "value": "row",
+                "displayName": "Per Row"
+              },
+              {
+                "value": "global",
+                "displayName": "Global"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "kpiIcons": {
+      "displayName": "KPI Icons",
+      "properties": {
+        "enabled": {
+          "displayName": "Enable",
+          "type": {
+            "bool": true
+          }
+        },
+        "upThreshold": {
+          "displayName": "Up Threshold (%)",
+          "type": {
+            "numeric": true
+          }
+        },
+        "downThreshold": {
+          "displayName": "Down Threshold (%)",
+          "type": {
+            "numeric": true
+          }
+        },
+        "upColor": {
+          "displayName": "Up Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "neutralColor": {
+          "displayName": "Neutral Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "downColor": {
+          "displayName": "Down Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "sparklines": {
+      "displayName": "Sparklines",
+      "properties": {
+        "enabled": {
+          "displayName": "Enable",
+          "type": {
+            "bool": true
+          }
+        },
+        "showInDedicatedColumn": {
+          "displayName": "Show in Dedicated Column",
+          "type": {
+            "bool": true
+          }
+        },
+        "normalizePerRow": {
+          "displayName": "Normalize Per Row",
+          "type": {
+            "bool": true
+          }
+        },
+        "showMinMaxMarkers": {
+          "displayName": "Show Min/Max Markers",
+          "type": {
+            "bool": true
+          }
+        },
+        "lineColor": {
+          "displayName": "Line Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "markerColor": {
+          "displayName": "Marker Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "nullHandling": {
+          "displayName": "Null Handling",
+          "type": {
+            "enumeration": [
+              {
+                "value": "gap",
+                "displayName": "Gap"
+              },
+              {
+                "value": "zero",
+                "displayName": "Treat as Zero"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "subTotals": {
+      "displayName": "Subtotals",
+      "properties": {
+        "rowSubtotals": {
+          "displayName": "Row subtotals",
+          "type": {
+            "bool": true
+          }
+        },
+        "perRowLevel": {
+          "displayName": "Row subtotals per level",
+          "type": {
+            "bool": true
+          }
+        },
+        "columnSubtotals": {
+          "displayName": "Column subtotals",
+          "type": {
+            "bool": true
+          }
+        },
+        "perColumnLevel": {
+          "displayName": "Column subtotals per level",
+          "type": {
+            "bool": true
+          }
+        },
+        "levelSubtotalEnabled": {
+          "displayName": "Level subtotal enabled",
+          "type": {
+            "bool": true
+          }
+        }
+      }
+    },
+    "subtotals": {
+      "displayName": "Subtotals positioning",
+      "properties": {
+        "rowSubtotalsType": {
+          "displayName": "Row subtotals position",
+          "type": {
+            "enumeration": [
+              {
+                "value": "Bottom",
+                "displayName": "Bottom"
+              },
+              {
+                "value": "Top",
+                "displayName": "Top"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "calculations": {
+      "displayName": "Calculations",
+      "properties": {
+        "measures": {
+          "displayName": "Calculated Measures JSON",
+          "type": {
+            "text": true
+          },
+          "suppressFormatPainterCopy": true
+        },
+        "rows": {
+          "displayName": "Calculated Rows JSON",
+          "type": {
+            "text": true
+          },
+          "suppressFormatPainterCopy": true
+        }
+      }
+    },
+    "manualData": {
+      "displayName": "Manual Adjustments",
+      "properties": {
+        "notes": {
+          "displayName": "Cell Notes JSON",
+          "type": {
+            "text": true
+          }
+        },
+        "edits": {
+          "displayName": "Cell Edits JSON",
+          "type": {
+            "text": true
+          }
+        },
+        "rowOrder": {
+          "displayName": "Manual Row Order JSON",
+          "type": {
+            "text": true
+          }
+        },
+        "colOrder": {
+          "displayName": "Manual Column Order JSON",
+          "type": {
+            "text": true
+          }
+        },
+        "labelOverrides": {
+          "displayName": "Label Overrides JSON",
+          "type": {
+            "text": true
+          }
+        },
+        "locks": {
+          "displayName": "Locked Rows JSON",
+          "type": {
+            "text": true
+          }
+        }
+      }
+    }
+  },
+  "supportsHighlight": true,
+  "supportsMultiVisualSelection": true,
+  "supportsSynchronizingFilterState": true,
+  "supportsKeyboardFocus": true,
+  "supportsLandingPage": true,
+  "supportsEmptyDataView": true,
+  "tooltips": {
+    "supportedTypes": {
+      "default": true,
+      "canvas": true
+    },
+    "supportEnhancedTooltips": true,
+    "roles": [
+      "Tooltips"
+    ]
+  },
+  "subtotals": {
+    "matrix": {
+      "rowSubtotals": {
+        "propertyIdentifier": {
+          "objectName": "subTotals",
+          "propertyName": "rowSubtotals"
+        },
+        "defaultValue": true
+      },
+      "rowSubtotalsPerLevel": {
+        "propertyIdentifier": {
+          "objectName": "subTotals",
+          "propertyName": "perRowLevel"
+        },
+        "defaultValue": false
+      },
+      "columnSubtotals": {
+        "propertyIdentifier": {
+          "objectName": "subTotals",
+          "propertyName": "columnSubtotals"
+        },
+        "defaultValue": true
+      },
+      "columnSubtotalsPerLevel": {
+        "propertyIdentifier": {
+          "objectName": "subTotals",
+          "propertyName": "perColumnLevel"
+        },
+        "defaultValue": false
+      },
+      "levelSubtotalEnabled": {
+        "propertyIdentifier": {
+          "objectName": "subTotals",
+          "propertyName": "levelSubtotalEnabled"
+        },
+        "defaultValue": true
+      },
+      "rowSubtotalsType": {
+        "propertyIdentifier": {
+          "objectName": "subtotals",
+          "propertyName": "rowSubtotalsType"
+        },
+        "defaultValue": "Bottom"
+      }
+    }
+  },
+  "sorting": {
+    "default": {}
+  },
+  "privileges": [
+    {
+      "name": "ExportContent",
+      "essential": false
+    }
+  ]
+}

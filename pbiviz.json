@@ -1,0 +1,26 @@
+{
+  "visual": {
+    "name": "advancedMatrix",
+    "displayName": "Advanced Matrix",
+    "guid": "advancedMatrix1A2B3C4D5E6F",
+    "visualClassName": "Visual",
+    "version": "1.0.0.0",
+    "description": "High-performance matrix visual with virtualization, hierarchies, conditional formatting, data bars, KPI icons, sparklines, and export capabilities.",
+    "supportUrl": "https://matrixpro.local/support",
+    "gitHubUrl": ""
+  },
+  "apiVersion": "5.3.0",
+  "author": {
+    "name": "Matrix Pro Team",
+    "email": "support@matrixpro.local"
+  },
+  "assets": {
+    "icon": "assets/icon.png"
+  },
+  "style": "style/visual.less",
+  "capabilities": "capabilities.json",
+  "dependencies": null,
+  "stringResources": [
+    "stringResources/en-US/resources.resjson"
+  ]
+}
