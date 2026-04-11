@@ -319,40 +319,59 @@ export const Matrix: React.FC<MatrixProps> = ({
         currentOrder = rows.map(r => r.key);
       }
 
-      // Remove dragged row if already exists
-      currentOrder = currentOrder.filter((k: string) => k !== draggedRowKey);
+      // Identify the dragged row and all its descendants (subcategories)
+      const draggedRowObj = rows.find(r => r.key === draggedRowKey);
+      const draggedKeysToMove: string[] = [draggedRowKey];
+
+      if (draggedRowObj) {
+        const draggedLevel = draggedRowObj.level;
+        const startIdx = rows.findIndex(r => r.key === draggedRowKey);
+        if (startIdx > -1) {
+           for (let i = startIdx + 1; i < rows.length; i++) {
+             const r = rows[i];
+             if (r.level > draggedLevel) {
+                draggedKeysToMove.push(r.key);
+             } else {
+                break;
+             }
+           }
+        }
+      }
+
+      // Remove dragged row and all its descendants from current order
+      currentOrder = currentOrder.filter((k: string) => !draggedKeysToMove.includes(k));
 
       // Find target position in current order
       const targetIdx = currentOrder.indexOf(dragOverRowKey);
 
       if (targetIdx === -1) {
-        // Target not in order, append dragged row
-        currentOrder.push(draggedRowKey);
+        // Target not in order, append dragged rows
+        currentOrder.push(...draggedKeysToMove);
       } else {
         // Insert at appropriate position
         let insertIdx: number;
         if (dropPosition === "before") {
           insertIdx = targetIdx;
         } else if (dropPosition === "after") {
+          // If inserting after, we need to skip past the target's descendants
           insertIdx = targetIdx + 1;
-        } else {
-          // "child" - insert after the target and its descendants
-          insertIdx = targetIdx + 1;
-          // Find the last descendant of the target
-          const targetRow = rows.find(r => r.key === dragOverRowKey);
-          if (targetRow) {
-            const targetLevel = targetRow.level;
+          const targetRowObj = rows.find(r => r.key === dragOverRowKey);
+          if (targetRowObj) {
+            const targetLevel = targetRowObj.level;
             for (let i = targetIdx + 1; i < currentOrder.length; i++) {
-              const row = rows.find(r => r.key === currentOrder[i]);
-              if (row && row.level > targetLevel) {
+              const rObj = rows.find(r => r.key === currentOrder[i]);
+              if (rObj && rObj.level > targetLevel) {
                 insertIdx = i + 1;
               } else {
                 break;
               }
             }
           }
+        } else {
+          // "child" - insert right after the target (making it the first child)
+          insertIdx = targetIdx + 1;
         }
-        currentOrder.splice(insertIdx, 0, draggedRowKey);
+        currentOrder.splice(insertIdx, 0, ...draggedKeysToMove);
       }
 
       onPersistProperty("manualData", "rowOrder", JSON.stringify(currentOrder));
