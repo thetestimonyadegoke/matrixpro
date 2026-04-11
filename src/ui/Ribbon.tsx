@@ -646,7 +646,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
             <div className="ribbon-section" aria-label="Calculations">
               {sectionTitle("Calculations")}
-              <div className="ribbon-btn-group vertical">
+              <div className="ribbon-btn-group">
                 {toolbarBtn(
                   <IconCalculator size={16} />, 
                   "Quick Formula", 
@@ -664,7 +664,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                   !allowInteractions, 
                   "Open Formula Editor"
                 )}
-                {toolbarBtn(<IconBlend size={16} />, "Combine Measures", () => {
+                {toolbarBtn(<IconBlend size={16} />, "Combine", () => {
                   }, false, true, "Coming soon")}
               </div>
             </div>
@@ -673,14 +673,20 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
             <div className="ribbon-section" aria-label="Data Input">
               {sectionTitle("Data Input")}
-              <div className="ribbon-btn-group vertical">
-                {toolbarBtn(<IconNote size={16} />, "Edit Cell", () => {
-                  }, false, true, "Coming soon")}
-                {toolbarBtn(<IconBulkEdit size={16} />, "Bulk Input", onOpenBulkOperations, false, !allowInteractions, "Bulk Edit Operations")}
-                {toolbarBtn(<IconSimulate size={16} />, "Simulate", () => {
-                  }, false, true, "Coming soon")}
-                {toolbarBtn(<IconVariables size={16} />, "Variables", () => {
-                  }, false, true, "Coming soon")}
+              <div className="ribbon-btn-group">
+                <div className="ribbon-btn-group vertical" style={{ marginRight: 8 }}>
+                  <div className="toolbar-row">
+                    {toolbarBtn(<IconNote size={16} />, "Edit Cell", () => {
+                      }, false, true, "Coming soon")}
+                    {toolbarBtn(<IconBulkEdit size={16} />, "Bulk Input", onOpenBulkOperations, false, !allowInteractions, "Bulk Edit Operations")}
+                  </div>
+                  <div className="toolbar-row">
+                    {toolbarBtn(<IconSimulate size={16} />, "Simulate", () => {
+                      }, false, true, "Coming soon")}
+                    {toolbarBtn(<IconVariables size={16} />, "Variables", () => {
+                      }, false, true, "Coming soon")}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -688,7 +694,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
             <div className="ribbon-section" aria-label="Management">
               {sectionTitle("Management")}
-              <div className="ribbon-btn-group vertical">
+              <div className="ribbon-btn-group">
                 {toolbarBtn(<IconRows size={16} />, "Manage Rows", onOpenCalcRowPanel, false, !allowInteractions || !hasData, "Manage Rows")}
                 {toolbarBtn(<IconColumns size={16} />, "Manage Columns", () => {
                     if (onOpenManageColumnsPanel) onOpenManageColumnsPanel();

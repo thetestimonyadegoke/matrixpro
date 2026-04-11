@@ -80,7 +80,7 @@ export function buildRowTree(
 
   let selectionId: any | undefined;
   if (matrixNode.identity) {
-    selectionId = selectionIdBuilder(matrixNode.identity);
+    selectionId = selectionIdBuilder(matrixNode);
   }
 
   return {
