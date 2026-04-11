@@ -268,10 +268,11 @@ export class Visual implements IVisual {
   }
 
   // "identity" type is relaxed to any to avoid tight coupling to SDK-specific types
-  private buildSelectionId(identity: any): any | undefined {
+  private buildSelectionId(matrixNode: any): any | undefined {
+    if (!matrixNode || !matrixNode.identity) return undefined;
     try {
       return this.host.createSelectionIdBuilder()
-        .withMatrixNode(identity, [])
+        .withMatrixNode(matrixNode as powerbi.DataViewMatrixNode, [])
         .createSelectionId();
     } catch {
       return undefined;

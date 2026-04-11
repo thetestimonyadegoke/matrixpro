@@ -28,6 +28,34 @@ export function getFormattingModel(settings: VisualSettings): powerbi.visuals.Fo
                 },
               },
               {
+                uid: "totals_rowSubtotalLevels",
+                displayName: "Hidden Row Subtotal Levels (JSON)",
+                control: {
+                  type: powerbi.visuals.FormattingComponent.TextInput,
+                  properties: {
+                    descriptor: {
+                      objectName: "totals",
+                      propertyName: "rowSubtotalLevels",
+                    },
+                    value: settings.totals.rowSubtotalLevels || "[]",
+                  },
+                },
+              },
+              {
+                uid: "totals_colSubtotalLevels",
+                displayName: "Hidden Column Subtotal Levels (JSON)",
+                control: {
+                  type: powerbi.visuals.FormattingComponent.TextInput,
+                  properties: {
+                    descriptor: {
+                      objectName: "totals",
+                      propertyName: "colSubtotalLevels",
+                    },
+                    value: settings.totals.colSubtotalLevels || "[]",
+                  },
+                },
+              },
+              {
                 uid: "general_defaultColumnWidth",
                 displayName: "Default Column Width",
                 control: {

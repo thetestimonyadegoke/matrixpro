@@ -483,6 +483,18 @@
             "bool": true
           }
         },
+        "rowSubtotalLevels": {
+          "displayName": "Hidden Row Subtotal Levels",
+          "type": {
+            "text": true
+          }
+        },
+        "colSubtotalLevels": {
+          "displayName": "Hidden Column Subtotal Levels",
+          "type": {
+            "text": true
+          }
+        },
         "subtotalPosition": {
           "displayName": "Subtotal Position",
           "type": {
