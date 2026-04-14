@@ -202,7 +202,10 @@ export const matrixProStyles = `
   border-right: 1px solid var(--matrix-border-color);
   overflow: hidden;
   flex-shrink: 0;
+  position: sticky;
+  left: 0;
   z-index: var(--matrix-z-sticky);
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.04);
 }
 
 .matrix-row-headers-inner {

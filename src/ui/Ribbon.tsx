@@ -737,6 +737,38 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 {toolbarBtn(<IconKpi size={16} />, "Manage Measures", onOpenCalcMeasurePanel, false, !allowInteractions || !hasValues, "Manage Measures")}
               </div>
             </div>
+
+            {divider()}
+
+            <div className="ribbon-section" aria-label="Visualizations">
+              {sectionTitle("In-Cell Visuals")}
+              <div className="ribbon-btn-group">
+                {toolbarBtn(
+                  <IconBars size={16} />,
+                  "Data Bars",
+                  () => toggle("dataBars", "enabled", settings.dataBars.enabled),
+                  settings.dataBars.enabled,
+                  !allowInteractions || !hasValues,
+                  "Toggle in-cell data bars"
+                )}
+                {toolbarBtn(
+                  <IconKpi size={16} />,
+                  "KPI Icons",
+                  () => toggle("kpiIcons", "enabled", settings.kpiIcons.enabled),
+                  settings.kpiIcons.enabled,
+                  !allowInteractions || !hasValues,
+                  "Toggle KPI trend icons"
+                )}
+                {toolbarBtn(
+                  <IconChart size={16} />,
+                  "Sparklines",
+                  () => toggle("sparklines", "enabled", settings.sparklines.enabled),
+                  settings.sparklines.enabled,
+                  !allowInteractions || !hasValues,
+                  "Toggle per-row sparklines"
+                )}
+              </div>
+            </div>
           </>
         )}
 
