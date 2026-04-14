@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useState } from "react";
+import React, { memo, useCallback, useState, useEffect } from "react";
 import { MatrixModel } from "../model/pivot";
 import { IconColumns, IconRows, IconReset } from "./icons";
 
@@ -33,6 +33,15 @@ export const ExplorerPanel: React.FC<ExplorerPanelProps> = memo(({
   const [rowDrillLevel, setRowDrillLevel] = useState(model.rowLevelCount);
   const [colDrillLevel, setColDrillLevel] = useState(model.columnLevelCount);
 
+  // Sync drill level selectors when model level counts change (e.g. after data refresh)
+  useEffect(() => {
+    setRowDrillLevel(prev => Math.min(prev, model.rowLevelCount) || model.rowLevelCount);
+  }, [model.rowLevelCount]);
+
+  useEffect(() => {
+    setColDrillLevel(prev => Math.min(prev, model.columnLevelCount) || model.columnLevelCount);
+  }, [model.columnLevelCount]);
+
   const handleRowDrillChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     const level = parseInt(e.target.value, 10);
     setRowDrillLevel(level);
@@ -45,6 +54,9 @@ export const ExplorerPanel: React.FC<ExplorerPanelProps> = memo(({
     onDrillColumnToLevel(level);
   }, [onDrillColumnToLevel]);
 
+  // rowLevelCount and columnLevelCount reflect the number of hierarchy levels from the data.
+  // When there are no real column hierarchy levels (just the implicit/flat column), columnLevelCount
+  // is 0 — so we guard drill controls to only show when count > 1 (multi-level hierarchy).
   const rowLevelOptions = Array.from({ length: model.rowLevelCount }, (_, i) => i + 1);
   const colLevelOptions = Array.from({ length: model.columnLevelCount }, (_, i) => i + 1);
 
@@ -109,7 +121,7 @@ export const ExplorerPanel: React.FC<ExplorerPanelProps> = memo(({
             <IconRows size={16} title="Rows" />
             <span>Rows</span>
           </div>
-          <div className="mx-explorer-meta">Levels: {model.rowLevelCount}</div>
+          <div className="mx-explorer-meta">Levels: {model.rowLevelCount || "—"}</div>
           <div className="mx-explorer-meta">Visible nodes: {model.flattenedRows.length}</div>
           <div className="mx-explorer-actions">
             <button
@@ -160,8 +172,8 @@ export const ExplorerPanel: React.FC<ExplorerPanelProps> = memo(({
             <IconColumns size={16} title="Columns" />
             <span>Columns</span>
           </div>
-          <div className="mx-explorer-meta">Levels: {model.columnLevelCount}</div>
-          <div className="mx-explorer-meta">Visible nodes: {model.flattenedColumns.length}</div>
+          <div className="mx-explorer-meta">Levels: {model.columnLevelCount || "—"}</div>
+          <div className="mx-explorer-meta">Visible nodes: {model.flattenedColumns.filter(c => c.isLeaf || c.isSubtotal || c.isGrandTotal).length}</div>
           <div className="mx-explorer-actions">
             <button
               type="button"

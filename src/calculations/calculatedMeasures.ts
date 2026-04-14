@@ -4,6 +4,7 @@
  */
 
 import { CellValue, MeasureInfo } from "../model/pivot";
+import { generateCellKey } from "../model/keys";
 import { parseFormula, ASTNode, ParseError } from "./formulaParser";
 import { evaluateFormula, EvaluationContext, detectCircularReferences } from "./formulaEvaluator";
 
@@ -176,7 +177,7 @@ export function computeCalculatedMeasures(
           getMeasureValue: (name: string) => {
             const idx = measureNameToIndex.get(name.toLowerCase());
             if (idx === undefined) return null;
-            const cellKey = `${rowKey}|${colKey}|${idx}`;
+            const cellKey = generateCellKey(rowKey, colKey, idx);
             const cell = baseCellMap.get(cellKey);
             return cell?.value ?? null;
           },
@@ -195,7 +196,7 @@ export function computeCalculatedMeasures(
         calcCache.set(calc.definition.name.toLowerCase(), value);
 
         // Create cell value
-        const cellKey = `${rowKey}|${colKey}|${measureIndex}`;
+        const cellKey = generateCellKey(rowKey, colKey, measureIndex);
         calculatedCellMap.set(cellKey, {
           value,
           formattedValue: formatValue(value, calc.definition.format),

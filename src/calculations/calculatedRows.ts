@@ -6,6 +6,7 @@
 
 import { FlattenedNode } from "../model/tree";
 import { CellValue, MeasureInfo } from "../model/pivot";
+import { generateCellKey } from "../model/keys";
 
 export type RowFormulaType = "sum" | "subtract" | "custom";
 
@@ -135,7 +136,7 @@ function computeCalculatedRowValues(
       if (def.formulaType === "sum") {
         value = 0;
         for (const row of referencedRows) {
-          const cellKey = `${row.key}|${col.key}|${measure.index}`;
+          const cellKey = generateCellKey(row.key, col.key, measure.index);
           const cell = cellMap.get(cellKey);
           if (cell?.value !== null && cell?.value !== undefined) {
             value += cell.value;
@@ -143,12 +144,12 @@ function computeCalculatedRowValues(
         }
       } else if (def.formulaType === "subtract") {
         if (referencedRows.length >= 1) {
-          const firstCellKey = `${referencedRows[0].key}|${col.key}|${measure.index}`;
+          const firstCellKey = generateCellKey(referencedRows[0].key, col.key, measure.index);
           const firstCell = cellMap.get(firstCellKey);
           value = firstCell?.value ?? 0;
 
           for (let i = 1; i < referencedRows.length; i++) {
-            const cellKey = `${referencedRows[i].key}|${col.key}|${measure.index}`;
+            const cellKey = generateCellKey(referencedRows[i].key, col.key, measure.index);
             const cell = cellMap.get(cellKey);
             if (cell?.value !== null && cell?.value !== undefined) {
               value -= cell.value;
@@ -157,7 +158,7 @@ function computeCalculatedRowValues(
         }
       }
 
-      const cellKey = `${virtualRowKey}|${col.key}|${measure.index}`;
+      const cellKey = generateCellKey(virtualRowKey, col.key, measure.index);
       result.set(cellKey, {
         value,
         formattedValue: value !== null ? value.toLocaleString() : "—",

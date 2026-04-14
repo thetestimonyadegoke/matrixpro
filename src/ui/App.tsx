@@ -69,6 +69,7 @@ export const App: React.FC<AppProps> = ({
   const [toolbarMode, setToolbarMode] = useState<ToolbarMode>("full");
   const [toolbarPinned, setToolbarPinned] = useState(true);
   const [explorerOpen, setExplorerOpen] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(100); // percentage: 50–200
   const [calcMeasureWizardOpen, setCalcMeasureWizardOpen] = useState(false);
   const [calcRowWizardOpen, setCalcRowWizardOpen] = useState(false);
   const [totalsPanelOpen, setTotalsPanelOpen] = useState(false);
@@ -184,6 +185,40 @@ export const App: React.FC<AppProps> = ({
     exportToPDF(sortedRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
   }, [sortedRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
 
+  const handleZoomIn = useCallback(() => {
+    setZoomLevel(prev => Math.min(200, prev + 10));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoomLevel(prev => Math.max(50, prev - 10));
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    setZoomLevel(100);
+  }, []);
+
+  // Scale row height and column width by zoom factor
+  const zoomedSettings = useMemo(() => {
+    if (zoomLevel === 100) return settings;
+    const factor = zoomLevel / 100;
+    return {
+      ...settings,
+      general: {
+        ...settings.general,
+        rowHeight: Math.round((settings.general.rowHeight || 28) * factor),
+        defaultColumnWidth: Math.round((settings.general.defaultColumnWidth || 100) * factor),
+      },
+      values: {
+        ...settings.values,
+        fontSize: Math.max(8, Math.round((settings.values.fontSize || 12) * factor)),
+      },
+      headers: {
+        ...settings.headers,
+        fontSize: Math.max(8, Math.round((settings.headers.fontSize || 12) * factor)),
+      },
+    };
+  }, [settings, zoomLevel]);
+
   const toggleExplorer = useCallback(() => {
     setExplorerOpen((prev) => !prev);
   }, []);
@@ -219,7 +254,11 @@ export const App: React.FC<AppProps> = ({
       const currentMeasures = JSON.parse(settings.calculations.measures || "[]");
       const newMeasure = {
         id: `cm_${Date.now()}`,
-        ...measure,
+        name: measure.name,
+        description: measure.description,
+        formula: measure.formula,
+        format: measure.format,
+        aggregationMode: measure.aggregation,
         enabled: true,
         order: currentMeasures.length,
       };
@@ -315,6 +354,7 @@ export const App: React.FC<AppProps> = ({
             toolbarMode={toolbarMode}
             toolbarPinned={toolbarPinned}
             explorerOpen={explorerOpen}
+            zoomLevel={zoomLevel}
             onChangeTab={setActiveTab}
             onToolbarModeChange={setToolbarMode}
             onToolbarPinChange={setToolbarPinned}
@@ -322,6 +362,9 @@ export const App: React.FC<AppProps> = ({
             onPersistProperty={onPersistProperty}
             onExportCSV={handleExportCSV}
             onExportXLSX={handleExportXLSX}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+            onZoomReset={handleZoomReset}
           />
         )}
         <EmptyState
@@ -343,9 +386,10 @@ export const App: React.FC<AppProps> = ({
   return (
     <div
       className={`advanced-matrix-visual ${settings.general.showGridlines ? "show-gridlines" : ""} theme-${settings.theme.preset}`}
-      style={{ 
-        width, 
+      style={{
+        width,
         height,
+        position: 'relative',
         // @ts-ignore
         "--mx-font-family": settings.general.fontFamily || "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
       }}
@@ -360,6 +404,7 @@ export const App: React.FC<AppProps> = ({
           toolbarMode={toolbarMode}
           toolbarPinned={toolbarPinned}
           explorerOpen={explorerOpen}
+          zoomLevel={zoomLevel}
           onChangeTab={setActiveTab}
           onToolbarModeChange={setToolbarMode}
           onToolbarPinChange={setToolbarPinned}
@@ -373,8 +418,10 @@ export const App: React.FC<AppProps> = ({
           onOpenTotalsPanel={() => setTotalsPanelOpen(true)}
           onOpenManageColumnsPanel={() => setManageColumnsPanelOpen(true)}
           onOpenCondFormatPanel={() => setCondFormatPanelOpen(true)}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onZoomReset={handleZoomReset}
           onOpenBulkOperations={() => {
-            // Trigger the matrix to open bulk operations via global
             (window as any).__openBulkOperations?.();
           }}
         />
@@ -402,7 +449,7 @@ export const App: React.FC<AppProps> = ({
             columns={model.flattenedColumns}
             cellMap={quickCalcView.cellMap}
             measures={quickCalcView.measures}
-            settings={settings}
+            settings={zoomedSettings}
             tooltipService={tooltipService}
             allowInteractions={allowInteractions}
             width={matrixWidth}

@@ -466,6 +466,8 @@ export function applyManualOverrides(
     const editStr = String(rawValue);
     const [rowKey, colKey, mIdxStr] = key.split("|");
     const measureIndex = parseInt(mIdxStr, 10);
+    // The edit key uses "|" separator but cellMap uses generateCellKey format ("::" with "m" prefix)
+    const cellMapKey = generateCellKey(rowKey, colKey, isNaN(measureIndex) ? 0 : measureIndex);
 
     if (editStr.startsWith("=")) {
       const formula = editStr.slice(1);
@@ -478,12 +480,12 @@ export function applyManualOverrides(
 
       const result = engine.evaluate(formula);
       if (result.value !== null) {
-        const existing = cellMap.get(key);
+        const existing = cellMap.get(cellMapKey);
         if (existing) {
-          cellMap.set(key, {
+          cellMap.set(cellMapKey, {
             ...existing,
             value: result.value,
-            formattedValue: formatValue(result.value, existing.measureIndex !== undefined ? allMeasures[existing.measureIndex].format : ""),
+            formattedValue: formatValue(result.value, existing.measureIndex !== undefined ? allMeasures[existing.measureIndex]?.format ?? "" : ""),
             isCalculated: true,
           });
         }
@@ -492,12 +494,12 @@ export function applyManualOverrides(
       // Direct value
       const value = parseFloat(editStr);
       if (!isNaN(value)) {
-        const existing = cellMap.get(key);
+        const existing = cellMap.get(cellMapKey);
         if (existing) {
-          cellMap.set(key, {
+          cellMap.set(cellMapKey, {
             ...existing,
             value,
-            formattedValue: formatValue(value, existing.measureIndex !== undefined ? allMeasures[existing.measureIndex].format : ""),
+            formattedValue: formatValue(value, existing.measureIndex !== undefined ? allMeasures[existing.measureIndex]?.format ?? "" : ""),
           });
         }
       }

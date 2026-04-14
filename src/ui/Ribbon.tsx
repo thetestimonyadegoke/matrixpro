@@ -92,6 +92,7 @@ export interface RibbonProps {
   explorerOpen: boolean;
   toolbarMode: ToolbarMode;
   toolbarPinned: boolean;
+  zoomLevel?: number;
   onChangeTab: (tab: RibbonTab) => void;
   onToggleExplorer: () => void;
   onPersistProperty: (objectName: string, propertyName: string, value: any) => void;
@@ -106,6 +107,9 @@ export interface RibbonProps {
   onOpenBulkOperations?: () => void;
   onToolbarModeChange?: (mode: ToolbarMode) => void;
   onToolbarPinChange?: (pinned: boolean) => void;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onZoomReset?: () => void;
 }
 
 interface DropdownItem {
@@ -126,6 +130,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   explorerOpen,
   toolbarMode,
   toolbarPinned,
+  zoomLevel = 100,
   onChangeTab,
   onToggleExplorer,
   onPersistProperty,
@@ -140,6 +145,9 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   onOpenBulkOperations,
   onToolbarModeChange,
   onToolbarPinChange,
+  onZoomIn,
+  onZoomOut,
+  onZoomReset,
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -332,6 +340,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 disabled={!allowInteractions}
                 type="button"
                 title="Manage Columns"
+                onClick={onOpenManageColumnsPanel}
               >
                 <IconManageColumns size={16} />
                 <span className="ribbon-btn-label">Manage Columns</span>
@@ -603,16 +612,42 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                   }, false, true, "Coming soon")}
                 <div className="ribbon-btn-group vertical">
                   <div className="toolbar-row">
-                    {toolbarBtn(<IconUndo size={16} />, "", () => {
-                  }, false, true, "Coming soon")}
-                    {toolbarBtn(<IconRedo size={16} />, "", () => {
-                  }, false, true, "Coming soon")}
-                  </div>
-                  <div className="toolbar-row">
                     {toolbarBtn(<IconGrid size={16} />, "", () => toggle("general", "showGridlines", settings.general.showGridlines), settings.general.showGridlines, !allowInteractions, "Toggle gridlines")}
                     {toolbarBtn(<IconRows size={16} />, "", () => toggle("general", "rowBanding", settings.general.rowBanding), settings.general.rowBanding, !allowInteractions, "Toggle row banding")}
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {divider()}
+
+            <div className="ribbon-section" aria-label="Zoom">
+              {sectionTitle("Zoom")}
+              <div className="ribbon-btn-group" style={{ alignItems: 'center' }}>
+                <button
+                  className="ribbon-btn"
+                  onClick={onZoomOut}
+                  disabled={!allowInteractions || zoomLevel <= 50}
+                  type="button"
+                  title="Zoom Out"
+                  style={{ minWidth: 28, fontWeight: 'bold', fontSize: 16 }}
+                >−</button>
+                <button
+                  className="ribbon-btn"
+                  onClick={onZoomReset}
+                  disabled={!allowInteractions}
+                  type="button"
+                  title="Reset Zoom"
+                  style={{ minWidth: 44, fontSize: 11, fontWeight: 600 }}
+                >{zoomLevel}%</button>
+                <button
+                  className="ribbon-btn"
+                  onClick={onZoomIn}
+                  disabled={!allowInteractions || zoomLevel >= 200}
+                  type="button"
+                  title="Zoom In"
+                  style={{ minWidth: 28, fontWeight: 'bold', fontSize: 16 }}
+                >+</button>
               </div>
             </div>
           </>
