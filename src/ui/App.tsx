@@ -197,27 +197,9 @@ export const App: React.FC<AppProps> = ({
     setZoomLevel(100);
   }, []);
 
-  // Scale row height and column width by zoom factor
-  const zoomedSettings = useMemo(() => {
-    if (zoomLevel === 100) return settings;
-    const factor = zoomLevel / 100;
-    return {
-      ...settings,
-      general: {
-        ...settings.general,
-        rowHeight: Math.round((settings.general.rowHeight || 28) * factor),
-        defaultColumnWidth: Math.round((settings.general.defaultColumnWidth || 100) * factor),
-      },
-      values: {
-        ...settings.values,
-        fontSize: Math.max(8, Math.round((settings.values.fontSize || 12) * factor)),
-      },
-      headers: {
-        ...settings.headers,
-        fontSize: Math.max(8, Math.round((settings.headers.fontSize || 12) * factor)),
-      },
-    };
-  }, [settings, zoomLevel]);
+  // Zoom is applied as a CSS transform on the matrix container (safer than
+  // scaling settings, which would invalidate virtualization math and caches).
+  const zoomFactor = zoomLevel / 100;
 
   const toggleExplorer = useCallback(() => {
     setExplorerOpen((prev) => !prev);
@@ -443,17 +425,25 @@ export const App: React.FC<AppProps> = ({
           />
         )}
 
-        <div className="mx-main" style={{ width: matrixWidth }}>
+        <div
+          className="mx-main"
+          style={{
+            width: matrixWidth / zoomFactor,
+            height: workspaceHeight / zoomFactor,
+            transform: zoomFactor === 1 ? undefined : `scale(${zoomFactor})`,
+            transformOrigin: 'top left',
+          }}
+        >
           <Matrix
             rows={sortedRows}
             columns={model.flattenedColumns}
             cellMap={quickCalcView.cellMap}
             measures={quickCalcView.measures}
-            settings={zoomedSettings}
+            settings={settings}
             tooltipService={tooltipService}
             allowInteractions={allowInteractions}
-            width={matrixWidth}
-            height={workspaceHeight}
+            width={matrixWidth / zoomFactor}
+            height={workspaceHeight / zoomFactor}
             sortConfig={sortConfig}
             selectionState={selectionState}
             sparklineMeasureIndex={model.sparklineMeasureIndex}

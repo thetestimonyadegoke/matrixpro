@@ -152,9 +152,9 @@ export interface ManualDataSettings {
 
 export const defaultSettings: VisualSettings = {
   general: {
-    rowHeight: 28,
-    defaultColumnWidth: 100,
-    rowHeaderWidth: 260,
+    rowHeight: 22,
+    defaultColumnWidth: 90,
+    rowHeaderWidth: 200,
     freezeFirstColumn: false,
     showGridlines: true,
     rowBanding: true,
@@ -171,13 +171,13 @@ export const defaultSettings: VisualSettings = {
     customAccentColor: "#2563eb",
   },
   headers: {
-    fontSize: 12,
+    fontSize: 11,
     bold: true,
     backgroundColor: "#f5f5f5",
     textColor: "#333333",
   },
   values: {
-    fontSize: 12,
+    fontSize: 11,
     alignment: "right",
     numberFormat: "",
     textColor: "#1a1a1a",
