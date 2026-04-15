@@ -154,6 +154,10 @@ export interface ManualDataSettings {
   colOrder: string;
   labelOverrides: string;
   locks: string;
+  /** JSON string[] of hidden column/measure keys */
+  hiddenCols: string;
+  /** JSON Record<key,number> of per-column custom widths */
+  colWidths: string;
 }
 
 export const defaultSettings: VisualSettings = {
@@ -264,6 +268,8 @@ export const defaultSettings: VisualSettings = {
     colOrder: "[]",
     labelOverrides: "{}",
     locks: "[]",
+    hiddenCols: "[]",
+    colWidths: "{}",
   },
 };
 
@@ -422,6 +428,8 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       colOrder: getValue(objects, "manualData", "colOrder", defaultSettings.manualData.colOrder),
       labelOverrides: getValue(objects, "manualData", "labelOverrides", defaultSettings.manualData.labelOverrides),
       locks: getValue(objects, "manualData", "locks", defaultSettings.manualData.locks),
+      hiddenCols: getValue(objects, "manualData", "hiddenCols", defaultSettings.manualData.hiddenCols),
+      colWidths: getValue(objects, "manualData", "colWidths", defaultSettings.manualData.colWidths),
     },
   };
 }

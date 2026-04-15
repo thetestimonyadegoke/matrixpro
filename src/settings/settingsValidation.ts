@@ -494,6 +494,18 @@ export const settingsMetadata: SettingsMetadata = {
       defaultValue: "[]",
       category: "Data",
     },
+    hiddenCols: {
+      description: "JSON string array of hidden column/measure keys",
+      type: "json",
+      defaultValue: "[]",
+      category: "Data",
+    },
+    colWidths: {
+      description: "JSON record of per-column custom widths",
+      type: "json",
+      defaultValue: "{}",
+      category: "Data",
+    },
   },
 };
 

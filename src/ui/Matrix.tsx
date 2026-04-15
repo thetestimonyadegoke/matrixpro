@@ -518,8 +518,23 @@ export const Matrix: React.FC<MatrixProps> = ({
       return sorted;
     }
 
-    return baseResult;
-  }, [columns, measures, settings.manualData.colOrder]);
+    // Apply hidden columns filter
+    let finalResult = baseResult;
+    const hiddenSet = new Set(
+      (() => { try { return JSON.parse(settings.manualData.hiddenCols || "[]") as string[]; } catch { return []; } })()
+    );
+    if (hiddenSet.size > 0) {
+      finalResult = finalResult.filter(gc => {
+        // hide by measure key ("m_N")
+        if (hiddenSet.has(`m_${gc.measureIndex}`)) return false;
+        // hide by column key
+        if (hiddenSet.has(gc.col.key)) return false;
+        return true;
+      });
+    }
+
+    return finalResult;
+  }, [columns, measures, settings.manualData.colOrder, settings.manualData.hiddenCols]);
 
   const viewportConfig: ViewportConfig = useMemo(() => ({
     rowHeight: safeRowHeightPx,
