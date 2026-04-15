@@ -28,7 +28,7 @@ export interface ConditionalFormattingPanelProps {
 
 type View = "list" | "edit";
 
-// ---------- Small styled primitives (kept local so we don't pull in a design system) ----
+// ---------- Style primitives --------------------------------------------------
 
 const overlayStyle: React.CSSProperties = {
   position: "absolute",
@@ -41,89 +41,100 @@ const overlayStyle: React.CSSProperties = {
 };
 
 const modalStyle: React.CSSProperties = {
-  width: 560,
-  maxHeight: "92%",
+  width: 480,
+  maxWidth: 480,
+  maxHeight: "90vh",
   background: "#ffffff",
   borderRadius: 8,
   boxShadow: "0 20px 50px rgba(15, 23, 42, 0.25)",
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
+  overflowX: "hidden",
   fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
-  fontSize: 13,
+  fontSize: 12,
   color: "#1f2937",
+  boxSizing: "border-box",
 };
 
 const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  padding: "14px 18px",
+  padding: "10px 16px",
   borderBottom: "1px solid #e5e7eb",
+  flexShrink: 0,
 };
 
 const bodyStyle: React.CSSProperties = {
-  padding: "16px 18px",
+  padding: "12px 16px",
   overflowY: "auto",
+  overflowX: "hidden",
   flex: 1,
-  background: "#f8fafc",
+  background: "#ffffff",
+  boxSizing: "border-box",
 };
 
 const footerStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "flex-end",
-  gap: 10,
-  padding: "12px 18px",
+  gap: 8,
+  padding: "8px 16px",
   borderTop: "1px solid #e5e7eb",
   background: "#ffffff",
-};
-
-const fieldRowStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "130px 1fr",
-  alignItems: "center",
-  columnGap: 16,
-  rowGap: 10,
-  marginBottom: 10,
-};
-
-const labelStyle: React.CSSProperties = {
-  color: "#374151",
-  fontWeight: 500,
+  flexShrink: 0,
 };
 
 const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "6px 10px",
+  padding: "4px 8px",
+  fontSize: 12,
   border: "1px solid #d1d5db",
-  borderRadius: 6,
+  borderRadius: 5,
+  width: "100%",
+  boxSizing: "border-box" as const,
   background: "#ffffff",
-  fontSize: 13,
   color: "#111827",
-  boxSizing: "border-box",
 };
 
 const primaryBtn: React.CSSProperties = {
-  padding: "8px 18px",
+  padding: "6px 14px",
   background: "#2563eb",
   color: "#ffffff",
   border: "none",
   borderRadius: 6,
   cursor: "pointer",
   fontWeight: 600,
-  fontSize: 13,
+  fontSize: 12,
 };
 
 const secondaryBtn: React.CSSProperties = {
-  padding: "8px 18px",
+  padding: "6px 14px",
   background: "#ffffff",
   color: "#374151",
   border: "1px solid #d1d5db",
   borderRadius: 6,
   cursor: "pointer",
   fontWeight: 500,
-  fontSize: 13,
+  fontSize: 12,
 };
+
+// ---------- SectionTitle component -------------------------------------------
+
+const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div
+    style={{
+      fontSize: 10,
+      fontWeight: 600,
+      textTransform: "uppercase",
+      letterSpacing: "0.8px",
+      color: "#9ca3af",
+      marginBottom: 8,
+      marginTop: 12,
+    }}
+  >
+    {children}
+  </div>
+);
 
 // =============================================================================
 // Top-level component
@@ -156,8 +167,6 @@ export const ConditionalFormattingPanel: React.FC<ConditionalFormattingPanelProp
   const persistRules = useCallback((next: ConditionalRule[]) => {
     setRules(next);
     onPersistProperty("conditionalFormatting", "rules", stringifyRules(next));
-    // Also flip the master enabled flag on when the user creates their first rule,
-    // so rules actually show up in the grid without a second manual step.
     if (next.length > 0 && !settings.conditionalFormatting.enabled) {
       onPersistProperty("conditionalFormatting", "enabled", true);
     }
@@ -199,35 +208,51 @@ export const ConditionalFormattingPanel: React.FC<ConditionalFormattingPanelProp
     setEditingId(null);
   };
 
+  const goBack = () => { setView("list"); setDraft(null); setEditingId(null); };
+
   return (
     <div style={overlayStyle} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={modalStyle} onMouseDown={e => e.stopPropagation()}>
+        {/* Header */}
         <div style={headerStyle}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {view === "edit" && (
               <button
                 type="button"
-                onClick={() => { setView("list"); setDraft(null); setEditingId(null); }}
-                style={{ ...secondaryBtn, padding: "4px 8px" }}
+                onClick={goBack}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: 16,
+                  color: "#6b7280",
+                  lineHeight: 1,
+                  padding: "2px 4px",
+                  display: "flex",
+                  alignItems: "center",
+                }}
                 title="Back to rules"
               >
                 ←
               </button>
             )}
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>
-              Conditional Formatting
-            </h2>
+            <span style={{ fontWeight: 600, fontSize: 13, color: "#111827" }}>
+              {view === "edit"
+                ? (editingId ? "Edit Formatting Rule" : "Create Formatting Rule")
+                : "Conditional Formatting"}
+            </span>
           </div>
           <button
             type="button"
             onClick={onClose}
-            style={{ background: "transparent", border: "none", fontSize: 22, color: "#6b7280", cursor: "pointer", lineHeight: 1 }}
+            style={{ background: "transparent", border: "none", fontSize: 18, color: "#6b7280", cursor: "pointer", lineHeight: 1, padding: "2px 4px" }}
             aria-label="Close"
           >
             ×
           </button>
         </div>
 
+        {/* Body */}
         {view === "list" ? (
           <RuleListView
             rules={rules}
@@ -246,6 +271,7 @@ export const ConditionalFormattingPanel: React.FC<ConditionalFormattingPanelProp
           )
         )}
 
+        {/* Footer */}
         <div style={footerStyle}>
           {view === "list" ? (
             <>
@@ -254,16 +280,8 @@ export const ConditionalFormattingPanel: React.FC<ConditionalFormattingPanelProp
             </>
           ) : (
             <>
-              <button
-                type="button"
-                style={secondaryBtn}
-                onClick={() => { setView("list"); setDraft(null); setEditingId(null); }}
-              >
-                Back
-              </button>
-              <button type="button" style={primaryBtn} onClick={applyDraft}>
-                Apply
-              </button>
+              <button type="button" style={secondaryBtn} onClick={goBack}>Back</button>
+              <button type="button" style={primaryBtn} onClick={applyDraft}>Apply</button>
             </>
           )}
         </div>
@@ -285,11 +303,11 @@ const RuleListView: React.FC<{
 }> = ({ rules, onCreate, onEdit, onDelete, onToggle }) => {
   if (rules.length === 0) {
     return (
-      <div style={{ ...bodyStyle, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 40 }}>
-        <div style={{ fontSize: 48, marginBottom: 12 }}>🎨</div>
-        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>No rules yet</div>
-        <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 20 }}>
-          Create your first rule to highlight cells based on value conditions,<br />
+      <div style={{ ...bodyStyle, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 32 }}>
+        <div style={{ fontSize: 36, marginBottom: 10 }}>🎨</div>
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#111827" }}>No rules yet</div>
+        <div style={{ color: "#6b7280", fontSize: 12, marginBottom: 16, lineHeight: 1.5 }}>
+          Create your first rule to highlight cells based on value conditions,
           apply a color scale, or classify data into icon bands.
         </div>
         <button type="button" style={primaryBtn} onClick={onCreate}>+ Create Rule</button>
@@ -299,15 +317,15 @@ const RuleListView: React.FC<{
 
   return (
     <div style={bodyStyle}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {rules.map(rule => (
           <div
             key={rule.id}
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 12,
-              padding: "10px 14px",
+              gap: 8,
+              padding: "8px 10px",
               background: "#ffffff",
               border: "1px solid #e5e7eb",
               borderRadius: 6,
@@ -318,23 +336,24 @@ const RuleListView: React.FC<{
               checked={rule.enabled}
               onChange={() => onToggle(rule.id)}
               title="Enable / disable rule"
+              style={{ flexShrink: 0 }}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 13, color: "#111827" }}>{rule.title}</div>
-              <div style={{ fontSize: 11, color: "#6b7280" }}>
+              <div style={{ fontWeight: 600, fontSize: 12, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rule.title}</div>
+              <div style={{ fontSize: 10, color: "#6b7280", marginTop: 1 }}>
                 {formatByLabel(rule.formatBy)} · {scopeLabel(rule.scope.rowHierarchyLevels)}
               </div>
             </div>
             <button
               type="button"
-              style={{ ...secondaryBtn, padding: "4px 10px" }}
+              style={{ ...secondaryBtn, padding: "3px 8px", fontSize: 11, flexShrink: 0 }}
               onClick={() => onEdit(rule)}
             >
               Edit
             </button>
             <button
               type="button"
-              style={{ ...secondaryBtn, padding: "4px 10px", color: "#b91c1c", borderColor: "#fecaca" }}
+              style={{ ...secondaryBtn, padding: "3px 8px", fontSize: 11, color: "#b91c1c", borderColor: "#fecaca", flexShrink: 0 }}
               onClick={() => onDelete(rule.id)}
             >
               Delete
@@ -348,7 +367,7 @@ const RuleListView: React.FC<{
 
 function formatByLabel(f: FormatBy): string {
   switch (f) {
-    case "rules": return "Rules (if-conditions)";
+    case "rules": return "Rules";
     case "colorScale": return "Color scale";
     case "classification": return "Classification";
   }
@@ -375,105 +394,138 @@ const RuleEditor: React.FC<{
   const updateScope = (patch: Partial<ConditionalRule["scope"]>) =>
     setDraft({ ...draft, scope: { ...draft.scope, ...patch } });
 
+  const switchFormatBy = (formatBy: FormatBy) => {
+    const next: ConditionalRule = { ...draft, formatBy };
+    if (formatBy === "rules" && !next.rulesConfig) {
+      next.rulesConfig = {
+        impactOn: ["label"],
+        conditions: [{ basedOnMeasure: -1, op: "greaterThan", value: 0 }],
+        style: { color: "#15803d", fontWeight: "600" },
+      };
+    }
+    if (formatBy === "colorScale" && !next.colorScaleConfig) {
+      next.colorScaleConfig = {
+        basedOnMeasure: -1,
+        applyTo: "background",
+        heatMapType: "columnWise",
+        scaleType: "sequential",
+        colorScheme: COLOR_SCHEME_PRESETS[0].colors,
+        reverse: false,
+        numberOfBands: 5,
+        hideValue: false,
+        autoFontColor: true,
+        includeNull: false,
+      };
+    }
+    if (formatBy === "classification" && !next.classificationConfig) {
+      next.classificationConfig = {
+        impactOn: ["label"],
+        basedOnMeasure: -1,
+        displayIcons: true,
+        applyToCharts: true,
+        showAsNewColumn: false,
+        iconPosition: "leftOfData",
+        rangeMode: "percentage",
+        ranges: [
+          { from: -Infinity, to: -10, iconKind: "cross", color: "#dc2626" },
+          { from: -10, to: 10, iconKind: "warn", color: "#eab308" },
+          { from: 10, to: Infinity, iconKind: "check", color: "#16a34a" },
+        ],
+      };
+    }
+    setDraft(next);
+  };
+
+  const formatByOptions: { value: FormatBy; label: string }[] = [
+    { value: "rules", label: "Rules" },
+    { value: "colorScale", label: "Color Scale" },
+    { value: "classification", label: "Classification" },
+  ];
+
   return (
     <div style={bodyStyle}>
-      <div style={fieldRowStyle}>
-        <label style={labelStyle}>Title</label>
-        <input
-          style={inputStyle}
-          value={draft.title}
-          onChange={e => update({ title: e.target.value })}
-        />
-
-        <label style={labelStyle}>Apply to</label>
-        <select
-          style={inputStyle}
-          value={draft.scope.targetMeasure}
-          onChange={e => updateScope({ targetMeasure: Number(e.target.value) })}
-        >
-          <option value={-1}>All measures</option>
-          {measures.map(m => (
-            <option key={m.index} value={m.index}>{m.name}</option>
-          ))}
-        </select>
-
-        <label style={labelStyle}>Row hierarchy levels</label>
-        <select
-          style={inputStyle}
-          value={draft.scope.rowHierarchyLevels}
-          onChange={e => updateScope({ rowHierarchyLevels: e.target.value as any })}
-        >
-          <option value="valuesOnly">Values only</option>
-          <option value="totalsOnly">Totals only</option>
-          <option value="valuesAndTotals">Values and totals</option>
-        </select>
-
-        <label style={labelStyle}>Exclude</label>
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      {/* Scope card */}
+      <div style={{ background: "#f3f4f6", borderRadius: 8, padding: "10px 12px", marginBottom: 12, boxSizing: "border-box" }}>
+        <SectionTitle>Apply to scope</SectionTitle>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          {/* Target Field */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 4, color: "#374151" }}>Target Field</div>
+            <select
+              style={inputStyle}
+              value={draft.scope.targetMeasure}
+              onChange={e => updateScope({ targetMeasure: Number(e.target.value) })}
+            >
+              <option value={-1}>All Measures</option>
+              {measures.map(m => (
+                <option key={m.index} value={m.index}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+          {/* Hierarchy Control */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 4, color: "#374151" }}>Hierarchy Control</div>
+            <select
+              style={inputStyle}
+              value={draft.scope.rowHierarchyLevels}
+              onChange={e => updateScope({ rowHierarchyLevels: e.target.value as any })}
+            >
+              <option value="valuesOnly">Values Only</option>
+              <option value="totalsOnly">Totals Only</option>
+              <option value="valuesAndTotals">Values and Totals</option>
+            </select>
+          </div>
+        </div>
+        {/* Exclude checkbox */}
+        <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 12, color: "#374151", cursor: "pointer" }}>
           <input
             type="checkbox"
             checked={draft.scope.excludeColumnGrandTotal}
             onChange={e => updateScope({ excludeColumnGrandTotal: e.target.checked })}
           />
-          Column grand total
+          <span>Exclude Column Grand Totals</span>
         </label>
-
-        <label style={labelStyle}>Format by</label>
-        <select
-          style={inputStyle}
-          value={draft.formatBy}
-          onChange={e => {
-            const formatBy = e.target.value as FormatBy;
-            const next: ConditionalRule = { ...draft, formatBy };
-            // Ensure the corresponding config exists so downstream inputs render.
-            if (formatBy === "rules" && !next.rulesConfig) {
-              next.rulesConfig = {
-                impactOn: ["label"],
-                conditions: [{ basedOnMeasure: -1, op: "greaterThan", value: 0 }],
-                style: { color: "#15803d", fontWeight: "600" },
-              };
-            }
-            if (formatBy === "colorScale" && !next.colorScaleConfig) {
-              next.colorScaleConfig = {
-                basedOnMeasure: -1,
-                applyTo: "background",
-                heatMapType: "columnWise",
-                scaleType: "sequential",
-                colorScheme: COLOR_SCHEME_PRESETS[0].colors,
-                reverse: false,
-                numberOfBands: 5,
-                hideValue: false,
-                autoFontColor: true,
-                includeNull: false,
-              };
-            }
-            if (formatBy === "classification" && !next.classificationConfig) {
-              next.classificationConfig = {
-                impactOn: ["label"],
-                basedOnMeasure: -1,
-                displayIcons: true,
-                applyToCharts: true,
-                showAsNewColumn: false,
-                iconPosition: "leftOfData",
-                rangeMode: "percentage",
-                ranges: [
-                  { from: -Infinity, to: -10, iconKind: "cross", color: "#dc2626" },
-                  { from: -10, to: 10, iconKind: "warn", color: "#eab308" },
-                  { from: 10, to: Infinity, iconKind: "check", color: "#16a34a" },
-                ],
-              };
-            }
-            setDraft(next);
-          }}
-        >
-          <option value="rules">Rules (If Conditions)</option>
-          <option value="colorScale">Color Scale</option>
-          <option value="classification">Classification</option>
-        </select>
       </div>
 
-      <div style={{ height: 1, background: "#e5e7eb", margin: "14px 0" }} />
+      {/* Format configuration section */}
+      <SectionTitle>Format configuration</SectionTitle>
 
+      {/* Pill buttons for format type */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        {formatByOptions.map(opt => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => switchFormatBy(opt.value)}
+            style={{
+              flex: 1,
+              padding: "6px 0",
+              fontSize: 12,
+              fontWeight: 500,
+              border: draft.formatBy === opt.value ? "none" : "1px solid #d1d5db",
+              borderRadius: 6,
+              cursor: "pointer",
+              background: draft.formatBy === opt.value ? "#111827" : "#ffffff",
+              color: draft.formatBy === opt.value ? "#ffffff" : "#374151",
+            }}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Name field */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 12, color: "#6b7280", minWidth: 36, flexShrink: 0 }}>Name</span>
+        <input
+          style={{ ...inputStyle, flex: 1 }}
+          value={draft.title}
+          onChange={e => update({ title: e.target.value })}
+          placeholder="Rule name"
+        />
+      </div>
+
+      {/* Sub-editor */}
       {draft.formatBy === "rules" && draft.rulesConfig && (
         <RulesConfigEditor
           cfg={draft.rulesConfig}
@@ -514,15 +566,15 @@ const RulesConfigEditor: React.FC<{
       <SectionTitle>Impact on</SectionTitle>
       <ChipToggle
         options={[
-          { value: "label", label: "label" },
-          { value: "chart", label: "chart" },
+          { value: "label", label: "Label" },
+          { value: "chart", label: "Chart" },
         ]}
         selected={cfg.impactOn}
         onChange={v => onChange({ ...cfg, impactOn: v as any })}
       />
 
       <SectionTitle>Style</SectionTitle>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 10 }}>
         <StyleToggleButton
           label="B"
           active={cfg.style.fontWeight === "600" || cfg.style.fontWeight === "700"}
@@ -534,22 +586,22 @@ const RulesConfigEditor: React.FC<{
           active={cfg.style.fontStyle === "italic"}
           onClick={() => setStyle({ fontStyle: cfg.style.fontStyle === "italic" ? undefined : "italic" })}
         />
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <span style={{ fontSize: 11, color: "#6b7280" }}>Text</span>
           <input
             type="color"
             value={cfg.style.color || "#111827"}
             onChange={e => setStyle({ color: e.target.value })}
-            style={{ width: 28, height: 28, border: "1px solid #d1d5db", borderRadius: 4, padding: 0, background: "none", cursor: "pointer" }}
+            style={{ width: 24, height: 24, border: "1px solid #d1d5db", borderRadius: 4, padding: 0, background: "none", cursor: "pointer" }}
           />
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <span style={{ fontSize: 11, color: "#6b7280" }}>Fill</span>
           <input
             type="color"
             value={cfg.style.backgroundColor || "#ffffff"}
             onChange={e => setStyle({ backgroundColor: e.target.value })}
-            style={{ width: 28, height: 28, border: "1px solid #d1d5db", borderRadius: 4, padding: 0, background: "none", cursor: "pointer" }}
+            style={{ width: 24, height: 24, border: "1px solid #d1d5db", borderRadius: 4, padding: 0, background: "none", cursor: "pointer" }}
           />
         </div>
       </div>
@@ -560,13 +612,13 @@ const RulesConfigEditor: React.FC<{
           key={i}
           style={{
             display: "grid",
-            gridTemplateColumns: "40px 1fr 1fr 1fr auto",
-            gap: 8,
+            gridTemplateColumns: "36px 1fr 130px 80px 28px",
+            gap: 4,
             alignItems: "center",
-            marginBottom: 8,
+            marginBottom: 6,
           }}
         >
-          <span style={{ fontSize: 12, color: "#6b7280", fontStyle: "italic" }}>
+          <span style={{ fontSize: 11, color: "#6b7280", fontStyle: "italic", textAlign: "right", paddingRight: 2 }}>
             {i === 0 ? "If" : "And"}
           </span>
           <select
@@ -592,12 +644,12 @@ const RulesConfigEditor: React.FC<{
               setConditions(next);
             }}
           >
-            <option value="greaterThan">Greater than</option>
-            <option value="greaterThanOrEqual">Greater or equal</option>
-            <option value="lessThan">Less than</option>
-            <option value="lessThanOrEqual">Less or equal</option>
-            <option value="equals">Equals</option>
-            <option value="notEquals">Not equals</option>
+            <option value="greaterThan">&gt;</option>
+            <option value="greaterThanOrEqual">&gt;=</option>
+            <option value="lessThan">&lt;</option>
+            <option value="lessThanOrEqual">&lt;=</option>
+            <option value="equals">=</option>
+            <option value="notEquals">!=</option>
             <option value="between">Between</option>
           </select>
           <input
@@ -613,10 +665,10 @@ const RulesConfigEditor: React.FC<{
           <button
             type="button"
             onClick={() => setConditions(cfg.conditions.filter((_, idx) => idx !== i))}
-            style={{ background: "transparent", border: "none", color: "#b91c1c", cursor: "pointer", fontSize: 16 }}
+            style={{ background: "transparent", border: "none", color: "#b91c1c", cursor: "pointer", fontSize: 14, padding: 0, lineHeight: 1 }}
             title="Remove condition"
           >
-            🗑
+            ×
           </button>
         </div>
       ))}
@@ -629,7 +681,7 @@ const RulesConfigEditor: React.FC<{
             { basedOnMeasure: -1, op: "greaterThan", value: 0 },
           ])
         }
-        style={{ background: "transparent", border: "none", color: "#2563eb", cursor: "pointer", fontSize: 13, padding: "4px 0" }}
+        style={{ background: "transparent", border: "none", color: "#2563eb", cursor: "pointer", fontSize: 12, padding: "4px 0" }}
       >
         + Add Condition
       </button>
@@ -646,55 +698,65 @@ const ColorScaleEditor: React.FC<{
 }> = ({ cfg, onChange, measures }) => {
   return (
     <>
-      <div style={fieldRowStyle}>
-        <label style={labelStyle}>Based on</label>
-        <select
-          style={inputStyle}
-          value={cfg.basedOnMeasure}
-          onChange={e => onChange({ ...cfg, basedOnMeasure: Number(e.target.value) })}
-        >
-          <option value={-1}>Self</option>
-          {measures.map(m => (
-            <option key={m.index} value={m.index}>{m.name}</option>
-          ))}
-        </select>
+      {/* Two-column grid: Based on + Color scale for */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 4, color: "#374151" }}>Based on</div>
+          <select
+            style={inputStyle}
+            value={cfg.basedOnMeasure}
+            onChange={e => onChange({ ...cfg, basedOnMeasure: Number(e.target.value) })}
+          >
+            <option value={-1}>Self</option>
+            {measures.map(m => (
+              <option key={m.index} value={m.index}>{m.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 4, color: "#374151" }}>Color scale for</div>
+          <select
+            style={inputStyle}
+            value={cfg.applyTo}
+            onChange={e => onChange({ ...cfg, applyTo: e.target.value as any })}
+          >
+            <option value="background">Background</option>
+            <option value="foreground">Foreground</option>
+            <option value="both">Both</option>
+            <option value="dataBar">Data bar</option>
+          </select>
+        </div>
+      </div>
 
-        <label style={labelStyle}>Color scale for</label>
-        <select
-          style={inputStyle}
-          value={cfg.applyTo}
-          onChange={e => onChange({ ...cfg, applyTo: e.target.value as any })}
-        >
-          <option value="background">Background</option>
-          <option value="foreground">Foreground</option>
-          <option value="both">Both</option>
-          <option value="dataBar">Data bar</option>
-        </select>
-
-        <label style={labelStyle}>Heat map type</label>
-        <select
-          style={inputStyle}
-          value={cfg.heatMapType}
-          onChange={e => onChange({ ...cfg, heatMapType: e.target.value as any })}
-        >
-          <option value="columnWise">Column wise</option>
-          <option value="rowWise">Row wise</option>
-          <option value="tableWise">Table wise</option>
-        </select>
-
-        <label style={labelStyle}>Color scale type</label>
-        <select
-          style={inputStyle}
-          value={cfg.scaleType}
-          onChange={e => onChange({ ...cfg, scaleType: e.target.value as any })}
-        >
-          <option value="sequential">Sequential</option>
-          <option value="diverging">Diverging</option>
-        </select>
+      {/* Two-column grid: Heat map type + Color scale type */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 4, color: "#374151" }}>Heat map type</div>
+          <select
+            style={inputStyle}
+            value={cfg.heatMapType}
+            onChange={e => onChange({ ...cfg, heatMapType: e.target.value as any })}
+          >
+            <option value="columnWise">Column wise</option>
+            <option value="rowWise">Row wise</option>
+            <option value="tableWise">Table wise</option>
+          </select>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 4, color: "#374151" }}>Color scale type</div>
+          <select
+            style={inputStyle}
+            value={cfg.scaleType}
+            onChange={e => onChange({ ...cfg, scaleType: e.target.value as any })}
+          >
+            <option value="sequential">Sequential</option>
+            <option value="diverging">Diverging</option>
+          </select>
+        </div>
       </div>
 
       <SectionTitle>Color scheme</SectionTitle>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <select
           style={{ ...inputStyle, flex: 1 }}
           value={findSchemeId(cfg.colorScheme)}
@@ -707,29 +769,32 @@ const ColorScaleEditor: React.FC<{
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#374151", cursor: "pointer", flexShrink: 0 }}>
           <input
             type="checkbox"
             checked={cfg.reverse}
             onChange={e => onChange({ ...cfg, reverse: e.target.checked })}
           />
-          Reverse color
+          Reverse
         </label>
       </div>
+
+      {/* Gradient preview — height 16px */}
       <div
         style={{
-          height: 22,
+          height: 16,
           borderRadius: 4,
           border: "1px solid #d1d5db",
-          marginBottom: 14,
+          marginBottom: 10,
           background: `linear-gradient(to right, ${(cfg.reverse ? [...cfg.colorScheme].reverse() : cfg.colorScheme).join(", ")})`,
         }}
       />
 
-      <div style={fieldRowStyle}>
-        <label style={labelStyle}>Number of bands</label>
+      {/* Number of bands */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 12, color: "#374151", minWidth: 96, flexShrink: 0 }}>Number of bands</span>
         <input
-          style={inputStyle}
+          style={{ ...inputStyle, width: 72 }}
           type="number"
           min={0}
           max={12}
@@ -738,8 +803,9 @@ const ColorScaleEditor: React.FC<{
         />
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      {/* Checkboxes */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
           <input
             type="checkbox"
             checked={cfg.hideValue}
@@ -747,7 +813,7 @@ const ColorScaleEditor: React.FC<{
           />
           Hide value
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
           <input
             type="checkbox"
             checked={cfg.autoFontColor}
@@ -755,7 +821,7 @@ const ColorScaleEditor: React.FC<{
           />
           Auto font color
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
           <input
             type="checkbox"
             checked={cfg.includeNull}
@@ -797,70 +863,71 @@ const ClassificationEditor: React.FC<{
       <SectionTitle>Impact on</SectionTitle>
       <ChipToggle
         options={[
-          { value: "label", label: "label" },
-          { value: "chart", label: "chart" },
+          { value: "label", label: "Label" },
+          { value: "chart", label: "Chart" },
         ]}
         selected={cfg.impactOn}
         onChange={v => onChange({ ...cfg, impactOn: v as any })}
       />
 
-      <div style={fieldRowStyle}>
-        <label style={labelStyle}>Based on</label>
-        <select
-          style={inputStyle}
-          value={cfg.basedOnMeasure}
-          onChange={e => onChange({ ...cfg, basedOnMeasure: Number(e.target.value) })}
-        >
-          <option value={-1}>Self</option>
-          {measures.map(m => (
-            <option key={m.index} value={m.index}>{m.name}</option>
-          ))}
-        </select>
+      {/* Settings grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 4, color: "#374151" }}>Based on</div>
+          <select
+            style={inputStyle}
+            value={cfg.basedOnMeasure}
+            onChange={e => onChange({ ...cfg, basedOnMeasure: Number(e.target.value) })}
+          >
+            <option value={-1}>Self</option>
+            {measures.map(m => (
+              <option key={m.index} value={m.index}>{m.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 4, color: "#374151" }}>Icon position</div>
+          <select
+            style={inputStyle}
+            value={cfg.iconPosition}
+            onChange={e => onChange({ ...cfg, iconPosition: e.target.value as any })}
+          >
+            <option value="leftOfData">Left of data</option>
+            <option value="rightOfData">Right of data</option>
+          </select>
+        </div>
+      </div>
 
-        <label style={labelStyle}>Display</label>
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 10 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
           <input
             type="checkbox"
             checked={cfg.displayIcons}
             onChange={e => onChange({ ...cfg, displayIcons: e.target.checked })}
           />
-          Icons
+          Display icons
         </label>
-
-        <label style={labelStyle}>Apply to charts</label>
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
           <input
             type="checkbox"
             checked={cfg.applyToCharts}
             onChange={e => onChange({ ...cfg, applyToCharts: e.target.checked })}
           />
-          Yes
+          Apply to charts
         </label>
-
-        <label style={labelStyle}>Show as new column</label>
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
           <input
             type="checkbox"
             checked={cfg.showAsNewColumn}
             onChange={e => onChange({ ...cfg, showAsNewColumn: e.target.checked })}
           />
-          Yes
+          Show as new column
         </label>
-
-        <label style={labelStyle}>Icon position</label>
-        <select
-          style={inputStyle}
-          value={cfg.iconPosition}
-          onChange={e => onChange({ ...cfg, iconPosition: e.target.value as any })}
-        >
-          <option value="leftOfData">Left of data</option>
-          <option value="rightOfData">Right of data</option>
-        </select>
       </div>
 
       <SectionTitle>Classification ranges</SectionTitle>
-      <div style={{ display: "flex", gap: 16, marginBottom: 10 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+      <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }}>
           <input
             type="radio"
             checked={cfg.rangeMode === "value"}
@@ -868,7 +935,7 @@ const ClassificationEditor: React.FC<{
           />
           Value
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }}>
           <input
             type="radio"
             checked={cfg.rangeMode === "percentage"}
@@ -878,7 +945,8 @@ const ClassificationEditor: React.FC<{
         </label>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "80px 80px 60px 60px 40px", columnGap: 8, rowGap: 6, alignItems: "center", fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
+      {/* Column headers */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 64px 36px 28px", columnGap: 4, alignItems: "center", fontSize: 10, color: "#6b7280", marginBottom: 4 }}>
         <div>From (&gt;=)</div>
         <div>To (&lt;=)</div>
         <div>Icon</div>
@@ -889,7 +957,7 @@ const ClassificationEditor: React.FC<{
       {cfg.ranges.map((r, i) => (
         <div
           key={i}
-          style={{ display: "grid", gridTemplateColumns: "80px 80px 60px 60px 40px", columnGap: 8, rowGap: 6, alignItems: "center", marginBottom: 6 }}
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr 64px 36px 28px", columnGap: 4, alignItems: "center", marginBottom: 5 }}
         >
           <input
             style={inputStyle}
@@ -908,30 +976,30 @@ const ClassificationEditor: React.FC<{
             value={r.iconKind}
             onChange={e => setRange(i, { iconKind: e.target.value as any })}
           >
-            <option value="check">✓</option>
-            <option value="warn">!</option>
-            <option value="cross">✕</option>
+            <option value="check">✓ Check</option>
+            <option value="warn">! Warn</option>
+            <option value="cross">✕ Cross</option>
           </select>
           <input
             type="color"
             value={r.color}
             onChange={e => setRange(i, { color: e.target.value })}
-            style={{ width: "100%", height: 30, border: "1px solid #d1d5db", borderRadius: 4, padding: 0, background: "none" }}
+            style={{ width: "100%", height: 26, border: "1px solid #d1d5db", borderRadius: 4, padding: 0, background: "none", cursor: "pointer", boxSizing: "border-box" }}
           />
           <button
             type="button"
             onClick={() => removeRange(i)}
-            style={{ background: "transparent", border: "none", color: "#b91c1c", cursor: "pointer", fontSize: 14 }}
+            style={{ background: "transparent", border: "none", color: "#b91c1c", cursor: "pointer", fontSize: 14, padding: 0, lineHeight: 1 }}
             title="Remove range"
           >
-            🗑
+            ×
           </button>
         </div>
       ))}
       <button
         type="button"
         onClick={addRange}
-        style={{ background: "transparent", border: "none", color: "#2563eb", cursor: "pointer", fontSize: 13, padding: "4px 0" }}
+        style={{ background: "transparent", border: "none", color: "#2563eb", cursor: "pointer", fontSize: 12, padding: "4px 0" }}
       >
         + Add range
       </button>
@@ -941,18 +1009,12 @@ const ClassificationEditor: React.FC<{
 
 // ---------- Small shared components ------------------------------------------
 
-const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 8, marginTop: 4 }}>
-    {children}
-  </div>
-);
-
 const ChipToggle: React.FC<{
   options: { value: string; label: string }[];
   selected: string[];
   onChange: (next: string[]) => void;
 }> = ({ options, selected, onChange }) => (
-  <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+  <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
     {options.map(opt => {
       const active = selected.includes(opt.value);
       return (
@@ -961,7 +1023,7 @@ const ChipToggle: React.FC<{
           type="button"
           onClick={() => onChange(active ? selected.filter(v => v !== opt.value) : [...selected, opt.value])}
           style={{
-            padding: "4px 10px",
+            padding: "3px 10px",
             background: active ? "#dbeafe" : "#ffffff",
             border: `1px solid ${active ? "#93c5fd" : "#d1d5db"}`,
             color: active ? "#1d4ed8" : "#374151",
@@ -970,7 +1032,7 @@ const ChipToggle: React.FC<{
             cursor: "pointer",
           }}
         >
-          {opt.label} {active ? "×" : ""}
+          {opt.label}{active ? " ×" : ""}
         </button>
       );
     })}
@@ -987,8 +1049,8 @@ const StyleToggleButton: React.FC<{
     type="button"
     onClick={onClick}
     style={{
-      width: 30,
-      height: 30,
+      width: 26,
+      height: 26,
       background: active ? "#e0e7ff" : "#ffffff",
       border: `1px solid ${active ? "#818cf8" : "#d1d5db"}`,
       color: "#111827",
@@ -996,6 +1058,10 @@ const StyleToggleButton: React.FC<{
       fontWeight: 700,
       fontStyle: italic ? "italic" : "normal",
       cursor: "pointer",
+      fontSize: 12,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
     }}
   >
     {label}

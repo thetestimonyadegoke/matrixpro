@@ -512,6 +512,23 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
           
           {activeTab === "home" && (
           <>
+            {/* Layout section */}
+            <div className="ribbon-section" aria-label="Layout">
+              {sectionTitle("Layout")}
+              <div className="ribbon-btn-group">
+                {toolbarBtn(
+                  <IconRows size={20} />,
+                  "Layout",
+                  () => onPersistProperty("layout", "mode", settings.layout.mode === "hierarchy" ? "outline" : "hierarchy"),
+                  false,
+                  !allowInteractions,
+                  "Toggle layout mode"
+                )}
+              </div>
+            </div>
+
+            {divider()}
+
             <div className="ribbon-section" aria-label="Style">
               {sectionTitle("Style")}
               <div className="ribbon-btn-group vertical">
@@ -732,8 +749,8 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                     if (val !== null) onPersistProperty("general", "topN", parseInt(val, 10) || 0);
                   }, settings.general.topN > 0, !hasData, "Top N Analysis")}
                 {toolbarBtn(<IconExplorer size={16} />, "Explorer", onToggleExplorer, explorerOpen, !allowInteractions, "Toggle Explorer panel")}
-                {toolbarBtn(<IconSort size={16} />, "Sort", () => {
-                  }, false, true, "Coming soon")}
+                {toolbarBtn(<IconSort size={16} />, "Sort", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconFilter size={16} />, "Filter", () => {}, false, true, "Coming soon")}
               </div>
             </div>
 
@@ -742,8 +759,8 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
             <div className="ribbon-section" aria-label="Annotate">
               {sectionTitle("Annotate")}
               <div className="ribbon-btn-group">
-                {toolbarBtn(<IconNote size={16} />, "Notes", () => {
-                  }, false, true, "Coming soon")}
+                {toolbarBtn(<IconNote size={16} />, "Notes", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconDisplay size={16} />, "Display", () => {}, false, true, "Coming soon")}
               </div>
             </div>
 
@@ -801,91 +818,118 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
         {activeTab === "insert" && (
           <>
-            <div className="ribbon-section" aria-label="Structure">
-              {sectionTitle("Structure")}
+            {/* Row section */}
+            <div className="ribbon-section" aria-label="Row">
+              {sectionTitle("Row")}
               <div className="ribbon-btn-group">
-                {toolbarBtn(
-                  <IconInsertRow size={16} />, 
-                  "Insert Row", 
-                  onOpenCalcRowPanel,
-                  false, 
-                  !allowInteractions, 
-                  "Insert Calculated Row"
-                )}
-                {toolbarBtn(
-                  <IconColumns size={16} />,
-                  "Insert Column",
-                  onOpenCalcMeasurePanel,
-                  false,
-                  !allowInteractions,
-                  "Insert Calculated Measure"
-                )}
-              </div>
-            </div>
-
-            {divider()}
-
-            <div className="ribbon-section" aria-label="Calculations">
-              {sectionTitle("Calculations")}
-              <div className="ribbon-btn-group">
-                {toolbarBtn(
-                  <IconCalculator size={16} />, 
-                  "Quick Formula", 
-                  () => {
-                  }, 
-                  false, 
-                  true,
-                  "Coming soon"
-                )}
-                {toolbarBtn(
-                  <IconFormula size={16} />, 
-                  "Advanced Formula",
-                  onOpenCalcMeasurePanel, 
-                  false, 
-                  !allowInteractions, 
-                  "Open Formula Editor"
-                )}
-                {toolbarBtn(<IconBlend size={16} />, "Combine", () => {
-                  }, false, true, "Coming soon")}
-              </div>
-            </div>
-
-            {divider()}
-
-            <div className="ribbon-section" aria-label="Data Input">
-              {sectionTitle("Data Input")}
-              <div className="ribbon-btn-group">
-                <div className="ribbon-btn-group vertical" style={{ marginRight: 8 }}>
-                  <div className="toolbar-row">
-                    {toolbarBtn(<IconNote size={16} />, "Edit Cell", () => {
-                      }, false, true, "Coming soon")}
-                    {toolbarBtn(<IconBulkEdit size={16} />, "Bulk Input", onOpenBulkOperations, false, !allowInteractions, "Bulk Edit Operations")}
-                  </div>
-                  <div className="toolbar-row">
-                    {toolbarBtn(<IconSimulate size={16} />, "Simulate", () => {
-                      }, false, true, "Coming soon")}
-                    {toolbarBtn(<IconVariables size={16} />, "Variables", () => {
-                      }, false, true, "Coming soon")}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {divider()}
-
-            <div className="ribbon-section" aria-label="Management">
-              {sectionTitle("Management")}
-              <div className="ribbon-btn-group">
+                {toolbarBtn(<IconInsertRow size={16} />, "Insert Row", onOpenCalcRowPanel, false, !allowInteractions, "Insert Calculated Row")}
+                {toolbarBtn(<IconRows size={16} />, "Invert", () => {}, false, true, "Coming soon")}
                 {toolbarBtn(<IconRows size={16} />, "Manage Rows", onOpenCalcRowPanel, false, !allowInteractions || !hasData, "Manage Rows")}
-                {toolbarBtn(<IconColumns size={16} />, "Manage Columns", () => {
-                    if (onOpenManageColumnsPanel) onOpenManageColumnsPanel();
-                  }, false, !allowInteractions || !hasData, "Manage Columns")}
+              </div>
+            </div>
+
+            {divider()}
+
+            {/* Column section */}
+            <div className="ribbon-section" aria-label="Column">
+              {sectionTitle("Column")}
+              <div className="ribbon-btn-group">
+                {toolbarBtn(<IconCalculator size={16} />, "Quick Formula", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconFormula size={16} />, "Insert Formula", onOpenCalcMeasurePanel, false, !allowInteractions, "Open Formula Editor")}
+                {toolbarBtn(<IconBlend size={16} />, "Blend", () => {}, false, true, "Coming soon")}
+              </div>
+            </div>
+
+            {divider()}
+
+            {/* Simulate / Data Input / Manage Measures */}
+            <div className="ribbon-section" aria-label="Data">
+              {sectionTitle("Data")}
+              <div className="ribbon-btn-group">
+                {toolbarBtn(<IconSimulate size={16} />, "Simulate", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconRows size={16} />, "Invert", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconDataInput size={16} />, "Data Input", () => {}, false, true, "Coming soon")}
                 {toolbarBtn(<IconKpi size={16} />, "Manage Measures", onOpenCalcMeasurePanel, false, !allowInteractions || !hasValues, "Manage Measures")}
               </div>
             </div>
 
             {divider()}
 
+            {/* Global section */}
+            <div className="ribbon-section" aria-label="Global">
+              {sectionTitle("Global")}
+              <div className="ribbon-btn-group">
+                {toolbarBtn(<IconVariables size={16} />, "Variables", () => {}, false, true, "Coming soon")}
+              </div>
+            </div>
+
+            {divider()}
+
+            {/* Forecast section */}
+            <div className="ribbon-section" aria-label="Forecast">
+              {sectionTitle("Forecast")}
+              <div className="ribbon-btn-group">
+                {toolbarBtn(<IconChart size={16} />, "Insert Forecast", () => {}, false, true, "Coming soon")}
+              </div>
+            </div>
+
+            {divider()}
+
+            {/* Cell section */}
+            <div className="ribbon-section" aria-label="Cell">
+              {sectionTitle("Cell")}
+              <div className="ribbon-btn-group">
+                {toolbarBtn(<IconNote size={16} />, "Edit Cell", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconGoalSeek size={16} />, "Goal Seek", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconBulkEdit size={16} />, "Bulk Edit", onOpenBulkOperations, false, !allowInteractions, "Bulk Edit Operations")}
+                {toolbarBtn(<IconSmartAnalysis size={16} />, "Smart Analysis", () => {}, false, true, "Coming soon")}
+              </div>
+            </div>
+
+            {divider()}
+
+            {/* Customize section */}
+            <div className="ribbon-section" aria-label="Customize">
+              {sectionTitle("Customize")}
+              <div className="ribbon-btn-group">
+                {toolbarBtn(<IconGroup size={16} />, "Group", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconAggregation size={16} />, "Aggregation", () => {}, false, true, "Coming soon")}
+              </div>
+            </div>
+
+            {divider()}
+
+            {/* Compare section */}
+            <div className="ribbon-section" aria-label="Compare">
+              {sectionTitle("Compare")}
+              <div className="ribbon-btn-group">
+                {toolbarBtn(<IconVersion size={16} />, "Set Version", () => {}, false, true, "Coming soon")}
+              </div>
+            </div>
+
+            {divider()}
+
+            {/* Measure section */}
+            <div className="ribbon-section" aria-label="Measure">
+              {sectionTitle("Measure")}
+              <div className="ribbon-btn-group">
+                {toolbarBtn(<IconFilter size={16} />, "Filter Context", () => {}, false, true, "Coming soon")}
+              </div>
+            </div>
+
+            {divider()}
+
+            {/* Audit section */}
+            <div className="ribbon-section" aria-label="Audit">
+              {sectionTitle("Audit")}
+              <div className="ribbon-btn-group">
+                {toolbarBtn(<IconAudit size={16} />, "Audit", () => {}, false, true, "Coming soon")}
+              </div>
+            </div>
+
+            {divider()}
+
+            {/* In-Cell Visuals (keep existing) */}
             <div className="ribbon-section" aria-label="Visualizations">
               {sectionTitle("In-Cell Visuals")}
               <div className="ribbon-btn-group">
@@ -1058,70 +1102,58 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
         {activeTab === "export" && (
           <>
-            <div className="ribbon-section" aria-label="Page Setup">
-              {sectionTitle("Page Setup")}
-              <div className="ribbon-btn-group">
-                {toolbarBtn(<IconPageTotal size={16} />, "Page Setup", () => {
-                  }, false, true, "Coming soon")}
-              </div>
-            </div>
-
-            {divider()}
-
+            {/* Export to PDF — Page Setup + matrix export options */}
             <div className="ribbon-section" aria-label="Export to PDF">
               {sectionTitle("Export to PDF")}
               <div className="ribbon-btn-group">
-                {toolbarBtn(<IconGrid size={16} />, "Entire Matrix", onExportCSV, false, !allowInteractions || !hasData, "Export entire matrix")}
-                {toolbarBtn(<IconColumns size={16} />, "Selected Columns", () => {
-                  }, false, true, "Coming soon")}
+                {toolbarBtn(<IconPageTotal size={16} />, "Page Setup", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconGrid size={16} />, "Entire Matrix", onExportCSV, false, !allowInteractions || !hasData, "Export entire matrix to CSV")}
+                {toolbarBtn(<IconColumns size={16} />, "Selected Columns", () => {}, false, true, "Coming soon")}
                 {toolbarBtn(<IconPdf size={16} />, "PDF Report", onExportPDF, false, !allowInteractions || !hasData, "Export to PDF")}
               </div>
             </div>
 
             {divider()}
 
+            {/* Export to Excel */}
             <div className="ribbon-section" aria-label="Export to Excel">
               {sectionTitle("Export to Excel")}
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconExcel size={16} />, "Export Report", onExportXLSX, false, !allowInteractions || !hasData, "Export to Excel")}
-                {toolbarBtn(<IconGrid size={16} />, "Copy to Clipboard", () => {
-                  }, false, true, "Coming soon")}
+                {toolbarBtn(<IconGrid size={16} />, "Copy to Clipboard", () => {}, false, true, "Coming soon")}
               </div>
             </div>
 
             {divider()}
 
+            {/* Writeback */}
             <div className="ribbon-section" aria-label="Writeback">
               {sectionTitle("Writeback")}
               <div className="ribbon-btn-group">
-                {toolbarBtn(<IconWriteback size={16} />, "Writeback", () => {
-                  }, false, true, "Coming soon")}
+                {toolbarBtn(<IconWriteback size={16} />, "Writeback", () => {}, false, true, "Coming soon")}
               </div>
             </div>
 
             {divider()}
 
+            {/* Schedule */}
             <div className="ribbon-section" aria-label="Schedule">
               {sectionTitle("Schedule")}
               <div className="ribbon-btn-group">
-                {toolbarBtn(<IconNew size={16} />, "New Subscription", () => {
-                  }, false, true, "Coming soon")}
-                {toolbarBtn(<IconSchedule size={16} />, "Manage Subscriptions", () => {
-                  }, false, true, "Coming soon")}
-                {toolbarBtn(<IconSettings size={16} />, "Settings", () => {
-                  }, false, true, "Coming soon")}
+                {toolbarBtn(<IconNew size={16} />, "New Subscription", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconSchedule size={16} />, "Manage Subscriptions", () => {}, false, true, "Coming soon")}
               </div>
             </div>
 
             {divider()}
 
+            {/* Backup */}
             <div className="ribbon-section" aria-label="Backup">
               {sectionTitle("Backup")}
               <div className="ribbon-btn-group">
-                {toolbarBtn(<IconConfig size={16} />, "Config", () => {
-                  }, false, true, "Coming soon")}
-                {toolbarBtn(<IconReuse size={16} />, "Reuse Theme", () => {
-                  }, false, true, "Coming soon")}
+                {toolbarBtn(<IconSettings size={16} />, "Settings", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconConfig size={16} />, "Config", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconReuse size={16} />, "Reuse Theme", () => {}, false, true, "Coming soon")}
               </div>
             </div>
           </>
