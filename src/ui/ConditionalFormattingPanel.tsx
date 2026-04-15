@@ -668,6 +668,7 @@ const ColorScaleEditor: React.FC<{
           <option value="background">Background</option>
           <option value="foreground">Foreground</option>
           <option value="both">Both</option>
+          <option value="dataBar">Data bar</option>
         </select>
 
         <label style={labelStyle}>Heat map type</label>

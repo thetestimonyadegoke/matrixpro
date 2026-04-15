@@ -9,7 +9,14 @@ export interface CellStyle {
   color?: string;
   fontWeight?: string;
   fontStyle?: string;
+  /** Icon from a classification rule */
   icon?: ClassificationIcon;
+  /** Where to place the icon relative to the value text */
+  iconPosition?: "leftOfData" | "rightOfData";
+  /** Data bar fill percentage (0–100) injected by a CF data bar rule */
+  dataBarPct?: number;
+  /** Data bar color from CF rule */
+  dataBarColor?: string;
 }
 
 export type ClassificationIcon =
@@ -80,7 +87,7 @@ export interface RulesFormatConfig {
 
 export type HeatMapType = "columnWise" | "rowWise" | "tableWise";
 export type ColorScaleType = "sequential" | "diverging";
-export type ColorScaleApplyTo = "background" | "foreground" | "both";
+export type ColorScaleApplyTo = "background" | "foreground" | "both" | "dataBar";
 
 export interface ColorScaleConfig {
   basedOnMeasure: number;      // -1 = self
@@ -330,12 +337,18 @@ function evaluateColorScale(
 
   const color = sampleGradient(cfg.colorScheme, t);
   const out: CellStyle = {};
-  if (cfg.applyTo === "background" || cfg.applyTo === "both") {
-    out.backgroundColor = color;
-    if (cfg.autoFontColor) out.color = contrastingText(color);
-  }
-  if (cfg.applyTo === "foreground" || cfg.applyTo === "both") {
-    out.color = color;
+  if (cfg.applyTo === "dataBar") {
+    // Render as an in-cell data bar using a CF-sourced color.
+    out.dataBarPct = Math.round(t * 100);
+    out.dataBarColor = color;
+  } else {
+    if (cfg.applyTo === "background" || cfg.applyTo === "both") {
+      out.backgroundColor = color;
+      if (cfg.autoFontColor) out.color = contrastingText(color);
+    }
+    if (cfg.applyTo === "foreground" || cfg.applyTo === "both") {
+      out.color = color;
+    }
   }
   return out;
 }
@@ -379,6 +392,7 @@ function evaluateClassification(
   const out: CellStyle = {};
   if (cfg.displayIcons) {
     out.icon = { kind: matched.iconKind, color: matched.color };
+    out.iconPosition = cfg.iconPosition ?? "leftOfData";
   }
   if (cfg.impactOn.includes("label")) {
     out.color = matched.color;

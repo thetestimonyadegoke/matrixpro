@@ -245,6 +245,26 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     },
   });
 
+  const quickDataBars = () => appendCfRule({
+    id: newRuleId(),
+    title: "Data Bars",
+    enabled: true,
+    scope: baseScope(),
+    formatBy: "colorScale",
+    colorScaleConfig: {
+      basedOnMeasure: -1,
+      applyTo: "dataBar",
+      heatMapType: "columnWise",
+      scaleType: "sequential",
+      colorScheme: ["#4f86c6", "#1d4ed8"],
+      reverse: false,
+      numberOfBands: 0,
+      hideValue: false,
+      autoFontColor: false,
+      includeNull: false,
+    },
+  });
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -683,6 +703,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                         { label: "Red → Yellow → Green", fn: () => quickColorScale(["#dc2626", "#eab308", "#16a34a"], "RYG scale") },
                         { label: "Red → White → Green", fn: () => quickColorScale(["#dc2626", "#ffffff", "#16a34a"], "RWG scale") },
                         { label: "Classification (3-tier icons)", fn: quickClassification },
+                        { label: "Data Bars", fn: quickDataBars },
                         { label: "— Manage —", fn: null as any },
                         { label: "Create rule…", fn: () => { setCfMenuOpen(false); onOpenCondFormatPanel?.(); } },
                         { label: "Manage rules…", fn: () => { setCfMenuOpen(false); onOpenCondFormatPanel?.(); } },
