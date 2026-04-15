@@ -211,6 +211,13 @@ export const settingsMetadata: SettingsMetadata = {
       max: 100,
       category: "Conditional Formatting",
     },
+    rules: {
+      description: "JSON-encoded list of conditional formatting rules",
+      type: "string",
+      defaultValue: "[]",
+      category: "Conditional Formatting",
+      excelEquivalent: "Rules",
+    },
   },
   dataBars: {
     enabled: {

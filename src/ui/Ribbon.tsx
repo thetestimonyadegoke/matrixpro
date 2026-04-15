@@ -151,11 +151,107 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [cfMenuOpen, setCfMenuOpen] = useState(false);
+  const cfMenuRef = useRef<HTMLDivElement>(null);
+
+  // Quick rule helpers — append a new ConditionalRule to the rules array.
+  const appendCfRule = (rule: any) => {
+    if (!allowInteractions) return;
+    let existing: any[] = [];
+    try {
+      const parsed = JSON.parse(settings.conditionalFormatting.rules || "[]");
+      if (Array.isArray(parsed)) existing = parsed;
+    } catch { /* ignore */ }
+    const next = [...existing, rule];
+    onPersistProperty("conditionalFormatting", "rules", JSON.stringify(next));
+    if (!settings.conditionalFormatting.enabled) {
+      onPersistProperty("conditionalFormatting", "enabled", true);
+    }
+    setCfMenuOpen(false);
+  };
+
+  const newRuleId = () => `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const baseScope = () => ({
+    targetMeasure: -1,
+    rowHierarchyLevels: "valuesAndTotals",
+    excludeColumnGrandTotal: false,
+  });
+
+  const quickPositive = () => appendCfRule({
+    id: newRuleId(),
+    title: "Quick Positive",
+    enabled: true,
+    scope: baseScope(),
+    formatBy: "rules",
+    rulesConfig: {
+      impactOn: ["label"],
+      conditions: [{ basedOnMeasure: -1, op: "greaterThan", value: 0 }],
+      style: { color: "#15803d", fontWeight: "600" },
+    },
+  });
+
+  const quickNegative = () => appendCfRule({
+    id: newRuleId(),
+    title: "Quick Negative",
+    enabled: true,
+    scope: baseScope(),
+    formatBy: "rules",
+    rulesConfig: {
+      impactOn: ["label"],
+      conditions: [{ basedOnMeasure: -1, op: "lessThan", value: 0 }],
+      style: { color: "#b91c1c", fontWeight: "600" },
+    },
+  });
+
+  const quickColorScale = (colors: string[], name: string) => appendCfRule({
+    id: newRuleId(),
+    title: name,
+    enabled: true,
+    scope: baseScope(),
+    formatBy: "colorScale",
+    colorScaleConfig: {
+      basedOnMeasure: -1,
+      applyTo: "background",
+      heatMapType: "columnWise",
+      scaleType: "sequential",
+      colorScheme: colors,
+      reverse: false,
+      numberOfBands: 5,
+      hideValue: false,
+      autoFontColor: true,
+      includeNull: false,
+    },
+  });
+
+  const quickClassification = () => appendCfRule({
+    id: newRuleId(),
+    title: "Quick Classification",
+    enabled: true,
+    scope: baseScope(),
+    formatBy: "classification",
+    classificationConfig: {
+      impactOn: ["label"],
+      basedOnMeasure: -1,
+      displayIcons: true,
+      applyToCharts: true,
+      showAsNewColumn: false,
+      iconPosition: "leftOfData",
+      rangeMode: "percentage",
+      ranges: [
+        { from: -1e9, to: 33, iconKind: "cross", color: "#dc2626" },
+        { from: 33, to: 66, iconKind: "warn", color: "#eab308" },
+        { from: 66, to: 1e9, iconKind: "check", color: "#16a34a" },
+      ],
+    },
+  });
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setDropdownOpen(false);
+      }
+      if (cfMenuRef.current && !cfMenuRef.current.contains(event.target as Node)) {
+        setCfMenuOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -563,16 +659,45 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
             <div className="ribbon-section" aria-label="Analyze">
               {sectionTitle("Analyze")}
               <div className="ribbon-btn-group">
-                {toolbarBtn(
-                  <IconCondFormat size={16} />,
-                  "Conditional Formatting",
-                  () => {
-                    if (onOpenCondFormatPanel) onOpenCondFormatPanel();
-                  },
-                  settings.conditionalFormatting.enabled,
-                  !hasValues,
-                  "Manage Conditional Formatting"
-                )}
+                <div ref={cfMenuRef} style={{ position: "relative", display: "inline-block" }}>
+                  {toolbarBtn(
+                    <IconCondFormat size={16} />,
+                    "Cond. Format ▾",
+                    () => setCfMenuOpen(o => !o),
+                    settings.conditionalFormatting.enabled || cfMenuOpen,
+                    !hasValues,
+                    "Conditional Formatting"
+                  )}
+                  {cfMenuOpen && (
+                    <div style={{
+                      position: "absolute", top: "100%", left: 0, zIndex: 1000,
+                      background: "#fff", border: "1px solid #d1d5db", borderRadius: 4,
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.15)", minWidth: 220, padding: 4,
+                      fontSize: 12,
+                    }}>
+                      {[
+                        { label: "Quick Positive (green)", fn: quickPositive },
+                        { label: "Quick Negative (red)", fn: quickNegative },
+                        { label: "— Color Scales —", fn: null as any },
+                        { label: "Blue sequential", fn: () => quickColorScale(["#eff6ff", "#1d4ed8"], "Blue scale") },
+                        { label: "Red → Yellow → Green", fn: () => quickColorScale(["#dc2626", "#eab308", "#16a34a"], "RYG scale") },
+                        { label: "Red → White → Green", fn: () => quickColorScale(["#dc2626", "#ffffff", "#16a34a"], "RWG scale") },
+                        { label: "Classification (3-tier icons)", fn: quickClassification },
+                        { label: "— Manage —", fn: null as any },
+                        { label: "Create rule…", fn: () => { setCfMenuOpen(false); onOpenCondFormatPanel?.(); } },
+                        { label: "Manage rules…", fn: () => { setCfMenuOpen(false); onOpenCondFormatPanel?.(); } },
+                      ].map((item, i) => item.fn ? (
+                        <button key={i} type="button" onClick={item.fn}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 10px", border: "none", background: "transparent", cursor: "pointer", borderRadius: 3 }}
+                          onMouseEnter={e => (e.currentTarget.style.background = "#f3f4f6")}
+                          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                        >{item.label}</button>
+                      ) : (
+                        <div key={i} style={{ padding: "4px 10px", color: "#9ca3af", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>{item.label.replace(/—/g, "").trim()}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 {toolbarBtn(
                   <IconTotals size={16} />,
                   "Totals",

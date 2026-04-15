@@ -58,6 +58,12 @@ export interface ConditionalFormattingSettings {
   highThreshold: number;
   applyToAllMeasures: boolean;
   targetMeasure: number;
+  /**
+   * JSON-encoded array of ConditionalRule objects (see format/conditional.ts).
+   * When non-empty, these take precedence over the legacy single-rule fields
+   * above; the legacy fields remain for backwards compatibility.
+   */
+  rules: string;
 }
 
 export interface DataBarSettings {
@@ -208,6 +214,7 @@ export const defaultSettings: VisualSettings = {
     highThreshold: 66,
     applyToAllMeasures: true,
     targetMeasure: 0,
+    rules: "[]",
   },
   dataBars: {
     enabled: false,
@@ -365,6 +372,7 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       highThreshold: getValue(objects, "conditionalFormatting", "highThreshold", defaultSettings.conditionalFormatting.highThreshold),
       applyToAllMeasures: getValue(objects, "conditionalFormatting", "applyToAllMeasures", defaultSettings.conditionalFormatting.applyToAllMeasures),
       targetMeasure: getValue(objects, "conditionalFormatting", "targetMeasure", defaultSettings.conditionalFormatting.targetMeasure),
+      rules: getValue(objects, "conditionalFormatting", "rules", defaultSettings.conditionalFormatting.rules),
     },
     dataBars: {
       enabled: getValue(objects, "dataBars", "enabled", defaultSettings.dataBars.enabled),

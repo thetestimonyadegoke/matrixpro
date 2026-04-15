@@ -10,7 +10,7 @@ import { ScrollManager } from "../virtualization/scroll";
 import { Row } from "./Row";
 import { RowHeader } from "./RowHeader";
 import { MergedColumnHeaders } from "./MergedColumnHeaders";
-import { CellStyle, evaluateConditionalFormatting } from "../format/conditional";
+import { CellStyle, evaluateCellStyle, EvaluationContext } from "../format/conditional";
 import { getRowStyle } from "../format/styles";
 import { TooltipServiceWrapper } from "../powerbi/tooltip";
 import { ContextMenu, ContextMenuItem, buildCellMenuItems, buildRowHeaderMenuItems, buildColumnHeaderMenuItems } from "./ContextMenu";
@@ -866,19 +866,42 @@ export const Matrix: React.FC<MatrixProps> = ({
       return {};
     }
 
-    if (!settings.conditionalFormatting.applyToAllMeasures && measureIndex !== settings.conditionalFormatting.targetMeasure) {
-      return {};
-    }
-
     const styleKey = `${rowKey}::${colKey}::m${measureIndex}`;
     const cached = conditionalStyleCacheRef.current.get(styleKey);
     if (cached) return cached;
 
-    const stats = getColumnStatsCached(colKey, measureIndex);
-    const style = evaluateConditionalFormatting(value, stats.min, stats.max, settings.conditionalFormatting);
+    // Locate the row so the rule engine can honor "values only / totals only" scope.
+    const rowNode = rows.find(r => r.key === rowKey);
+    const isSubtotal = !!rowNode?.isSubtotal;
+    const isGrandTotal = !!rowNode?.isGrandTotal;
+    const colNode = columns.find(c => c.key === colKey);
+    const isColumnGrandTotal = !!colNode?.isGrandTotal;
+
+    const ctx: EvaluationContext = {
+      value,
+      measureIndex,
+      isSubtotal,
+      isGrandTotal,
+      isColumnGrandTotal,
+      getStatsForMeasure: (m, scope) => {
+        if (scope === "tableWise") {
+          return globalStats.get(m) || { min: 0, max: 0 };
+        }
+        if (scope === "rowWise") {
+          return getRowStatsCached(rowKey, m);
+        }
+        return getColumnStatsCached(colKey, m);
+      },
+      getValueForMeasure: (m) => {
+        const c = getCellValue(cellMap, rowKey, colKey, m);
+        return c?.value ?? null;
+      },
+    };
+
+    const style = evaluateCellStyle(ctx, settings.conditionalFormatting);
     conditionalStyleCacheRef.current.set(styleKey, style);
     return style;
-  }, [settings.conditionalFormatting, getColumnStatsCached]);
+  }, [settings.conditionalFormatting, getColumnStatsCached, getRowStatsCached, globalStats, rows, columns, cellMap]);
 
   // Bulk Operations Handlers
   const handleCellSelectWithRange = useCallback((

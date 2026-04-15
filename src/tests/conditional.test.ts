@@ -12,6 +12,7 @@ describe("Conditional Formatting", () => {
     highThreshold: 66,
     applyToAllMeasures: true,
     targetMeasure: 0,
+    rules: "[]",
   };
 
   describe("evaluateConditionalFormatting", () => {
