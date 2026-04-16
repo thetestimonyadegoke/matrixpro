@@ -15,6 +15,14 @@ export interface GeneralSettings {
   fontFamily: string;
   rowHighlight: boolean;
   topN: number;
+  /** Reverse the row display order */
+  invertRows: boolean;
+  /** Simulation mode active flag — changes are temporary */
+  simulateMode: boolean;
+  /** Wrap cell text */
+  wrapText: boolean;
+  /** Strikethrough text style */
+  strikethrough: boolean;
 }
 
 export interface HeaderSettings {
@@ -58,6 +66,12 @@ export interface ConditionalFormattingSettings {
   highThreshold: number;
   applyToAllMeasures: boolean;
   targetMeasure: number;
+  /**
+   * JSON-encoded array of ConditionalRule objects (see format/conditional.ts).
+   * When non-empty, these take precedence over the legacy single-rule fields
+   * above; the legacy fields remain for backwards compatibility.
+   */
+  rules: string;
 }
 
 export interface DataBarSettings {
@@ -148,19 +162,35 @@ export interface ManualDataSettings {
   colOrder: string;
   labelOverrides: string;
   locks: string;
+  /** JSON string[] of hidden column/measure keys */
+  hiddenCols: string;
+  /** JSON Record<key,number> of per-column custom widths */
+  colWidths: string;
+  /** JSON array of {id, name, value, description} named variables */
+  variables: string;
+  /** JSON array of {id, label, rowKeys: string[]} row groupings */
+  groupings: string;
+  /** JSON array of {measureIndex, direction, priority} sort rules */
+  sortRules: string;
+  /** JSON Record<measureIndex, string> aggregation overrides */
+  aggregationOverrides: string;
 }
 
 export const defaultSettings: VisualSettings = {
   general: {
-    rowHeight: 28,
-    defaultColumnWidth: 100,
-    rowHeaderWidth: 260,
+    rowHeight: 22,
+    defaultColumnWidth: 90,
+    rowHeaderWidth: 200,
     freezeFirstColumn: false,
     showGridlines: true,
     rowBanding: true,
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
     rowHighlight: false,
     topN: 0,
+    invertRows: false,
+    simulateMode: false,
+    wrapText: false,
+    strikethrough: false,
   },
   layout: {
     mode: "hierarchy",
@@ -171,13 +201,13 @@ export const defaultSettings: VisualSettings = {
     customAccentColor: "#2563eb",
   },
   headers: {
-    fontSize: 12,
+    fontSize: 11,
     bold: true,
     backgroundColor: "#f5f5f5",
     textColor: "#333333",
   },
   values: {
-    fontSize: 12,
+    fontSize: 11,
     alignment: "right",
     numberFormat: "",
     textColor: "#1a1a1a",
@@ -208,6 +238,7 @@ export const defaultSettings: VisualSettings = {
     highThreshold: 66,
     applyToAllMeasures: true,
     targetMeasure: 0,
+    rules: "[]",
   },
   dataBars: {
     enabled: false,
@@ -257,6 +288,12 @@ export const defaultSettings: VisualSettings = {
     colOrder: "[]",
     labelOverrides: "{}",
     locks: "[]",
+    hiddenCols: "[]",
+    colWidths: "{}",
+    variables: "[]",
+    groupings: "[]",
+    sortRules: "[]",
+    aggregationOverrides: "{}",
   },
 };
 
@@ -310,6 +347,10 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       fontFamily: getValue(objects, "general", "fontFamily", defaultSettings.general.fontFamily),
       rowHighlight: getValue(objects, "general", "rowHighlight", defaultSettings.general.rowHighlight),
       topN: getValue(objects, "general", "topN", defaultSettings.general.topN),
+      invertRows: getValue(objects, "general", "invertRows", defaultSettings.general.invertRows),
+      simulateMode: getValue(objects, "general", "simulateMode", defaultSettings.general.simulateMode),
+      wrapText: getValue(objects, "general", "wrapText", defaultSettings.general.wrapText),
+      strikethrough: getValue(objects, "general", "strikethrough", defaultSettings.general.strikethrough),
     },
     layout: {
       mode: getValue(objects, "layout", "mode", defaultSettings.layout.mode),
@@ -365,6 +406,7 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       highThreshold: getValue(objects, "conditionalFormatting", "highThreshold", defaultSettings.conditionalFormatting.highThreshold),
       applyToAllMeasures: getValue(objects, "conditionalFormatting", "applyToAllMeasures", defaultSettings.conditionalFormatting.applyToAllMeasures),
       targetMeasure: getValue(objects, "conditionalFormatting", "targetMeasure", defaultSettings.conditionalFormatting.targetMeasure),
+      rules: getValue(objects, "conditionalFormatting", "rules", defaultSettings.conditionalFormatting.rules),
     },
     dataBars: {
       enabled: getValue(objects, "dataBars", "enabled", defaultSettings.dataBars.enabled),
@@ -414,6 +456,12 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       colOrder: getValue(objects, "manualData", "colOrder", defaultSettings.manualData.colOrder),
       labelOverrides: getValue(objects, "manualData", "labelOverrides", defaultSettings.manualData.labelOverrides),
       locks: getValue(objects, "manualData", "locks", defaultSettings.manualData.locks),
+      hiddenCols: getValue(objects, "manualData", "hiddenCols", defaultSettings.manualData.hiddenCols),
+      colWidths: getValue(objects, "manualData", "colWidths", defaultSettings.manualData.colWidths),
+      variables: getValue(objects, "manualData", "variables", defaultSettings.manualData.variables),
+      groupings: getValue(objects, "manualData", "groupings", defaultSettings.manualData.groupings),
+      sortRules: getValue(objects, "manualData", "sortRules", defaultSettings.manualData.sortRules),
+      aggregationOverrides: getValue(objects, "manualData", "aggregationOverrides", defaultSettings.manualData.aggregationOverrides),
     },
   };
 }

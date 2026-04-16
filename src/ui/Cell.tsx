@@ -1,8 +1,28 @@
 import React, { memo } from "react";
 import { VisualSettings } from "../settings/settings";
-import { CellStyle } from "../format/conditional";
+import { CellStyle, ClassificationIcon } from "../format/conditional";
 import { DataBar } from "./InCell/DataBar";
 import { KPIIcon } from "./InCell/KPIIcon";
+
+// Renders a classification icon from a CF rule.
+const CFIcon: React.FC<{ icon: ClassificationIcon }> = ({ icon }) => {
+  let glyph: string;
+  switch (icon.kind) {
+    case "check": glyph = "✓"; break;
+    case "warn":  glyph = "⚠"; break;
+    case "cross": glyph = "✕"; break;
+    case "text":  glyph = icon.label; break;
+  }
+  return (
+    <span
+      className="cf-icon"
+      style={{ color: icon.color, marginRight: 2, marginLeft: 2, fontSize: "0.9em", flexShrink: 0 }}
+      aria-hidden="true"
+    >
+      {glyph}
+    </span>
+  );
+};
 
 export interface CellProps {
   value: number | null;
@@ -43,8 +63,15 @@ export const Cell: React.FC<CellProps> = memo(({
 }) => {
   const alignmentClass = `align-${settings.values.alignment}`;
 
-  const showDataBar = settings.dataBars.enabled && value !== null && !isSubtotal && !isGrandTotal;
+  // A CF color-scale rule with applyTo="dataBar" injects dataBarPct/dataBarColor.
+  const showCFDataBar = cellStyle.dataBarPct !== undefined && value !== null;
+  const showDataBar = !showCFDataBar && settings.dataBars.enabled && value !== null && !isSubtotal && !isGrandTotal;
   const showKPI = settings.kpiIcons.enabled && !isSubtotal && !isGrandTotal;
+
+  // CF classification icon
+  const cfIcon = cellStyle.icon ?? null;
+  const iconLeft = cfIcon && cellStyle.iconPosition !== "rightOfData";
+  const iconRight = cfIcon && cellStyle.iconPosition === "rightOfData";
 
   let dataBarWidth = 0;
   if (showDataBar && value !== null) {
@@ -97,6 +124,14 @@ export const Cell: React.FC<CellProps> = memo(({
       {isEdited && <div className="edited-marker" title="Edited cell" />}
       {hasNote && <div className="note-marker" title="Has note" />}
 
+      {showCFDataBar && (
+        <DataBar
+          value={value}
+          width={cellStyle.dataBarPct!}
+          positiveColor={cellStyle.dataBarColor || "#4f86c6"}
+          negativeColor={cellStyle.dataBarColor || "#e05c5c"}
+        />
+      )}
       {showDataBar && (
         <DataBar
           value={value}
@@ -105,9 +140,11 @@ export const Cell: React.FC<CellProps> = memo(({
           negativeColor={settings.dataBars.negativeColor}
         />
       )}
+      {iconLeft && <CFIcon icon={cfIcon!} />}
       <span className="cell-value">
-        {settings.dataBars.enabled && !settings.dataBars.showValueText ? "" : formattedValue}
+        {(settings.dataBars.enabled && !settings.dataBars.showValueText) || showCFDataBar ? "" : formattedValue}
       </span>
+      {iconRight && <CFIcon icon={cfIcon!} />}
       {showKPI && kpiDelta !== null && (
         <KPIIcon
           delta={kpiDelta}

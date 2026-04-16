@@ -66,6 +66,10 @@ export const generalSettingsMetadata: Record<keyof GeneralSettings, SettingMetad
   fontFamily: { description: "Global font family", type: "string", defaultValue: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif", category: "Appearance", excelEquivalent: "Font" },
   rowHighlight: { description: "Highlight rows on hover", type: "boolean", defaultValue: false, category: "Appearance", excelEquivalent: "Row Highlight" },
   topN: { description: "Show only top N rows", type: "number", defaultValue: 0, min: 0, max: 1000, category: "Analysis", excelEquivalent: "Top N" },
+  invertRows: { description: "Reverse row display order", type: "boolean", defaultValue: false, category: "Layout", excelEquivalent: "Sort Ascending/Descending" },
+  simulateMode: { description: "Simulation mode active flag", type: "boolean", defaultValue: false, category: "Analysis", excelEquivalent: "What-If Analysis" },
+  wrapText: { description: "Wrap cell text", type: "boolean", defaultValue: false, category: "Appearance", excelEquivalent: "Wrap Text" },
+  strikethrough: { description: "Strikethrough text style", type: "boolean", defaultValue: false, category: "Appearance", excelEquivalent: "Strikethrough" },
 };
 
 export const headerSettingsMetadata: Record<keyof HeaderSettings, SettingMetadata> = {
@@ -210,6 +214,13 @@ export const settingsMetadata: SettingsMetadata = {
       min: 0,
       max: 100,
       category: "Conditional Formatting",
+    },
+    rules: {
+      description: "JSON-encoded list of conditional formatting rules",
+      type: "string",
+      defaultValue: "[]",
+      category: "Conditional Formatting",
+      excelEquivalent: "Rules",
     },
   },
   dataBars: {
@@ -485,6 +496,42 @@ export const settingsMetadata: SettingsMetadata = {
       description: "JSON array of locked cell references",
       type: "json",
       defaultValue: "[]",
+      category: "Data",
+    },
+    hiddenCols: {
+      description: "JSON string array of hidden column/measure keys",
+      type: "json",
+      defaultValue: "[]",
+      category: "Data",
+    },
+    colWidths: {
+      description: "JSON record of per-column custom widths",
+      type: "json",
+      defaultValue: "{}",
+      category: "Data",
+    },
+    variables: {
+      description: "JSON array of named variables/parameters",
+      type: "json",
+      defaultValue: "[]",
+      category: "Data",
+    },
+    groupings: {
+      description: "JSON array of row groupings",
+      type: "json",
+      defaultValue: "[]",
+      category: "Data",
+    },
+    sortRules: {
+      description: "JSON array of sort rules",
+      type: "json",
+      defaultValue: "[]",
+      category: "Data",
+    },
+    aggregationOverrides: {
+      description: "JSON record of aggregation overrides per measure",
+      type: "json",
+      defaultValue: "{}",
       category: "Data",
     },
   },
