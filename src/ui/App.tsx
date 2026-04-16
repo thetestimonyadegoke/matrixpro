@@ -18,6 +18,14 @@ import { CalcRowWizard } from "./CalcRowWizard";
 import { TotalsControlPanel } from "./TotalsControlPanel";
 import { ManageColumnsPanel } from "./ManageColumnsPanel";
 import { ConditionalFormattingPanel } from "./ConditionalFormattingPanel";
+import { SortPanel, SortRule } from "./SortPanel";
+import { SmartAnalysisPanel } from "./SmartAnalysisPanel";
+import { GoalSeekPanel } from "./GoalSeekPanel";
+import { VariablesPanel } from "./VariablesPanel";
+import { GroupPanel } from "./GroupPanel";
+import { AggregationPanel } from "./AggregationPanel";
+import { NotesPanel } from "./NotesPanel";
+import { SimulateBar } from "./SimulateBar";
 
 export interface AppProps {
   model: MatrixModel;
@@ -76,6 +84,19 @@ export const App: React.FC<AppProps> = ({
   const [manageColumnsPanelOpen, setManageColumnsPanelOpen] = useState(false);
   const [condFormatPanelOpen, setCondFormatPanelOpen] = useState(false);
 
+  // New panel states
+  const [sortPanelOpen, setSortPanelOpen] = useState(false);
+  const [smartAnalysisOpen, setSmartAnalysisOpen] = useState(false);
+  const [goalSeekOpen, setGoalSeekOpen] = useState(false);
+  const [variablesPanelOpen, setVariablesPanelOpen] = useState(false);
+  const [groupPanelOpen, setGroupPanelOpen] = useState(false);
+  const [aggregationOpen, setAggregationOpen] = useState(false);
+  const [notesPanelOpen, setNotesPanelOpen] = useState(false);
+
+  // Undo/redo stacks (snapshots of manualData.edits JSON)
+  const [undoStack, setUndoStack] = useState<string[]>([]);
+  const [redoStack, setRedoStack] = useState<string[]>([]);
+
   const [sortConfig, setSortConfig] = useState<SortConfig>({
     columnKey: null,
     measureIndex: 0,
@@ -116,15 +137,19 @@ export const App: React.FC<AppProps> = ({
     return sortFlattenedRows(model.flattenedRows, model, sortConfig);
   }, [model.flattenedRows, model, sortConfig]);
 
+  const displayRows = useMemo(() => {
+    return settings.general.invertRows ? [...sortedRows].reverse() : sortedRows;
+  }, [sortedRows, settings.general.invertRows]);
+
   const quickCalcView = useMemo(() => {
     return createQuickCalcView(
-      sortedRows,
+      displayRows,
       model.flattenedColumns,
       model.cellMap,
       model.measures,
       settings.quickCalcs
     );
-  }, [sortedRows, model.flattenedColumns, model.cellMap, model.measures, settings.quickCalcs]);
+  }, [displayRows, model.flattenedColumns, model.cellMap, model.measures, settings.quickCalcs]);
 
   const handleSort = useCallback((columnKey: string, measureIndex: number) => {
     if (!allowInteractions) return;
@@ -172,18 +197,18 @@ export const App: React.FC<AppProps> = ({
 
   const handleExportCSV = useCallback(() => {
     if (!allowInteractions) return;
-    exportToCSV(sortedRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
-  }, [sortedRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
+    exportToCSV(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
+  }, [displayRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
 
   const handleExportXLSX = useCallback(() => {
     if (!allowInteractions) return;
-    exportToXLSX(sortedRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
-  }, [sortedRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
+    exportToXLSX(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
+  }, [displayRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
 
   const handleExportPDF = useCallback(() => {
     if (!allowInteractions) return;
-    exportToPDF(sortedRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
-  }, [sortedRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
+    exportToPDF(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
+  }, [displayRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
 
   const handleZoomIn = useCallback(() => {
     setZoomLevel(prev => Math.min(200, prev + 10));
@@ -323,6 +348,89 @@ export const App: React.FC<AppProps> = ({
     }
   }, [model.measures, settings.calculations.measures, onPersistProperty]);
 
+  // Copy matrix data to clipboard as TSV
+  const handleCopyToClipboard = useCallback(() => {
+    if (!allowInteractions) return;
+    try {
+      const measures = quickCalcView.measures;
+      const header = ["Row", ...measures.map(m => m.name)].join("\t");
+      const dataRows = displayRows.map(row => {
+        const cells = measures.map(m => {
+          // Try to get a representative cell value (using first column or flat key)
+          let val = "";
+          model.flattenedColumns.forEach(col => {
+            const key = `${row.key}__${col.key}__${m.index}`;
+            const cell = quickCalcView.cellMap.get(key);
+            if (cell && cell.formattedValue) val = cell.formattedValue;
+          });
+          if (!val) {
+            const key = `${row.key}____${m.index}`;
+            const cell = quickCalcView.cellMap.get(key);
+            if (cell) val = cell.formattedValue || String(cell.value ?? "");
+          }
+          return val;
+        });
+        const indent = "  ".repeat(row.indent || 0);
+        return [indent + (row.label || row.key), ...cells].join("\t");
+      });
+      const tsv = [header, ...dataRows].join("\n");
+      navigator.clipboard.writeText(tsv).catch(() => {
+        console.warn("Clipboard write failed");
+      });
+    } catch (e) {
+      console.error("Copy to clipboard failed", e);
+    }
+  }, [allowInteractions, displayRows, quickCalcView, model.flattenedColumns]);
+
+  // Sort panel apply
+  const handleSortApply = useCallback((rules: SortRule[]) => {
+    onPersistProperty("manualData", "sortRules", JSON.stringify(rules));
+    setSortPanelOpen(false);
+    // Apply the first rule to local sortConfig
+    if (rules.length > 0) {
+      const firstRule = rules[0];
+      const firstCol = model.flattenedColumns[0];
+      if (firstCol) {
+        setSortConfig({
+          columnKey: firstCol.key,
+          measureIndex: firstRule.measureIndex,
+          direction: firstRule.direction,
+        });
+      }
+    } else {
+      setSortConfig({ columnKey: null, measureIndex: 0, direction: "none" });
+    }
+  }, [onPersistProperty, model.flattenedColumns]);
+
+  // Undo handler
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const prev = undoStack[undoStack.length - 1];
+    const current = settings.manualData.edits;
+    setUndoStack(s => s.slice(0, -1));
+    setRedoStack(s => [...s, current]);
+    onPersistProperty("manualData", "edits", prev);
+  }, [undoStack, settings.manualData.edits, onPersistProperty]);
+
+  // Redo handler
+  const handleRedo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    const current = settings.manualData.edits;
+    setRedoStack(s => s.slice(0, -1));
+    setUndoStack(s => [...s, current]);
+    onPersistProperty("manualData", "edits", next);
+  }, [redoStack, settings.manualData.edits, onPersistProperty]);
+
+  // Track edits for undo
+  const handlePersistPropertyWithUndo = useCallback((objectName: string, propertyName: string, value: unknown) => {
+    if (objectName === "manualData" && propertyName === "edits") {
+      setUndoStack(s => [...s, settings.manualData.edits]);
+      setRedoStack([]);
+    }
+    onPersistProperty(objectName, propertyName, value);
+  }, [onPersistProperty, settings.manualData.edits]);
+
   if (!model.hasData) {
     return (
       <div className="advanced-matrix-visual" style={{ width, height }}>
@@ -360,7 +468,8 @@ export const App: React.FC<AppProps> = ({
   }
 
   const ribbonHeight = settings.appearance.showToolbar ? 86 : 0;
-  const workspaceHeight = Math.max(0, height - ribbonHeight);
+  const simulateBarHeight = settings.general.simulateMode ? 34 : 0;
+  const workspaceHeight = Math.max(0, height - ribbonHeight - simulateBarHeight);
 
   const explorerWidth = explorerOpen ? 280 : 0;
   const matrixWidth = Math.max(0, width - explorerWidth);
@@ -406,7 +515,24 @@ export const App: React.FC<AppProps> = ({
           onOpenBulkOperations={() => {
             (window as any).__openBulkOperations?.();
           }}
+          onCopyToClipboard={handleCopyToClipboard}
+          onOpenSortPanel={() => setSortPanelOpen(true)}
+          onOpenSmartAnalysis={() => setSmartAnalysisOpen(true)}
+          onOpenGoalSeek={() => setGoalSeekOpen(true)}
+          onOpenVariables={() => setVariablesPanelOpen(true)}
+          onOpenGroupPanel={() => setGroupPanelOpen(true)}
+          onOpenAggregation={() => setAggregationOpen(true)}
+          onOpenNotesPanel={() => setNotesPanelOpen(true)}
+          canUndo={undoStack.length > 0}
+          canRedo={redoStack.length > 0}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          rows={displayRows}
         />
+      )}
+
+      {settings.general.simulateMode && (
+        <SimulateBar onExit={() => onPersistProperty("general", "simulateMode", false)} />
       )}
 
       <div className="mx-workspace animate-in" style={{ height: workspaceHeight }}>
@@ -435,7 +561,7 @@ export const App: React.FC<AppProps> = ({
           }}
         >
           <Matrix
-            rows={sortedRows}
+            rows={displayRows}
             columns={model.flattenedColumns}
             cellMap={quickCalcView.cellMap}
             measures={quickCalcView.measures}
@@ -480,7 +606,7 @@ export const App: React.FC<AppProps> = ({
 
       {calcRowWizardOpen && (
         <CalcRowWizard
-          rows={sortedRows}
+          rows={displayRows}
           onSave={handleSaveCalcRow}
           onClose={closeCalcRowWizard}
         />
@@ -512,6 +638,74 @@ export const App: React.FC<AppProps> = ({
           settings={settings}
           measures={model.measures}
           onClose={() => setCondFormatPanelOpen(false)}
+          onPersistProperty={onPersistProperty}
+        />
+      )}
+
+      {sortPanelOpen && (
+        <SortPanel
+          measures={quickCalcView.measures}
+          settings={settings}
+          onClose={() => setSortPanelOpen(false)}
+          onApply={handleSortApply}
+        />
+      )}
+
+      {smartAnalysisOpen && (
+        <SmartAnalysisPanel
+          rows={displayRows}
+          columns={model.flattenedColumns}
+          cellMap={quickCalcView.cellMap}
+          measures={quickCalcView.measures}
+          onClose={() => setSmartAnalysisOpen(false)}
+        />
+      )}
+
+      {goalSeekOpen && (
+        <GoalSeekPanel
+          measures={quickCalcView.measures}
+          rows={displayRows}
+          columns={model.flattenedColumns}
+          cellMap={quickCalcView.cellMap}
+          onClose={() => setGoalSeekOpen(false)}
+          onApply={(targetMeasureIndex, targetValue, variableMeasureIndex) => {
+            console.log("Goal Seek applied:", { targetMeasureIndex, targetValue, variableMeasureIndex });
+            setGoalSeekOpen(false);
+          }}
+        />
+      )}
+
+      {variablesPanelOpen && (
+        <VariablesPanel
+          settings={settings}
+          onClose={() => setVariablesPanelOpen(false)}
+          onPersistProperty={onPersistProperty}
+        />
+      )}
+
+      {groupPanelOpen && (
+        <GroupPanel
+          rows={displayRows}
+          settings={settings}
+          onClose={() => setGroupPanelOpen(false)}
+          onPersistProperty={onPersistProperty}
+        />
+      )}
+
+      {aggregationOpen && (
+        <AggregationPanel
+          measures={quickCalcView.measures}
+          settings={settings}
+          onClose={() => setAggregationOpen(false)}
+          onPersistProperty={onPersistProperty}
+        />
+      )}
+
+      {notesPanelOpen && (
+        <NotesPanel
+          settings={settings}
+          rows={displayRows}
+          onClose={() => setNotesPanelOpen(false)}
           onPersistProperty={onPersistProperty}
         />
       )}

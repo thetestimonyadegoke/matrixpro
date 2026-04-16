@@ -110,6 +110,20 @@ export interface RibbonProps {
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onZoomReset?: () => void;
+  // New props
+  onCopyToClipboard?: () => void;
+  onOpenSortPanel?: () => void;
+  onOpenSmartAnalysis?: () => void;
+  onOpenGoalSeek?: () => void;
+  onOpenVariables?: () => void;
+  onOpenGroupPanel?: () => void;
+  onOpenAggregation?: () => void;
+  onOpenNotesPanel?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  rows?: import("../model/tree").FlattenedNode[];
 }
 
 interface DropdownItem {
@@ -148,6 +162,18 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   onZoomIn,
   onZoomOut,
   onZoomReset,
+  onCopyToClipboard,
+  onOpenSortPanel,
+  onOpenSmartAnalysis,
+  onOpenGoalSeek,
+  onOpenVariables,
+  onOpenGroupPanel,
+  onOpenAggregation,
+  onOpenNotesPanel,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -558,35 +584,51 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 </div>
                 <div className="toolbar-row">
                   {toolbarBtn(
-                    <IconBold size={14} />, 
-                    "", 
-                    () => onPersistProperty("headers", "bold", !settings.headers.bold), 
-                    settings.headers.bold, 
-                    !allowInteractions, 
+                    <IconBold size={14} />,
+                    "",
+                    () => onPersistProperty("headers", "bold", !settings.headers.bold),
+                    settings.headers.bold,
+                    !allowInteractions,
                     "Bold Headers"
                   )}
                   {toolbarBtn(<IconItalic size={14} />, "", () => onPersistProperty("values", "italic", !settings.values.italic), settings.values.italic, !allowInteractions, "Italic")}
                   {toolbarBtn(<IconUnderline size={14} />, "", () => onPersistProperty("values", "underline", !settings.values.underline), settings.values.underline, !allowInteractions, "Underline")}
                   {toolbarBtn(
-                    <IconFontColor size={14} />, 
-                    "", 
+                    <span style={{ fontFamily: "serif", fontSize: 13, textDecoration: "line-through", fontWeight: 700 }}>S</span>,
+                    "",
+                    () => onPersistProperty("general", "strikethrough", !settings.general.strikethrough),
+                    settings.general.strikethrough,
+                    !allowInteractions,
+                    "Strikethrough"
+                  )}
+                  {toolbarBtn(
+                    <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1 }}>↵</span>,
+                    "",
+                    () => onPersistProperty("general", "wrapText", !settings.general.wrapText),
+                    settings.general.wrapText,
+                    !allowInteractions,
+                    "Wrap Text"
+                  )}
+                  {toolbarBtn(
+                    <IconFontColor size={14} />,
+                    "",
                     () => {
                       const color = prompt("Enter text color (hex):", settings.values.textColor || "#333333");
                       if (color) onPersistProperty("values", "textColor", color);
-                    }, 
-                    false, 
-                    !allowInteractions, 
+                    },
+                    false,
+                    !allowInteractions,
                     "Font Color"
                   )}
                   {toolbarBtn(
-                    <IconFillColor size={14} />, 
-                    "", 
+                    <IconFillColor size={14} />,
+                    "",
                     () => {
                       const color = prompt("Enter background color (hex):", settings.values.backgroundColor || "#ffffff");
                       if (color) onPersistProperty("values", "backgroundColor", color);
-                    }, 
-                    false, 
-                    !allowInteractions, 
+                    },
+                    false,
+                    !allowInteractions,
                     "Fill Color"
                   )}
                 </div>
@@ -749,7 +791,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                     if (val !== null) onPersistProperty("general", "topN", parseInt(val, 10) || 0);
                   }, settings.general.topN > 0, !hasData, "Top N Analysis")}
                 {toolbarBtn(<IconExplorer size={16} />, "Explorer", onToggleExplorer, explorerOpen, !allowInteractions, "Toggle Explorer panel")}
-                {toolbarBtn(<IconSort size={16} />, "Sort", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconSort size={16} />, "Sort", onOpenSortPanel, false, !allowInteractions || !hasData, "Configure Sort Rules")}
                 {toolbarBtn(<IconFilter size={16} />, "Filter", () => {}, false, true, "Coming soon")}
               </div>
             </div>
@@ -759,7 +801,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
             <div className="ribbon-section" aria-label="Annotate">
               {sectionTitle("Annotate")}
               <div className="ribbon-btn-group">
-                {toolbarBtn(<IconNote size={16} />, "Notes", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconNote size={16} />, "Notes", onOpenNotesPanel, false, !allowInteractions, "View and Manage Notes")}
                 {toolbarBtn(<IconDisplay size={16} />, "Display", () => {}, false, true, "Coming soon")}
               </div>
             </div>
@@ -769,11 +811,30 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
             <div className="ribbon-section" aria-label="Actions">
               {sectionTitle("Actions")}
               <div className="ribbon-btn-group">
-                {toolbarBtn(<IconTemplate size={16} />, "Templates", () => {
-                  }, false, true, "Coming soon")}
-                {toolbarBtn(<IconDisplay size={16} />, "Display", () => {
-                  }, false, true, "Coming soon")}
+                {toolbarBtn(<IconTemplate size={16} />, "Templates", () => {}, false, true, "Coming soon")}
                 <div className="ribbon-btn-group vertical">
+                  <div className="toolbar-row">
+                    <button
+                      className={`ribbon-btn hover-scale`}
+                      onClick={onUndo}
+                      disabled={!canUndo || !allowInteractions}
+                      type="button"
+                      title="Undo (Ctrl+Z)"
+                    >
+                      <IconUndo size={16} />
+                      <span className="ribbon-btn-label">Undo</span>
+                    </button>
+                    <button
+                      className={`ribbon-btn hover-scale`}
+                      onClick={onRedo}
+                      disabled={!canRedo || !allowInteractions}
+                      type="button"
+                      title="Redo (Ctrl+Y)"
+                    >
+                      <IconRedo size={16} />
+                      <span className="ribbon-btn-label">Redo</span>
+                    </button>
+                  </div>
                   <div className="toolbar-row">
                     {toolbarBtn(<IconGrid size={16} />, "", () => toggle("general", "showGridlines", settings.general.showGridlines), settings.general.showGridlines, !allowInteractions, "Toggle gridlines")}
                     {toolbarBtn(<IconRows size={16} />, "", () => toggle("general", "rowBanding", settings.general.rowBanding), settings.general.rowBanding, !allowInteractions, "Toggle row banding")}
@@ -823,7 +884,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               {sectionTitle("Row")}
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconInsertRow size={16} />, "Insert Row", onOpenCalcRowPanel, false, !allowInteractions, "Insert Calculated Row")}
-                {toolbarBtn(<IconRows size={16} />, "Invert", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconRows size={16} />, "Invert", () => onPersistProperty("general", "invertRows", !settings.general.invertRows), settings.general.invertRows, !allowInteractions, "Invert Row Order")}
                 {toolbarBtn(<IconRows size={16} />, "Manage Rows", onOpenCalcRowPanel, false, !allowInteractions || !hasData, "Manage Rows")}
               </div>
             </div>
@@ -834,7 +895,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
             <div className="ribbon-section" aria-label="Column">
               {sectionTitle("Column")}
               <div className="ribbon-btn-group">
-                {toolbarBtn(<IconCalculator size={16} />, "Quick Formula", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconCalculator size={16} />, "Quick Formula", onOpenCalcMeasurePanel, false, !allowInteractions, "Open Calculated Measure Editor")}
                 {toolbarBtn(<IconFormula size={16} />, "Insert Formula", onOpenCalcMeasurePanel, false, !allowInteractions, "Open Formula Editor")}
                 {toolbarBtn(<IconBlend size={16} />, "Blend", () => {}, false, true, "Coming soon")}
               </div>
@@ -846,9 +907,8 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
             <div className="ribbon-section" aria-label="Data">
               {sectionTitle("Data")}
               <div className="ribbon-btn-group">
-                {toolbarBtn(<IconSimulate size={16} />, "Simulate", () => {}, false, true, "Coming soon")}
-                {toolbarBtn(<IconRows size={16} />, "Invert", () => {}, false, true, "Coming soon")}
-                {toolbarBtn(<IconDataInput size={16} />, "Data Input", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconSimulate size={16} />, "Simulate", () => onPersistProperty("general", "simulateMode", !settings.general.simulateMode), settings.general.simulateMode, !allowInteractions, "Toggle Simulation Mode")}
+                {toolbarBtn(<IconDataInput size={16} />, "Data Input", onOpenBulkOperations, false, !allowInteractions, "Inline Data Input")}
                 {toolbarBtn(<IconKpi size={16} />, "Manage Measures", onOpenCalcMeasurePanel, false, !allowInteractions || !hasValues, "Manage Measures")}
               </div>
             </div>
@@ -859,7 +919,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
             <div className="ribbon-section" aria-label="Global">
               {sectionTitle("Global")}
               <div className="ribbon-btn-group">
-                {toolbarBtn(<IconVariables size={16} />, "Variables", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconVariables size={16} />, "Variables", onOpenVariables, false, !allowInteractions, "Manage Variables")}
               </div>
             </div>
 
@@ -880,9 +940,9 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               {sectionTitle("Cell")}
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconNote size={16} />, "Edit Cell", () => {}, false, true, "Coming soon")}
-                {toolbarBtn(<IconGoalSeek size={16} />, "Goal Seek", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconGoalSeek size={16} />, "Goal Seek", onOpenGoalSeek, false, !allowInteractions || !hasValues, "Goal Seek Analysis")}
                 {toolbarBtn(<IconBulkEdit size={16} />, "Bulk Edit", onOpenBulkOperations, false, !allowInteractions, "Bulk Edit Operations")}
-                {toolbarBtn(<IconSmartAnalysis size={16} />, "Smart Analysis", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconSmartAnalysis size={16} />, "Smart Analysis", onOpenSmartAnalysis, false, !allowInteractions || !hasData, "Smart Data Analysis")}
               </div>
             </div>
 
@@ -892,8 +952,8 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
             <div className="ribbon-section" aria-label="Customize">
               {sectionTitle("Customize")}
               <div className="ribbon-btn-group">
-                {toolbarBtn(<IconGroup size={16} />, "Group", () => {}, false, true, "Coming soon")}
-                {toolbarBtn(<IconAggregation size={16} />, "Aggregation", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconGroup size={16} />, "Group", onOpenGroupPanel, false, !allowInteractions, "Group Rows")}
+                {toolbarBtn(<IconAggregation size={16} />, "Aggregation", onOpenAggregation, false, !allowInteractions || !hasValues, "Aggregation Overrides")}
               </div>
             </div>
 
@@ -1120,7 +1180,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               {sectionTitle("Export to Excel")}
               <div className="ribbon-btn-group">
                 {toolbarBtn(<IconExcel size={16} />, "Export Report", onExportXLSX, false, !allowInteractions || !hasData, "Export to Excel")}
-                {toolbarBtn(<IconGrid size={16} />, "Copy to Clipboard", () => {}, false, true, "Coming soon")}
+                {toolbarBtn(<IconGrid size={16} />, "Copy to Clipboard", onCopyToClipboard, false, !allowInteractions || !hasData, "Copy matrix data to clipboard as TSV")}
               </div>
             </div>
 

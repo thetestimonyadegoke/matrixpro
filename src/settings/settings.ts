@@ -15,6 +15,14 @@ export interface GeneralSettings {
   fontFamily: string;
   rowHighlight: boolean;
   topN: number;
+  /** Reverse the row display order */
+  invertRows: boolean;
+  /** Simulation mode active flag — changes are temporary */
+  simulateMode: boolean;
+  /** Wrap cell text */
+  wrapText: boolean;
+  /** Strikethrough text style */
+  strikethrough: boolean;
 }
 
 export interface HeaderSettings {
@@ -158,6 +166,14 @@ export interface ManualDataSettings {
   hiddenCols: string;
   /** JSON Record<key,number> of per-column custom widths */
   colWidths: string;
+  /** JSON array of {id, name, value, description} named variables */
+  variables: string;
+  /** JSON array of {id, label, rowKeys: string[]} row groupings */
+  groupings: string;
+  /** JSON array of {measureIndex, direction, priority} sort rules */
+  sortRules: string;
+  /** JSON Record<measureIndex, string> aggregation overrides */
+  aggregationOverrides: string;
 }
 
 export const defaultSettings: VisualSettings = {
@@ -171,6 +187,10 @@ export const defaultSettings: VisualSettings = {
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
     rowHighlight: false,
     topN: 0,
+    invertRows: false,
+    simulateMode: false,
+    wrapText: false,
+    strikethrough: false,
   },
   layout: {
     mode: "hierarchy",
@@ -270,6 +290,10 @@ export const defaultSettings: VisualSettings = {
     locks: "[]",
     hiddenCols: "[]",
     colWidths: "{}",
+    variables: "[]",
+    groupings: "[]",
+    sortRules: "[]",
+    aggregationOverrides: "{}",
   },
 };
 
@@ -323,6 +347,10 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       fontFamily: getValue(objects, "general", "fontFamily", defaultSettings.general.fontFamily),
       rowHighlight: getValue(objects, "general", "rowHighlight", defaultSettings.general.rowHighlight),
       topN: getValue(objects, "general", "topN", defaultSettings.general.topN),
+      invertRows: getValue(objects, "general", "invertRows", defaultSettings.general.invertRows),
+      simulateMode: getValue(objects, "general", "simulateMode", defaultSettings.general.simulateMode),
+      wrapText: getValue(objects, "general", "wrapText", defaultSettings.general.wrapText),
+      strikethrough: getValue(objects, "general", "strikethrough", defaultSettings.general.strikethrough),
     },
     layout: {
       mode: getValue(objects, "layout", "mode", defaultSettings.layout.mode),
@@ -430,6 +458,10 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       locks: getValue(objects, "manualData", "locks", defaultSettings.manualData.locks),
       hiddenCols: getValue(objects, "manualData", "hiddenCols", defaultSettings.manualData.hiddenCols),
       colWidths: getValue(objects, "manualData", "colWidths", defaultSettings.manualData.colWidths),
+      variables: getValue(objects, "manualData", "variables", defaultSettings.manualData.variables),
+      groupings: getValue(objects, "manualData", "groupings", defaultSettings.manualData.groupings),
+      sortRules: getValue(objects, "manualData", "sortRules", defaultSettings.manualData.sortRules),
+      aggregationOverrides: getValue(objects, "manualData", "aggregationOverrides", defaultSettings.manualData.aggregationOverrides),
     },
   };
 }
