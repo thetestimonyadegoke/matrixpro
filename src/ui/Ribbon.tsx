@@ -749,7 +749,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                   )}
                   {cfMenuOpen && (
                     <div style={{
-                      position: "absolute", top: "100%", left: 0, zIndex: 1000,
+                      position: "absolute", top: "100%", left: 0, zIndex: 9999,
                       background: "#fff", border: "1px solid #d1d5db", borderRadius: 4,
                       boxShadow: "0 4px 12px rgba(0,0,0,0.15)", minWidth: 220, padding: 4,
                       fontSize: 12,

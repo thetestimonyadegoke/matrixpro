@@ -138,11 +138,12 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
           {row.path.slice(0, -1).map(v => String(v).charAt(0)).join("")} ›
         </span>
       )}
-      {settings.layout.mode !== "table" && settings.layout.mode !== "drilldown" && row.hasChildren && (
+      {settings.layout.mode !== "table" && row.hasChildren && (
         <span
           className={`expand-toggle ${isOutlineMode ? "compact" : ""}`}
           role="button"
           tabIndex={0}
+          title={row.isExpanded ? "Collapse" : "Expand"}
           onClick={(e) => {
             e.stopPropagation();
             onToggleExpand(row.key);

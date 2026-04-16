@@ -41,7 +41,7 @@
 .advanced-matrix-visual {
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  overflow: visible; // Allow dropdowns and popups to overflow outside visual bounds
   font-family: var(--mx-font-family);
   font-size: var(--mx-font-size-base);
   color: var(--mx-text);
@@ -267,12 +267,17 @@
     align-items: stretch;
     gap: 0;
     padding: 12px 12px 6px 12px;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: visible;
     height: auto;
     min-height: 64px;
     background: #ffffff;
-    z-index: 1;
+    z-index: 200;
     position: relative;
+
+    // Hide scrollbar but still allow scroll
+    scrollbar-width: none;
+    &::-webkit-scrollbar { display: none; }
   }
 
   .ribbon-section {
@@ -282,6 +287,7 @@
     padding: 0 8px;
     position: relative;
     justify-content: flex-end;
+    flex-shrink: 0;
   }
 
   .ribbon-section-title {
@@ -534,6 +540,7 @@
 
   .ribbon-dropdown-container {
     position: relative;
+    z-index: 500;
   }
   
   .menu-btn {
@@ -557,8 +564,8 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     padding: 4px 0;
     min-width: 220px;
-    z-index: 1000;
-    
+    z-index: 9999;
+
     .dropdown-item {
       display: flex;
       align-items: center;

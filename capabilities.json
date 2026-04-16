@@ -955,6 +955,7 @@
   "supportsKeyboardFocus": true,
   "supportsLandingPage": true,
   "supportsEmptyDataView": true,
+  "supportsHighlight": true,
   "tooltips": {
     "supportedTypes": {
       "default": true,
