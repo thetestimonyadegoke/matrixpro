@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import powerbi from "powerbi-visuals-api";
-import { MatrixModel } from "../model/pivot";
+import { MatrixModel, CellValue } from "../model/pivot";
 import { VisualSettings } from "../settings/settings";
-import { SortConfig, SortDirection, toggleSortDirection, sortFlattenedRows } from "../model/sorting";
+import { SortConfig, SortDirection, toggleSortDirection, sortFlattenedRows, sortFlattenedRowsMulti } from "../model/sorting";
 import { SelectionManagerWrapper, SelectionState, updateSelectionState } from "../powerbi/selection";
 import { Matrix } from "./Matrix";
 import { EmptyState } from "./EmptyState";
@@ -131,25 +131,163 @@ export const App: React.FC<AppProps> = ({
   });
 
   const sortedRows = useMemo(() => {
+    // Check for multi-column sort rules saved via SortPanel first
+    let multiRules: SortConfig[] = [];
+    try {
+      const parsed = JSON.parse(settings.manualData.sortRules || "[]");
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Each rule has measureIndex + direction; map to SortConfig using first visible column
+        const firstCol = model.flattenedColumns.find(c => c.isLeaf);
+        if (firstCol) {
+          multiRules = parsed.map((r: { measureIndex: number; direction: "asc" | "desc" }) => ({
+            columnKey: firstCol.key,
+            measureIndex: r.measureIndex,
+            direction: r.direction,
+          }));
+        }
+      }
+    } catch { /* ignore parse errors */ }
+
+    if (multiRules.length > 0) {
+      return sortFlattenedRowsMulti(model.flattenedRows, model, multiRules);
+    }
     if (sortConfig.direction === "none" || !sortConfig.columnKey) {
       return model.flattenedRows;
     }
     return sortFlattenedRows(model.flattenedRows, model, sortConfig);
-  }, [model.flattenedRows, model, sortConfig]);
+  }, [model.flattenedRows, model, sortConfig, settings.manualData.sortRules, model.flattenedColumns]);
 
   const displayRows = useMemo(() => {
-    return settings.general.invertRows ? [...sortedRows].reverse() : sortedRows;
-  }, [sortedRows, settings.general.invertRows]);
+    let rows = settings.general.invertRows ? [...sortedRows].reverse() : sortedRows;
+
+    // Inject group header rows from settings.manualData.groupings
+    type GroupDef = { id: string; label: string; rowKeys: string[] };
+    let groupings: GroupDef[] = [];
+    try {
+      const parsed = JSON.parse(settings.manualData.groupings || "[]");
+      if (Array.isArray(parsed)) groupings = parsed;
+    } catch { /* ignore */ }
+
+    if (groupings.length > 0) {
+      const result: typeof rows = [];
+      const handled = new Set<string>();
+      for (const group of groupings) {
+        const keySet = new Set(group.rowKeys);
+        // Insert synthetic group header before first member
+        const firstIdx = rows.findIndex(r => keySet.has(r.key));
+        if (firstIdx === -1) continue;
+        // Add rows before this group that haven't been placed yet
+        for (let i = 0; i < firstIdx; i++) {
+          if (!handled.has(rows[i].key)) { result.push(rows[i]); handled.add(rows[i].key); }
+        }
+        // Group header synthetic node
+        result.push({
+          key: `__group__${group.id}`,
+          label: group.label,
+          value: group.label,
+          level: 0,
+          path: [],
+          children: [],
+          isExpanded: false,
+          isLeaf: true,
+          isSubtotal: false,
+          isGrandTotal: false,
+          indent: 0,
+          hasChildren: false,
+          visibleIndex: result.length,
+          isCalculatedRow: true,
+          calculatedRowStyle: { bold: true, backgroundColor: "rgba(0,0,0,0.04)" },
+        });
+        // Then the group members
+        for (const row of rows) {
+          if (keySet.has(row.key) && !handled.has(row.key)) {
+            result.push(row);
+            handled.add(row.key);
+          }
+        }
+      }
+      // Remaining ungrouped rows
+      for (const row of rows) {
+        if (!handled.has(row.key)) result.push(row);
+      }
+      rows = result;
+    }
+
+    return rows;
+  }, [sortedRows, settings.general.invertRows, settings.manualData.groupings]);
+
+  // Parse aggregation overrides once: Record<measureIndex, "sum"|"avg"|"min"|"max"|"count"|"none">
+  const aggregationOverrides = useMemo((): Record<number, string> => {
+    try {
+      const raw = JSON.parse(settings.manualData.aggregationOverrides || "{}");
+      // Keys are stored as string measureIndex
+      const result: Record<number, string> = {};
+      for (const [k, v] of Object.entries(raw)) {
+        const idx = parseInt(k, 10);
+        if (!isNaN(idx) && typeof v === "string") result[idx] = v;
+      }
+      return result;
+    } catch { return {}; }
+  }, [settings.manualData.aggregationOverrides]);
 
   const quickCalcView = useMemo(() => {
-    return createQuickCalcView(
+    const base = createQuickCalcView(
       displayRows,
       model.flattenedColumns,
       model.cellMap,
       model.measures,
       settings.quickCalcs
     );
-  }, [displayRows, model.flattenedColumns, model.cellMap, model.measures, settings.quickCalcs]);
+
+    // Apply aggregation overrides to total/subtotal cells
+    if (Object.keys(aggregationOverrides).length === 0) return base;
+
+    const patchedCellMap = new Map<string, CellValue>();
+    for (const v of base.cellMap.values()) {
+      const key = `${v.rowKey}__${v.colKey}__${v.measureIndex}`;
+      patchedCellMap.set(key, v);
+    }
+    const leafRows = displayRows.filter(r => !r.isSubtotal && !r.isGrandTotal && !r.key.startsWith("__group__"));
+    const totalRows = displayRows.filter(r => r.isSubtotal || r.isGrandTotal);
+
+    for (const totalRow of totalRows) {
+      for (const col of model.flattenedColumns) {
+        for (const measure of base.measures) {
+          const override = aggregationOverrides[measure.index];
+          if (!override || override === "sum") continue; // sum is the default
+
+          // Collect leaf values for this column+measure
+          const values: number[] = [];
+          for (const leafRow of leafRows) {
+            const key = `${leafRow.key}__${col.key}__${measure.index}`;
+            const cell = base.cellMap.get(key);
+            if (cell && cell.value !== null) values.push(cell.value);
+          }
+          if (values.length === 0) continue;
+
+          let newValue: number | null = null;
+          switch (override) {
+            case "avg":   newValue = values.reduce((a, b) => a + b, 0) / values.length; break;
+            case "min":   newValue = Math.min(...values); break;
+            case "max":   newValue = Math.max(...values); break;
+            case "count": newValue = values.length; break;
+            case "none":  newValue = null; break;
+            default:      newValue = values.reduce((a, b) => a + b, 0);
+          }
+
+          const cellKey = `${totalRow.key}__${col.key}__${measure.index}`;
+          const existing = base.cellMap.get(cellKey);
+          patchedCellMap.set(cellKey, {
+            ...(existing ?? { measureIndex: measure.index, rowKey: totalRow.key, colKey: col.key }),
+            value: newValue,
+            formattedValue: newValue !== null ? String(Math.round(newValue * 100) / 100) : "",
+          });
+        }
+      }
+    }
+
+    return { ...base, cellMap: patchedCellMap as unknown as import("../analytics/quickCalcs").CellMapLike };
+  }, [displayRows, model.flattenedColumns, model.cellMap, model.measures, settings.quickCalcs, aggregationOverrides]);
 
   const handleSort = useCallback((columnKey: string, measureIndex: number) => {
     if (!allowInteractions) return;
@@ -580,7 +718,7 @@ export const App: React.FC<AppProps> = ({
             onCollapseAllUnder={handleCollapseAllUnder}
             onRowSelect={handleRowSelect}
             onClearSelection={handleClearSelection}
-            onPersistProperty={onPersistProperty}
+            onPersistProperty={handlePersistPropertyWithUndo}
             onOpenCalcMeasureWizard={openCalcMeasureWizard}
             onOpenCalcRowWizard={openCalcRowWizard}
             onOpenBulkOperations={() => {

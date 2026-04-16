@@ -90,6 +90,106 @@ function sortSiblings(
   });
 }
 
+/**
+ * Multi-column sort: applies an array of SortConfigs in priority order.
+ * Each config sorts siblings that compare equal under all higher-priority configs.
+ */
+export function sortFlattenedRowsMulti(
+  rows: FlattenedNode[],
+  model: MatrixModel,
+  configs: SortConfig[]
+): FlattenedNode[] {
+  const active = configs.filter(c => c.direction !== "none" && c.columnKey);
+  if (active.length === 0) return rows;
+  // Apply primary sort, then for ties apply secondary etc.
+  // We do a single pass using a composite comparator.
+  const result: FlattenedNode[] = [];
+  const processed = new Set<number>();
+  const minIndent = Math.min(...rows.map(r => r.indent));
+
+  const multiConfig: SortConfig = {
+    columnKey: active[0].columnKey,
+    measureIndex: active[0].measureIndex,
+    direction: active[0].direction,
+  };
+
+  // Re-use existing single-config infrastructure but with composite comparator injected via the first config
+  // For true multi-sort we override the comparator at the sibling level:
+  function compareSiblings(a: FlattenedNode, b: FlattenedNode): number {
+    if (a.isSubtotal && !b.isSubtotal) return 1;
+    if (!a.isSubtotal && b.isSubtotal) return -1;
+    if (a.isGrandTotal && !b.isGrandTotal) return 1;
+    if (!a.isGrandTotal && b.isGrandTotal) return -1;
+    for (const cfg of active) {
+      const cellA = getCellValue(model.cellMap, a.key, cfg.columnKey!, cfg.measureIndex);
+      const cellB = getCellValue(model.cellMap, b.key, cfg.columnKey!, cfg.measureIndex);
+      const valA = cellA?.value ?? (cfg.direction === "asc" ? Infinity : -Infinity);
+      const valB = cellB?.value ?? (cfg.direction === "asc" ? Infinity : -Infinity);
+      const diff = cfg.direction === "asc" ? valA - valB : valB - valA;
+      if (diff !== 0) return diff;
+    }
+    return 0;
+  }
+
+  function processLevelMulti(startIndex: number, parentIndent: number): void {
+    const siblings: { node: FlattenedNode; originalIndex: number; children: number[] }[] = [];
+    for (let i = startIndex; i < rows.length; i++) {
+      if (processed.has(i)) continue;
+      const row = rows[i];
+      if (row.indent < parentIndent) break;
+      if (row.indent === parentIndent) {
+        const childIndices: number[] = [];
+        for (let j = i + 1; j < rows.length; j++) {
+          if (rows[j].indent <= parentIndent) break;
+          childIndices.push(j);
+        }
+        siblings.push({ node: row, originalIndex: i, children: childIndices });
+        processed.add(i);
+      }
+    }
+    const sorted = [...siblings].sort((a, b) => compareSiblings(a.node, b.node));
+    for (const s of sorted) {
+      result.push({ ...s.node, visibleIndex: result.length });
+      if (s.children.length > 0) {
+        const childRows = s.children.map(idx => rows[idx]);
+        s.children.forEach(idx => processed.add(idx));
+        const childIndent = childRows[0]?.indent ?? parentIndent + 1;
+        sortChildRowsMulti(childRows, childIndent);
+      }
+    }
+  }
+
+  function sortChildRowsMulti(childRows: FlattenedNode[], currentIndent: number): void {
+    const siblings: { node: FlattenedNode; children: FlattenedNode[] }[] = [];
+    let i = 0;
+    while (i < childRows.length) {
+      const row = childRows[i];
+      if (row.indent === currentIndent) {
+        const children: FlattenedNode[] = [];
+        let j = i + 1;
+        while (j < childRows.length && childRows[j].indent > currentIndent) {
+          children.push(childRows[j++]);
+        }
+        siblings.push({ node: row, children });
+        i = j;
+      } else { i++; }
+    }
+    const sorted = [...siblings].sort((a, b) => compareSiblings(a.node, b.node));
+    for (const s of sorted) {
+      result.push({ ...s.node, visibleIndex: result.length });
+      if (s.children.length > 0) {
+        sortChildRowsMulti(s.children, s.children[0].indent);
+      }
+    }
+  }
+
+  processLevelMulti(0, minIndent);
+  for (let i = 0; i < rows.length; i++) {
+    if (!processed.has(i)) result.push({ ...rows[i], visibleIndex: result.length });
+  }
+  return result;
+}
+
 export function sortFlattenedRows(
   rows: FlattenedNode[],
   model: MatrixModel,
