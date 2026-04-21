@@ -40,14 +40,22 @@ export interface CellProps {
   isActive: boolean;
   isEdited: boolean;
   hasNote: boolean;
-  onClick: () => void;
+  isColumnSelected?: boolean;
+  /**
+   * Pre-composed style layer from settings + column-format + row-format + CF rule.
+   * When provided, these override the raw settings.values values (which
+   * previously ignored bold / underline — those are now respected).
+   */
+  composedStyle?: React.CSSProperties;
+  composedAlignment?: "left" | "center" | "right";
+  onClick: (e: React.MouseEvent) => void;
 }
 
 export const Cell: React.FC<CellProps> = memo(({
   value,
   formattedValue,
-  columnIndex,
-  measureIndex,
+  columnIndex: _columnIndex,
+  measureIndex: _measureIndex,
   columnWidth,
   settings,
   cellStyle,
@@ -59,9 +67,12 @@ export const Cell: React.FC<CellProps> = memo(({
   isActive,
   isEdited,
   hasNote,
+  isColumnSelected,
+  composedStyle,
+  composedAlignment,
   onClick,
 }) => {
-  const alignmentClass = `align-${settings.values.alignment}`;
+  const alignmentClass = `align-${composedAlignment ?? settings.values.alignment}`;
 
   // A CF color-scale rule with applyTo="dataBar" injects dataBarPct/dataBarColor.
   const showCFDataBar = cellStyle.dataBarPct !== undefined && value !== null;
@@ -107,19 +118,25 @@ export const Cell: React.FC<CellProps> = memo(({
 
   return (
     <div
-      className={`matrix-cell ${alignmentClass} ${isActive ? "active" : ""} ${isEdited ? "edited" : ""}`}
+      className={`matrix-cell ${alignmentClass} ${isActive ? "active" : ""} ${isEdited ? "edited" : ""} ${isColumnSelected ? "col-selected" : ""}`}
       style={{
         width: columnWidth,
         minWidth: columnWidth,
         fontSize: `${settings.values.fontSize}px`,
-        backgroundColor: cellStyle.backgroundColor,
-        color: cellStyle.color,
-        fontWeight: cellStyle.fontWeight,
-        fontStyle: settings.values.italic ? "italic" : undefined,
-        textDecoration: settings.values.underline ? "underline" : undefined,
+        // composedStyle merges settings.values defaults + column/row formats
+        // + CF rules. When absent we fall back to the original CF-only view.
+        ...(composedStyle
+          ? composedStyle
+          : {
+              backgroundColor: cellStyle.backgroundColor,
+              color: cellStyle.color,
+              fontWeight: cellStyle.fontWeight ?? (settings.values.bold ? 700 : undefined),
+              fontStyle: settings.values.italic ? "italic" : undefined,
+              textDecoration: settings.values.underline ? "underline" : undefined,
+            }),
         ...getBorderStyle(),
       }}
-      onClick={onClick}
+      onClick={(e) => onClick(e)}
     >
       {isEdited && <div className="edited-marker" title="Edited cell" />}
       {hasNote && <div className="note-marker" title="Has note" />}

@@ -99,7 +99,7 @@ export function compareScenarios(
  */
 function calculateComparisonSummary(
   variances: ScenarioVariance[],
-  highlightThreshold: number
+  _highlightThreshold: number
 ): ComparisonSummary {
   let totalCells = variances.length;
   let cellsWithVariance = 0;
@@ -154,7 +154,7 @@ function calculateComparisonSummary(
 export function generateWaterfallData(
   variances: ScenarioVariance[],
   baseTotal: number,
-  categories: string[]
+  _categories: string[]
 ): WaterfallDataPoint[] {
   const dataPoints: WaterfallDataPoint[] = [];
 

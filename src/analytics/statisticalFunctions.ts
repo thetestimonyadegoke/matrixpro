@@ -245,8 +245,7 @@ export function regression(x: number[], y: number[]): RegressionResult {
   const predictions = x.map(xi => slope * xi + intercept);
   
   // Confidence intervals (95%)
-  const confidence = x.map(xi => {
-    const prediction = slope * xi + intercept;
+  const confidence = x.map(_xi => {
     return 1.96 * standardError; // Approximate 95% CI
   });
   

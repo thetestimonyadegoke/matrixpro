@@ -27,6 +27,21 @@ export class SelectionManagerWrapper {
   }
 
   async select(selectionId: SelectionId, multiSelect: boolean = false): Promise<SelectionId[]> {
+    // Guard: Power BI host crashes with "Cannot read properties of null (reading 'valueDetails')"
+    // inside VisualContainerDataSelectionService.getSelectedValues if a null/undefined id is passed.
+    // Subtotal / grand-total / calculated rows legitimately have no selectionId, so a click on
+    // one of those cells must not be forwarded to the host selection pipeline.
+    if (!selectionId) {
+      // Treat as a "clear selection" gesture when not multi-selecting, otherwise a no-op.
+      if (!multiSelect) {
+        try {
+          await this.selectionManager.clear();
+        } catch (error) {
+          console.error("Clear selection error:", error);
+        }
+      }
+      return this.selectionManager.getSelectionIds();
+    }
     try {
       return await this.selectionManager.select(selectionId, multiSelect);
     } catch (error) {
@@ -60,7 +75,19 @@ export class SelectionManagerWrapper {
   }
 
   showContextMenu(selectionId: SelectionId, position: { x: number; y: number }): void {
-    this.selectionManager.showContextMenu(selectionId, position);
+    // Same guard as select(): passing null/undefined triggers a host-side crash in
+    // getSelectedValues when the menu commands try to resolve the clicked data point.
+    // For rows without an identity (totals/calculated), fall back to an empty selection
+    // so the visual still shows the default context menu without throwing.
+    try {
+      if (!selectionId) {
+        this.selectionManager.showContextMenu({} as any, position);
+        return;
+      }
+      this.selectionManager.showContextMenu(selectionId, position);
+    } catch (error) {
+      console.error("Context menu error:", error);
+    }
   }
 }
 

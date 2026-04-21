@@ -3,7 +3,7 @@
  * Provides Excel-like formula editing with IntelliSense, validation, and cell reference highlighting
  */
 
-import { useState, useCallback, useRef, useEffect, KeyboardEvent, useImperativeHandle, forwardRef } from 'react';
+import { useState, useEffect } from 'react';
 
 export type FormulaBarMode = 'view' | 'edit' | 'formula';
 

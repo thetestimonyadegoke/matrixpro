@@ -1,4 +1,5 @@
 import { ConditionalFormattingSettings } from "../settings/settings";
+import { secureRandomId } from "../model/keys";
 
 // ============================================================================
 // Types
@@ -9,6 +10,9 @@ export interface CellStyle {
   color?: string;
   fontWeight?: string;
   fontStyle?: string;
+  textDecoration?: string; // for underline
+  /** Hatched pattern style */
+  hatched?: boolean;
   /** Icon from a classification rule */
   icon?: ClassificationIcon;
   /** Where to place the icon relative to the value text */
@@ -30,6 +34,7 @@ export type ClassificationIcon =
  * "Apply to" / "Row hierarchy levels" / "Exclude" block from the reference UI.
  */
 export interface RuleScope {
+  targetType: "rows" | "columns" | "rowHeaders" | "columnHeaders";
   /**
    * Measure index the rule targets. -1 means "all measures".
    */
@@ -127,9 +132,31 @@ export interface ClassificationConfig {
   ranges: ClassificationRange[];
 }
 
+// --- Format-by: Data Bars ----------------------------------------------------
+
+export interface DataBarsConfig {
+  basedOnMeasure: number;
+  positiveColor: string;
+  negativeColor: string;
+  axisPosition: "auto" | "middle" | "left" | "right";
+  showBarOnly: boolean;
+  barDirection: "leftToRight" | "rightToLeft";
+}
+
+// --- Format-by: Ranking ------------------------------------------------------
+
+export interface RankingConfig {
+  basedOnMeasure: number;
+  topCount: number;
+  mode: "top" | "bottom" | "both";
+  usePercentage: boolean;
+  style: CellStyle;
+  impactOn: ("label" | "chart")[];
+}
+
 // --- Top-level rule -----------------------------------------------------------
 
-export type FormatBy = "rules" | "colorScale" | "classification";
+export type FormatBy = "rules" | "colorScale" | "classification" | "dataBars" | "ranking";
 
 export interface ConditionalRule {
   id: string;
@@ -140,6 +167,8 @@ export interface ConditionalRule {
   rulesConfig?: RulesFormatConfig;
   colorScaleConfig?: ColorScaleConfig;
   classificationConfig?: ClassificationConfig;
+  dataBarsConfig?: DataBarsConfig;
+  rankingConfig?: RankingConfig;
 }
 
 // ============================================================================
@@ -161,7 +190,7 @@ export function stringifyRules(rules: ConditionalRule[]): string {
 }
 
 export function newRuleId(): string {
-  return `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `rule_${Date.now()}_${secureRandomId(6)}`;
 }
 
 export function defaultRule(title: string): ConditionalRule {
@@ -170,6 +199,7 @@ export function defaultRule(title: string): ConditionalRule {
     title,
     enabled: true,
     scope: {
+      targetType: "rows",
       targetMeasure: -1,
       rowHierarchyLevels: "valuesAndTotals",
       excludeColumnGrandTotal: false,
@@ -190,6 +220,7 @@ export function defaultRule(title: string): ConditionalRule {
 export interface EvaluationContext {
   value: number | null;
   measureIndex: number;
+  targetType?: RuleScope["targetType"];
   isSubtotal: boolean;
   isGrandTotal: boolean;
   isColumnGrandTotal: boolean;
@@ -244,6 +275,11 @@ export function evaluateCellStyle(
 
 function ruleAppliesToCell(rule: ConditionalRule, ctx: EvaluationContext): boolean {
   const scope = rule.scope;
+  const targetType = ctx.targetType ?? "rows";
+
+  if (scope.targetType !== targetType) {
+    return false;
+  }
   if (scope.targetMeasure !== -1 && scope.targetMeasure !== ctx.measureIndex) {
     return false;
   }
@@ -264,6 +300,10 @@ function evaluateOneRule(rule: ConditionalRule, ctx: EvaluationContext): CellSty
       return evaluateColorScale(rule.colorScaleConfig, ctx);
     case "classification":
       return evaluateClassification(rule.classificationConfig, ctx);
+    case "dataBars":
+      return evaluateDataBars(rule.dataBarsConfig, ctx);
+    case "ranking":
+      return evaluateRanking(rule.rankingConfig, ctx);
   }
 }
 
@@ -285,9 +325,13 @@ function evaluateRulesMode(
     if (cfg.style.color !== undefined) out.color = cfg.style.color;
     if (cfg.style.fontWeight !== undefined) out.fontWeight = cfg.style.fontWeight;
     if (cfg.style.fontStyle !== undefined) out.fontStyle = cfg.style.fontStyle;
+    if (cfg.style.textDecoration !== undefined) out.textDecoration = cfg.style.textDecoration;
   }
-  if (impactsChart) {
+  if (cfg.style.backgroundColor !== undefined && (impactsChart || !cfg.impactOn.length || impactsLabel)) {
     if (cfg.style.backgroundColor !== undefined) out.backgroundColor = cfg.style.backgroundColor;
+  }
+  if (cfg.style.hatched !== undefined && (impactsChart || !cfg.impactOn.length || impactsLabel)) {
+    out.hatched = cfg.style.hatched;
   }
   return out;
 }
@@ -403,6 +447,82 @@ function evaluateClassification(
   return out;
 }
 
+// ==== Data Bars mode ==========================================================
+
+function evaluateDataBars(
+  cfg: DataBarsConfig | undefined,
+  ctx: EvaluationContext
+): CellStyle {
+  if (!cfg) return {};
+  const v = cfg.basedOnMeasure === -1
+    ? ctx.value
+    : ctx.getValueForMeasure(cfg.basedOnMeasure);
+  if (v === null || Number.isNaN(v)) return {};
+
+  const measureForStats = cfg.basedOnMeasure === -1 ? ctx.measureIndex : cfg.basedOnMeasure;
+  const { min, max } = ctx.getStatsForMeasure(measureForStats, "columnWise");
+
+  // Calculate relative percentage
+  const isNegative = v < 0;
+  const color = isNegative ? cfg.negativeColor : cfg.positiveColor;
+
+  let pct = 0;
+  if (min >= 0) {
+    // All positive
+    pct = (v / Math.max(0.0001, max)) * 100;
+  } else if (max <= 0) {
+    // All negative
+    pct = (v / Math.min(-0.0001, min)) * 100;
+  } else {
+    // Mixed
+    const m = Math.max(Math.abs(min), Math.abs(max));
+    pct = (Math.abs(v) / m) * 50;
+  }
+
+  const out: CellStyle = {
+    dataBarPct: Math.round(pct),
+    dataBarColor: color,
+  };
+
+  if (cfg.showBarOnly) {
+    out.color = "transparent"; // Hide value
+  }
+
+  return out;
+}
+
+// ---- Ranking mode -----------------------------------------------------------
+
+function evaluateRanking(
+  cfg: RankingConfig | undefined,
+  ctx: EvaluationContext
+): CellStyle {
+  if (!cfg) return {};
+  const v = cfg.basedOnMeasure === -1
+    ? ctx.value
+    : ctx.getValueForMeasure(cfg.basedOnMeasure);
+  if (v === null || Number.isNaN(v)) return {};
+
+  const measureForStats = cfg.basedOnMeasure === -1 ? ctx.measureIndex : cfg.basedOnMeasure;
+  const { min, max } = ctx.getStatsForMeasure(measureForStats, "columnWise");
+  const range = max - min;
+
+  // Minimal heuristic for % based ranking if we don't have full data set here
+  if (cfg.usePercentage) {
+    const pct = range === 0 ? 0 : ((v - min) / range) * 100;
+    let match = false;
+    if (cfg.mode === "top") match = pct >= (100 - cfg.topCount);
+    else if (cfg.mode === "bottom") match = pct <= cfg.topCount;
+    else if (cfg.mode === "both") match = pct >= (100 - cfg.topCount) || pct <= cfg.topCount;
+
+    if (match) return cfg.style;
+  }
+
+  // For absolute "Top N", a proper implementation would need the full sorted values list.
+  // We'll treat it as a % placeholder for now or return empty style.
+  return {};
+}
+
 // ============================================================================
 // Style merge + legacy fallback
 // ============================================================================
@@ -418,6 +538,7 @@ function legacyEvaluate(
   ctx: EvaluationContext,
   settings: ConditionalFormattingSettings
 ): CellStyle {
+  if (!settings.enabled) return {};
   if (!settings.applyToAllMeasures && settings.targetMeasure !== ctx.measureIndex) {
     return {};
   }

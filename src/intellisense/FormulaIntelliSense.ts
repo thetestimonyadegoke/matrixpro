@@ -185,12 +185,8 @@ export class FormulaIntelliSense {
   private getRowScopedSuggestions(scope: string, filter: string): Suggestion[] {
     const suggestions: Suggestion[] = [];
     const filterLower = filter.toLowerCase();
-    const scopeLower = scope.toLowerCase();
 
     // Find rows that match the scope level
-    const scopeLevel = this.context.rowHierarchyLevels.findIndex(
-      level => level.toLowerCase() === scopeLower
-    );
 
     for (const row of this.context.rows) {
       // Match rows at the appropriate level or children of scope

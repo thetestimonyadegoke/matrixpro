@@ -154,6 +154,7 @@ export function computeCalculatedMeasures(
       name: calc.definition.name,
       format: calc.definition.format,
       queryName: `__calc__${calc.definition.id}`,
+      id: calc.definition.id,
     });
   }
 

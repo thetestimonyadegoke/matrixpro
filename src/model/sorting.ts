@@ -107,12 +107,6 @@ export function sortFlattenedRowsMulti(
   const processed = new Set<number>();
   const minIndent = Math.min(...rows.map(r => r.indent));
 
-  const multiConfig: SortConfig = {
-    columnKey: active[0].columnKey,
-    measureIndex: active[0].measureIndex,
-    direction: active[0].direction,
-  };
-
   // Re-use existing single-config infrastructure but with composite comparator injected via the first config
   // For true multi-sort we override the comparator at the sibling level:
   function compareSiblings(a: FlattenedNode, b: FlattenedNode): number {

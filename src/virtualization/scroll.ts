@@ -98,8 +98,7 @@ export interface VirtualScrollResult {
 export function computeVirtualScroll(
   scrollTop: number,
   scrollLeft: number,
-  config: ViewportConfig,
-  prevState: ScrollState
+  config: ViewportConfig
 ): VirtualScrollResult {
   const visibleRange = computeVisibleRange(scrollTop, scrollLeft, config);
   const now = Date.now();

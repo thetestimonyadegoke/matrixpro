@@ -1,4 +1,4 @@
-import { computeSubtotal, AggregationType } from "../model/totals";
+import { computeSubtotal } from "../model/totals";
 
 describe("Totals Computation", () => {
   describe("computeSubtotal with different aggregation types", () => {

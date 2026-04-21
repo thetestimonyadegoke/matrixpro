@@ -78,13 +78,11 @@ export function useTouchGestures(config: TouchGestureConfig) {
 
     const touch = e.changedTouches[0];
     const start = touchStartRef.current;
-    const endX = touch.clientX;
-    const endY = touch.clientY;
-    const endTime = Date.now();
+    const _endX = touch.clientX;
+    const _endY = touch.clientY;
 
-    const deltaX = endX - start.x;
-    const deltaY = endY - start.y;
-    const deltaTime = endTime - start.time;
+    const deltaX = _endX - start.x;
+    const deltaY = _endY - start.y;
     const threshold = config.swipeThreshold || 50;
 
     // Determine if swipe or tap

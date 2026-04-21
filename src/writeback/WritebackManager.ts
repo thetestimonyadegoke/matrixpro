@@ -184,7 +184,7 @@ export class WritebackManager implements IWritebackManager {
     return this.auditLogger.queryLogs(options);
   }
 
-  logAudit(entry: AuditLogEntry): Promise<void> {
+  logAudit(_entry: AuditLogEntry): Promise<void> {
     return Promise.resolve();
   }
 

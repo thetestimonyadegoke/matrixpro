@@ -6,8 +6,8 @@
 
 import { FlattenedNode } from "../model/tree";
 import { CellValue } from "../model/pivot";
-import { distributionStats, yoyGrowth, correl } from "./statisticalFunctions";
-import { detectOutliers, OutlierMethod } from "./advancedFiltering";
+import { distributionStats, correl } from "./statisticalFunctions";
+import { OutlierMethod } from "./advancedFiltering";
 
 export type InsightType = 
   | 'trend' 
@@ -485,7 +485,7 @@ function generateCorrelationInsights(
 function generateRecommendations(
   data: Array<{ row: FlattenedNode; value: number }>,
   trends: TrendAnalysis,
-  anomalies: AnomalyDetection
+  _anomalies: AnomalyDetection
 ): Insight[] {
   const insights: Insight[] = [];
   
@@ -558,7 +558,6 @@ export function generateSmartSummary(
   insights: Insight[]
 ): string {
   const critical = insights.filter(i => i.priority === 'critical');
-  const high = insights.filter(i => i.priority === 'high');
   const trends = insights.filter(i => i.type === 'trend');
   const anomalies = insights.filter(i => i.type === 'anomaly');
 

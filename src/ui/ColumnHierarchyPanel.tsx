@@ -22,7 +22,7 @@ export const ColumnHierarchyPanel: React.FC<ColumnHierarchyPanelProps> = memo(({
   }, [allowInteractions, onToggleExpand]);
 
   // Group columns by level for hierarchy display
-  const rootColumns = columns.filter(c => c.level === 0 || c.indent === 0);
+
 
   return (
     <div className="column-hierarchy-panel" style={{ width }}>

@@ -4,7 +4,6 @@
  */
 
 import React, { useEffect, useRef, useCallback, useState } from 'react';
-import { ARIA_LABELS } from './keyboardNavigation';
 
 interface A11yManager {
   announce(message: string, priority?: 'polite' | 'assertive'): void;

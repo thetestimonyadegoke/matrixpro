@@ -11,7 +11,6 @@ import {
   WritebackDestinationType,
   ConnectionTestResult,
   TableSchema,
-  ColumnSchema,
   WritebackChange,
   WritebackError,
   ValidationError,
@@ -97,7 +96,7 @@ export class SqlServerAdapter extends BaseWritebackAdapter {
     }
   }
 
-  async getSchema(config: WritebackConfig): Promise<TableSchema> {
+  async getSchema(_config: WritebackConfig): Promise<TableSchema> {
     // In real implementation, query INFORMATION_SCHEMA.COLUMNS
     // For now, return a simulated schema based on config
 

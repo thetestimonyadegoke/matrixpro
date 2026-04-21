@@ -109,6 +109,11 @@ function buildXLSXContent(
   }
 
   for (const row of rows) {
+    // Skip rows that don't carry data: blank spacer + visual divider.
+    if (row.calcRowKind === "blank" || row.calcRowKind === "divider") {
+      continue;
+    }
+
     const xlsxRow: XLSXCell[] = [];
 
     const indent = "  ".repeat(row.indent);
@@ -122,6 +127,16 @@ function buildXLSXContent(
     }
 
     xlsxRow.push({ value: rowLabel, style: rowStyle });
+
+    // Group rows export as label-only: pad remaining cells empty.
+    if (row.calcRowKind === "group") {
+      const effectiveColumns = columns.length > 0 ? columns : measures.map((_, i) => ({ key: `col:measure_${i}` }));
+      for (let i = 0; i < effectiveColumns.length * measures.length; i++) {
+        xlsxRow.push({ value: "", style: { fontWeight: "bold" } });
+      }
+      worksheet.rows.push(xlsxRow);
+      continue;
+    }
 
     const effectiveColumns = columns.length > 0 ? columns : measures.map((m, i) => ({ key: `col:measure_${i}`, label: m.name }));
 

@@ -120,9 +120,10 @@ export function buildCellMenuItems(
   onAddVariance: () => void,
   onExport: () => void,
   onRevert: () => void,
-  hasEdit: boolean
+  hasEdit: boolean,
+  onDrillThrough?: () => void
 ): ContextMenuItem[] {
-  return [
+  const items: ContextMenuItem[] = [
     { id: "copy", label: "Copy Value", icon: "📋", action: onCopy },
     { id: "copyRow", label: "Copy Row", icon: "📄", action: onCopyRow },
     { id: "divider1", label: "", divider: true },
@@ -134,6 +135,11 @@ export function buildCellMenuItems(
     { id: "divider3", label: "", divider: true },
     { id: "export", label: "Export Selection", icon: "📤", action: onExport },
   ];
+  if (onDrillThrough) {
+    items.push({ id: "divider4", label: "", divider: true });
+    items.push({ id: "drillThrough", label: "Drill Through...", icon: "⤵", action: onDrillThrough });
+  }
+  return items;
 }
 
 export function buildRowHeaderMenuItems(
@@ -143,9 +149,10 @@ export function buildRowHeaderMenuItems(
   onRenameRow: () => void,
   onMoveToGroup: () => void,
   onLockRow: () => void,
-  isLocked: boolean
+  isLocked: boolean,
+  onDrillThrough?: () => void
 ): ContextMenuItem[] {
-  return [
+  const items: ContextMenuItem[] = [
     { id: "expandAll", label: "Expand All Under This", icon: "⊞", action: onExpandAll },
     { id: "collapseAll", label: "Collapse All Under This", icon: "⊟", action: onCollapseAll },
     { id: "divider1", label: "", divider: true },
@@ -155,6 +162,11 @@ export function buildRowHeaderMenuItems(
     { id: "divider2", label: "", divider: true },
     { id: "lockRow", label: isLocked ? "Unlock Row" : "Lock Row", icon: isLocked ? "🔓" : "🔒", action: onLockRow },
   ];
+  if (onDrillThrough) {
+    items.push({ id: "divider3", label: "", divider: true });
+    items.push({ id: "drillThrough", label: "Drill Through...", icon: "⤵", action: onDrillThrough });
+  }
+  return items;
 }
 
 export function buildColumnHeaderMenuItems(

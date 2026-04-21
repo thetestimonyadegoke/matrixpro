@@ -10,8 +10,17 @@ export interface CalcMeasureWizardProps {
     formula: string;
     format: string;
     aggregation: "afterTotals" | "beforeTotals";
+    id?: string;
   }) => void;
   onClose: () => void;
+  initialMeasure?: {
+    id: string;
+    name: string;
+    description: string;
+    formula: string;
+    format: string;
+    aggregationMode: "afterTotals" | "beforeTotals";
+  };
 }
 
 const FORMAT_OPTIONS = [
@@ -39,12 +48,15 @@ export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
   measures,
   onSave,
   onClose,
+  initialMeasure,
 }) => {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [formula, setFormula] = useState("");
-  const [format, setFormat] = useState("");
-  const [aggregation, setAggregation] = useState<"afterTotals" | "beforeTotals">("afterTotals");
+  const [name, setName] = useState(initialMeasure?.name || "");
+  const [description, setDescription] = useState(initialMeasure?.description || "");
+  const [formula, setFormula] = useState(initialMeasure?.formula || "");
+  const [format, setFormat] = useState(initialMeasure?.format || "");
+  const [aggregation, setAggregation] = useState<"afterTotals" | "beforeTotals">(
+    initialMeasure?.aggregationMode || "afterTotals"
+  );
   const [error, setError] = useState<string | null>(null);
 
   const validateCurrentFormula = useCallback(() => {
@@ -76,8 +88,9 @@ export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
       formula: formula.trim(),
       format,
       aggregation,
+      id: initialMeasure?.id,
     });
-  }, [name, description, formula, format, aggregation, validateCurrentFormula, onSave]);
+  }, [name, description, formula, format, aggregation, validateCurrentFormula, onSave, initialMeasure]);
 
   const insertMeasureRef = useCallback((measureName: string) => {
     setFormula(prev => prev + `[${measureName}]`);
@@ -107,7 +120,7 @@ export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
     <div className="calc-wizard-overlay" onClick={onClose}>
       <div className="calc-wizard-modal" onClick={e => e.stopPropagation()}>
         <div className="calc-wizard-header">
-          <h2>New Calculated Measure</h2>
+          <h2>{initialMeasure ? "Edit Calculated Measure" : "New Calculated Measure"}</h2>
           <button className="calc-wizard-close" onClick={onClose} type="button" aria-label="Close">
             ×
           </button>
@@ -241,7 +254,7 @@ export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
             Cancel
           </button>
           <button type="button" className="calc-wizard-btn primary" onClick={handleSave}>
-            Add Measure
+            {initialMeasure ? "Save Changes" : "Add Measure"}
           </button>
         </div>
       </div>

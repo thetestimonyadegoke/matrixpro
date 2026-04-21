@@ -18,7 +18,7 @@ export function buildCSVContent(
   columns: FlattenedNode[],
   cellMap: { get: (key: string) => CellValue | undefined },
   measures: MeasureInfo[],
-  settings: VisualSettings
+  _settings: VisualSettings
 ): string {
   const lines: string[] = [];
 
@@ -39,11 +39,27 @@ export function buildCSVContent(
   lines.push(headerCells.join(","));
 
   for (const row of rows) {
+    // Skip rows that carry no data (blank spacer, visual divider). Group
+    // rows are exported with their label but no data cells.
+    if (row.calcRowKind === "blank" || row.calcRowKind === "divider") {
+      continue;
+    }
+
     const rowCells: string[] = [];
 
     const indent = "  ".repeat(row.indent);
     const rowLabel = row.isGrandTotal ? "Grand Total" : row.isSubtotal ? `${row.label}` : `${indent}${row.label}`;
     rowCells.push(escapeCSV(rowLabel));
+
+    if (row.calcRowKind === "group") {
+      // Group rows: emit only the label column; pad remaining cells empty.
+      const emptyCellCount = columns.length > 0
+        ? columns.length * measures.length
+        : measures.length;
+      for (let i = 0; i < emptyCellCount; i++) rowCells.push("");
+      lines.push(rowCells.join(","));
+      continue;
+    }
 
     if (columns.length > 0) {
       for (const col of columns) {

@@ -4,7 +4,7 @@ import { FlattenedNode } from "../model/tree";
 import { CellValue, MeasureInfo, getCellValue, computeGlobalStats } from "../model/pivot";
 import { VisualSettings } from "../settings/settings";
 import { SortConfig } from "../model/sorting";
-import { SelectionState } from "../powerbi/selection";
+import { SelectionState, SelectionManagerWrapper } from "../powerbi/selection";
 import { ViewportRange, computeVisibleRange, ViewportConfig } from "../virtualization/viewport";
 import { ScrollManager } from "../virtualization/scroll";
 import { Row } from "./Row";
@@ -15,7 +15,6 @@ import { getRowStyle } from "../format/styles";
 import { TooltipServiceWrapper } from "../powerbi/tooltip";
 import { ContextMenu, ContextMenuItem, buildCellMenuItems, buildRowHeaderMenuItems, buildColumnHeaderMenuItems } from "./ContextMenu";
 import { FormulaBar, FormulaBarRef } from "./FormulaBar";
-import { getThemePreset, applyThemeTokensToElement } from "../themes/themeTokens";
 import { BulkOperationsPanel, BulkOperationType } from "./BulkOperationsPanel";
 import { generateCellLabel, formatCellReferenceForFormula } from "../utils/cellNaming";
 
@@ -31,6 +30,7 @@ export interface MatrixProps {
   height: number;
   sortConfig: SortConfig;
   selectionState: SelectionState;
+  selectionManager?: SelectionManagerWrapper;
   sparklineMeasureIndex: number;
   onSort: (columnKey: string, measureIndex: number) => void;
   onToggleRowExpand: (nodeKey: string) => void;
@@ -49,6 +49,11 @@ export interface MatrixProps {
     rowHierarchyLevels: string[];
     columnHierarchyLevels: string[];
   };
+  selectedColumnKeys?: string[];
+  selectedRowKeysForFormat?: string[];
+  onRowSelectionForFormatChange?: (keys: string[]) => void;
+  onToggleGroupCollapsed?: (rowDefId: string) => void;
+  onColumnSelectionChange?: (keys: string[]) => void;
 }
 
 const ROW_BUFFER = 10;
@@ -66,10 +71,11 @@ export const Matrix: React.FC<MatrixProps> = ({
   height,
   sortConfig,
   selectionState,
+  selectionManager,
   sparklineMeasureIndex,
   onSort,
   onToggleRowExpand,
-  onToggleColumnExpand,
+  onToggleColumnExpand: _onToggleColumnExpand,
   onExpandAllUnder,
   onCollapseAllUnder,
   onRowSelect,
@@ -80,6 +86,11 @@ export const Matrix: React.FC<MatrixProps> = ({
   onAddQuickVariance,
   onOpenBulkOperations,
   intelliSenseContext,
+  selectedColumnKeys: selectedColumnKeysArr,
+  selectedRowKeysForFormat: selectedRowKeysForFormatArr,
+  onRowSelectionForFormatChange,
+  onToggleGroupCollapsed,
+  onColumnSelectionChange,
 }) => {
   type GridColumn = {
     key: string;
@@ -327,14 +338,14 @@ export const Matrix: React.FC<MatrixProps> = ({
         const draggedLevel = draggedRowObj.level;
         const startIdx = rows.findIndex(r => r.key === draggedRowKey);
         if (startIdx > -1) {
-           for (let i = startIdx + 1; i < rows.length; i++) {
-             const r = rows[i];
-             if (r.level > draggedLevel) {
-                draggedKeysToMove.push(r.key);
-             } else {
-                break;
-             }
-           }
+          for (let i = startIdx + 1; i < rows.length; i++) {
+            const r = rows[i];
+            if (r.level > draggedLevel) {
+              draggedKeysToMove.push(r.key);
+            } else {
+              break;
+            }
+          }
         }
       }
 
@@ -549,6 +560,61 @@ export const Matrix: React.FC<MatrixProps> = ({
     columnHeaderHeight,
   }), [safeRowHeightPx, safeColumnWidthPx, width, height, rows.length, gridColumns.length, rowHeaderWidth, columnHeaderHeight]);
 
+  const selectedColumnKeysSet = useMemo(() => new Set(selectedColumnKeysArr || []), [selectedColumnKeysArr]);
+  const selectedRowKeysForFormatSet = useMemo(() => new Set(selectedRowKeysForFormatArr || []), [selectedRowKeysForFormatArr]);
+
+  const handleColumnHeaderClick = useCallback((
+    columnKey: string,
+    measureIndex: number,
+    modifiers: { ctrl: boolean; shift: boolean }
+  ) => {
+    if (!allowInteractions) return;
+    const key = `${columnKey}::m${measureIndex}`;
+    let next: string[];
+    
+    if (modifiers.ctrl || modifiers.shift) {
+      if (selectedColumnKeysArr?.includes(key)) {
+        next = selectedColumnKeysArr.filter(k => k !== key);
+      } else {
+        next = [...(selectedColumnKeysArr || []), key];
+      }
+    } else {
+      // Toggle if already selected, or select single
+      if (selectedColumnKeysArr?.length === 1 && selectedColumnKeysArr[0] === key) {
+        next = [];
+      } else {
+        next = [key];
+      }
+    }
+    
+    onColumnSelectionChange?.(next);
+  }, [allowInteractions, selectedColumnKeysArr, onColumnSelectionChange]);
+
+  const handleRowHeaderClick = useCallback((
+    row: FlattenedNode,
+    modifiers: { ctrl: boolean; shift: boolean }
+  ) => {
+    if (!allowInteractions) return;
+    const key = row.key;
+    let next: string[];
+
+    if (modifiers.ctrl || modifiers.shift) {
+      if (selectedRowKeysForFormatArr?.includes(key)) {
+        next = selectedRowKeysForFormatArr.filter(k => k !== key);
+      } else {
+        next = [...(selectedRowKeysForFormatArr || []), key];
+      }
+    } else {
+      if (selectedRowKeysForFormatArr?.length === 1 && selectedRowKeysForFormatArr[0] === key) {
+        next = [];
+      } else {
+        next = [key];
+      }
+    }
+    
+    onRowSelectionForFormatChange?.(next);
+  }, [allowInteractions, selectedRowKeysForFormatArr, onRowSelectionForFormatChange]);
+
   const handleContextMenu = useCallback((
     e: React.MouseEvent,
     row?: FlattenedNode,
@@ -588,7 +654,10 @@ export const Matrix: React.FC<MatrixProps> = ({
           delete edits[`${row.key}|${colKey}|${measureIndex}`];
           onPersistProperty("manualData", "edits", JSON.stringify(edits));
         },
-        !!JSON.parse(settings.manualData.edits || "{}")[`${row.key}|${colKey}|${measureIndex}`]
+        !!JSON.parse(settings.manualData.edits || "{}")[`${row.key}|${colKey}|${measureIndex}`],
+        (selectionManager && row.selectionId)
+          ? () => selectionManager.showContextMenu(row.selectionId!, { x, y })
+          : undefined
       );
       setContextMenu({ x, y, type: "cell", items });
     } else if (row) {
@@ -611,7 +680,10 @@ export const Matrix: React.FC<MatrixProps> = ({
           const newLocks = locks.includes(row.key) ? locks.filter((l: string) => l !== row.key) : [...locks, row.key];
           onPersistProperty("manualData", "locks", JSON.stringify(newLocks));
         },
-        JSON.parse(settings.manualData.locks || "[]").includes(row.key)
+        JSON.parse(settings.manualData.locks || "[]").includes(row.key),
+        (selectionManager && row.selectionId)
+          ? () => selectionManager.showContextMenu(row.selectionId!, { x, y })
+          : undefined
       );
       setContextMenu({ x, y, type: "rowHeader", items });
     } else if (colKey !== undefined && measureIndex !== undefined) {
@@ -649,7 +721,7 @@ export const Matrix: React.FC<MatrixProps> = ({
       );
       setContextMenu({ x, y, type: "columnHeader", items });
     }
-  }, [allowInteractions, cellMap, onToggleRowExpand, onOpenCalcMeasureWizard, onOpenCalcRowWizard, onSort, onPersistProperty, settings.manualData, settings.general, gridColumns, onAddQuickVariance]);
+  }, [allowInteractions, cellMap, onToggleRowExpand, onOpenCalcMeasureWizard, onOpenCalcRowWizard, onSort, onPersistProperty, settings.manualData, settings.general, gridColumns, onAddQuickVariance, selectionManager, onExpandAllUnder, onCollapseAllUnder]);
 
   const visibleRange: ViewportRange = useMemo(() => {
     return computeVisibleRange(scrollTop, scrollLeft, viewportConfig);
@@ -841,30 +913,6 @@ export const Matrix: React.FC<MatrixProps> = ({
     window.addEventListener("mouseup", onUp);
   }, [allowInteractions, safeRowHeightPx, minRowHeightPx, onPersistProperty]);
 
-  const startColumnResize = useCallback((clientX: number) => {
-    if (!allowInteractions) return;
-    const startX = clientX;
-    const startW = safeColumnWidthPx;
-
-    const minColWidth = 60;
-    const maxColWidth = 420;
-
-    const onMove = (e: MouseEvent) => {
-      const next = Math.max(minColWidth, Math.min(maxColWidth, Math.round(startW + (e.clientX - startX))));
-      setColumnWidthPx(next);
-    };
-
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      const next = Math.max(minColWidth, Math.min(maxColWidth, Math.round(columnWidthRef.current)));
-      onPersistProperty("general", "defaultColumnWidth", next);
-    };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, [allowInteractions, safeColumnWidthPx, onPersistProperty]);
-
   const getDataBarRange = useCallback((rowKey: string, colKey: string, measureIndex: number): { min: number; max: number } => {
     const mode = settings.dataBars.normalizeBy;
     if (mode === "global") {
@@ -918,73 +966,6 @@ export const Matrix: React.FC<MatrixProps> = ({
     return style;
   }, [settings.conditionalFormatting, getColumnStatsCached, getRowStatsCached, globalStats, rows, columns, cellMap]);
 
-  // Bulk Operations Handlers
-  const handleCellSelectWithRange = useCallback((
-    row: FlattenedNode,
-    colKey: string,
-    measureIndex: number,
-    rowIndex?: number,
-    colIndex?: number,
-    isShiftClick?: boolean,
-    isCtrlClick?: boolean
-  ) => {
-    const cellKey = { rowKey: row.key, colKey, measureIndex };
-
-    if (isShiftClick && selectedRange.anchorCell) {
-      // Range selection: select all cells between anchor and current
-      const anchorRowIdx = rows.findIndex(r => r.key === selectedRange.anchorCell!.rowKey);
-      const currentRowIdx = rows.findIndex(r => r.key === row.key);
-      const anchorColIdx = gridColumns.findIndex(c => c.key === `${selectedRange.anchorCell!.colKey}::m${selectedRange.anchorCell!.measureIndex}`);
-      const currentColIdx = gridColumns.findIndex(c => c.key === `${colKey}::m${measureIndex}`);
-
-      const startRowIdx = Math.min(anchorRowIdx, currentRowIdx);
-      const endRowIdx = Math.max(anchorRowIdx, currentRowIdx);
-      const startColIdx = Math.min(anchorColIdx, currentColIdx);
-      const endColIdx = Math.max(anchorColIdx, currentColIdx);
-
-      const newCells: { rowKey: string; colKey: string; measureIndex: number }[] = [];
-      for (let r = startRowIdx; r <= endRowIdx; r++) {
-        for (let c = startColIdx; c <= endColIdx; c++) {
-          const gridCol = gridColumns[c];
-          if (gridCol) {
-            newCells.push({
-              rowKey: rows[r]?.key || "",
-              colKey: gridCol.col.key,
-              measureIndex: gridCol.measureIndex,
-            });
-          }
-        }
-      }
-
-      setSelectedRange(prev => ({
-        cells: newCells,
-        anchorCell: prev.anchorCell,
-      }));
-    } else if (isCtrlClick) {
-      // Toggle selection
-      const exists = selectedRange.cells.some(
-        c => c.rowKey === row.key && c.colKey === colKey && c.measureIndex === measureIndex
-      );
-      if (exists) {
-        setSelectedRange(prev => ({
-          cells: prev.cells.filter(
-            c => !(c.rowKey === row.key && c.colKey === colKey && c.measureIndex === measureIndex)
-          ),
-          anchorCell: prev.anchorCell,
-        }));
-      } else {
-        setSelectedRange(prev => ({
-          cells: [...prev.cells, cellKey],
-          anchorCell: cellKey,
-        }));
-      }
-    } else {
-      // Single selection - clear range and select just this cell
-      setSelectedRange({ cells: [cellKey], anchorCell: cellKey });
-      // Also update active cell for formula bar
-      handleCellSelect(row, colKey, measureIndex, rowIndex, colIndex);
-    }
-  }, [rows, gridColumns, selectedRange.anchorCell, handleCellSelect]);
 
   const handleApplyBulkOperation = useCallback((
     operation: BulkOperationType,
@@ -1107,6 +1088,8 @@ export const Matrix: React.FC<MatrixProps> = ({
             columnWidth={safeColumnWidthPx}
             scrollLeft={scrollLeft}
             totalContentWidth={totalContentWidth}
+            selectedColumnKeys={selectedColumnKeysSet}
+            onColumnHeaderClick={handleColumnHeaderClick}
             onContextMenu={(e, c, m) => handleContextMenu(e, undefined, c, m)}
           />
         </div>
@@ -1168,6 +1151,7 @@ export const Matrix: React.FC<MatrixProps> = ({
                   settings={settings}
                   tooltipService={tooltipService}
                   isSelected={isSelected}
+                  isFormatSelected={selectedRowKeysForFormatSet.has(row.key)}
                   style={{
                     ...getRowStyle(settings, actualIndex, row.isSubtotal, row.isGrandTotal, isSelected),
                     position: "absolute",
@@ -1176,7 +1160,17 @@ export const Matrix: React.FC<MatrixProps> = ({
                     width: rowHeaderWidth,
                   }}
                   onToggleExpand={onToggleRowExpand}
-                  onClick={(e) => handleRowClick(e, row)}
+                  onClick={(e) => {
+                    const ctrl = e.ctrlKey || e.metaKey;
+                    const shift = e.shiftKey;
+                    if (ctrl || shift) {
+                      handleRowHeaderClick(row, { ctrl, shift });
+                    } else {
+                      handleRowClick(e, row);
+                      // Also select for format on plain click
+                      handleRowHeaderClick(row, { ctrl: false, shift: false });
+                    }
+                  }}
                   onStartResize={startRowResize}
                   sparklineValues={sparklineValues}
                   sparklineLabels={sparklineLabels}

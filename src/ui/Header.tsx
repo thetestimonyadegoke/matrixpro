@@ -75,7 +75,7 @@ export const Header: React.FC<HeaderProps> = memo(({
             />
           )}
 
-          {visibleColumns.map((gridCol, idx) => {
+          {visibleColumns.map((gridCol, _idx) => {
             const baseLabel = settings.layout.mode === "table"
               ? gridCol.col.path.map(v => String(v)).join(" / ")
               : gridCol.col.label;

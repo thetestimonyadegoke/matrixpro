@@ -11,15 +11,6 @@ import {
   ValueSettings,
   TotalSettings,
   ConditionalFormattingSettings,
-  DataBarSettings,
-  KPIIconSettings,
-  SparklineSettings,
-  QuickCalcSettings,
-  AppearanceSettings,
-  CalculationsSettings,
-  ManualDataSettings,
-  LayoutSettings,
-  ThemeSettings,
   defaultSettings,
 } from "./settings";
 
@@ -414,6 +405,15 @@ export const settingsMetadata: SettingsMetadata = {
       category: "Appearance",
     },
   },
+  title: {
+    show: { description: "Show the custom in-visual title bar", type: "boolean", defaultValue: false, category: "Title" },
+    text: { description: "Title text", type: "string", defaultValue: "", category: "Title" },
+    fontSize: { description: "Font size in px", type: "number", defaultValue: 16, min: 8, max: 72, category: "Title" },
+    color: { description: "Font color", type: "color", defaultValue: "#111827", category: "Title" },
+    backgroundColor: { description: "Title bar background", type: "color", defaultValue: "#ffffff", category: "Title" },
+    alignment: { description: "Text alignment", type: "enum", defaultValue: "left", allowedValues: ["left", "center", "right"], category: "Title" },
+    height: { description: "Bar height in px", type: "number", defaultValue: 40, min: 24, max: 120, category: "Title" },
+  },
   layout: {
     mode: {
       description: "Layout mode for the matrix display",
@@ -430,20 +430,50 @@ export const settingsMetadata: SettingsMetadata = {
       description: "Pre-defined color theme",
       type: "enum",
       defaultValue: "modern-light",
-      allowedValues: ["modern-light", "modern-dark", "finance-statement", "minimal", "tableau-like", "figma-like"],
+      allowedValues: [
+        "modern-light", "modern-dark", "finance-statement", "minimal",
+        "tableau-like", "figma-like", "apple-glass",
+        "finance-classic", "finance-executive", "finance-annual-report",
+        "audit-paper", "minimal-whitespace", "dense-grid", "dark-contrast",
+        "brand-blue", "brand-green", "brand-orange",
+      ],
       category: "Theme",
     },
     density: {
       description: "Visual density of the interface",
       type: "enum",
       defaultValue: "comfortable",
-      allowedValues: ["compact", "comfortable"],
+      allowedValues: ["compact", "comfortable", "spacious"],
       category: "Theme",
     },
     customAccentColor: {
       description: "Custom accent color when not using a preset",
       type: "color",
       defaultValue: "#2563eb",
+      category: "Theme",
+    },
+    dividerLines: {
+      description: "Render divider lines above subtotal / top-level rows",
+      type: "boolean",
+      defaultValue: false,
+      category: "Theme",
+    },
+    rowHover: {
+      description: "Highlight rows on mouse hover",
+      type: "boolean",
+      defaultValue: true,
+      category: "Theme",
+    },
+    stickyTotals: {
+      description: "Grand total row sticks to the bottom of the viewport",
+      type: "boolean",
+      defaultValue: false,
+      category: "Theme",
+    },
+    numberAlignmentByMeasure: {
+      description: "Auto-right-align numeric measure columns",
+      type: "boolean",
+      defaultValue: false,
       category: "Theme",
     },
   },
@@ -534,6 +564,54 @@ export const settingsMetadata: SettingsMetadata = {
       defaultValue: "{}",
       category: "Data",
     },
+    filterRules: {
+      description: "JSON array of value filter rules",
+      type: "json",
+      defaultValue: "[]",
+      category: "Data",
+    },
+    topNConfig: {
+      description: "JSON top N configuration",
+      type: "json",
+      defaultValue: "{}",
+      category: "Data",
+    },
+    hiddenRowLevels: {
+      description: "JSON array of hidden row hierarchy level indices",
+      type: "json",
+      defaultValue: "[]",
+      category: "Data",
+    },
+    hiddenColumnLevels: {
+      description: "JSON array of hidden column hierarchy level indices",
+      type: "json",
+      defaultValue: "[]",
+      category: "Data",
+    },
+    colFormats: {
+      description: "JSON record of per-column direct formatting (bold, color, quick format, etc.) keyed by \"<colKey>::m<measureIndex>\"",
+      type: "json",
+      defaultValue: "{}",
+      category: "Data",
+    },
+    rowFormats: {
+      description: "JSON record of per-row direct formatting (bold, color, dividers, etc.) keyed by row key",
+      type: "json",
+      defaultValue: "{}",
+      category: "Data",
+    },
+    expandedRows: {
+      description: "JSON array of expanded row keys — persisted so expansion state survives reloads",
+      type: "json",
+      defaultValue: "[]",
+      category: "Data",
+    },
+    expandedCols: {
+      description: "JSON array of expanded column keys — persisted so expansion state survives reloads",
+      type: "json",
+      defaultValue: "[]",
+      category: "Data",
+    },
   },
 };
 
@@ -552,14 +630,14 @@ const validators = {
     return { valid: true, sanitized: value };
   },
 
-  string: (value: any, meta: SettingMetadata): { valid: boolean; sanitized: string; message?: string } => {
+  string: (value: any, _meta: SettingMetadata): { valid: boolean; sanitized: string; message?: string } => {
     if (typeof value !== "string") {
       return { valid: false, sanitized: String(value), message: "Must be a string" };
     }
     return { valid: true, sanitized: value };
   },
 
-  boolean: (value: any, meta: SettingMetadata): { valid: boolean; sanitized: boolean; message?: string } => {
+  boolean: (value: any, _meta: SettingMetadata): { valid: boolean; sanitized: boolean; message?: string } => {
     if (typeof value !== "boolean") {
       return { valid: false, sanitized: Boolean(value), message: "Must be a boolean" };
     }

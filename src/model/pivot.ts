@@ -1,6 +1,14 @@
 import powerbi from "powerbi-visuals-api";
 import { TreeNode, FlattenedNode, buildRowTree, buildColumnTree, flattenTree, flattenColumnTree } from "./tree";
 import { generateCellKey, generateRowKey } from "./keys";
+
+// Compute the key of the parent row for a given FlattenedNode. The parent of
+// a level-1 row is the synthetic "root"; otherwise rebuild the rowKey from
+// path.slice(0, -1) using the same encoding as the original tree.
+function computeParentKey(row: FlattenedNode): string {
+  if (!row.path || row.path.length <= 1) return "root";
+  return generateRowKey(row.path.slice(0, -1) as (string | number)[]);
+}
 import { VisualSettings } from "../settings/settings";
 import { parseCalculatedMeasures, computeCalculatedMeasures, CalculatedMeasureDefinition } from "../calculations/calculatedMeasures";
 import { applyCalculatedRows, CalculatedRowDefinition } from "../calculations/calculatedRows";
@@ -11,6 +19,7 @@ export interface MeasureInfo {
   name: string;
   format: string;
   queryName: string;
+  id?: string;
 }
 
 export interface CellValue {
@@ -38,6 +47,8 @@ export interface MatrixModel {
   hasValues: boolean;
   rowLevelCount: number;
   columnLevelCount: number;
+  rowLevelNames: string[];
+  columnLevelNames: string[];
   sparklineMeasureIndex: number;
   // Store full tree data for rollup calculations when collapsed
   fullRowTree?: TreeNode | null;
@@ -70,6 +81,8 @@ export function buildMatrixModel(options: DataModelBuilderOptions): MatrixModel 
     hasValues: false,
     rowLevelCount: 0,
     columnLevelCount: 0,
+    rowLevelNames: [],
+    columnLevelNames: [],
     sparklineMeasureIndex: 0,
   };
 
@@ -150,6 +163,11 @@ export function buildMatrixModel(options: DataModelBuilderOptions): MatrixModel 
     flattenedColumns.map(c => c.key)
   );
 
+  // Snapshot the pre-merge cell map so calculated rows with
+  // `evaluateColumnsBeforeRows === false` can evaluate against base values
+  // only (i.e., without seeing calculated column measures).
+  const baseCellMapSnapshot = new Map(cellMap);
+
   // Merge base cells with calculated cells
   for (const [key, value] of calculatedCellMap) {
     cellMap.set(key, value);
@@ -166,7 +184,8 @@ export function buildMatrixModel(options: DataModelBuilderOptions): MatrixModel 
     cellMap,
     flattenedColumns,
     allMeasures,
-    calcRowDefs
+    calcRowDefs,
+    baseCellMapSnapshot
   );
 
   // 4. Apply Manual Overrides (Edits, Renames, Order)
@@ -195,6 +214,8 @@ export function buildMatrixModel(options: DataModelBuilderOptions): MatrixModel 
     hasValues: true,
     rowLevelCount: rowLevelSources.length,
     columnLevelCount: columnLevelSources.length,
+    rowLevelNames: rowLevelSources.map((s: powerbi.DataViewMetadataColumn) => s?.displayName || ""),
+    columnLevelNames: columnLevelSources.map((s: powerbi.DataViewMetadataColumn) => s?.displayName || ""),
     sparklineMeasureIndex,
     // Store full trees for client-side rollup access
     fullRowTree: rowTree,
@@ -434,6 +455,31 @@ export function computeGlobalStats(
 
   };
 }
+
+export function parseManualEditKey(key: string): { rowKey: string; colKey: string; measureIndex: number } | null {
+  const lastSeparator = key.lastIndexOf("|");
+  if (lastSeparator < 0) {
+    return null;
+  }
+
+  const measureIndex = parseInt(key.slice(lastSeparator + 1), 10);
+  if (Number.isNaN(measureIndex)) {
+    return null;
+  }
+
+  const withoutMeasure = key.slice(0, lastSeparator);
+  const columnSeparator = withoutMeasure.lastIndexOf("|col:");
+  if (columnSeparator < 0) {
+    return null;
+  }
+
+  return {
+    rowKey: withoutMeasure.slice(0, columnSeparator),
+    colKey: withoutMeasure.slice(columnSeparator + 1),
+    measureIndex,
+  };
+}
+
 export function applyManualOverrides(
   rows: FlattenedNode[],
   cellMap: Map<string, CellValue>,
@@ -464,10 +510,14 @@ export function applyManualOverrides(
 
   for (const [key, rawValue] of Object.entries(edits)) {
     const editStr = String(rawValue);
-    const [rowKey, colKey, mIdxStr] = key.split("|");
-    const measureIndex = parseInt(mIdxStr, 10);
+    const parsedKey = parseManualEditKey(key);
+    if (!parsedKey) {
+      continue;
+    }
+
+    const { rowKey, colKey, measureIndex } = parsedKey;
     // The edit key uses "|" separator but cellMap uses generateCellKey format ("::" with "m" prefix)
-    const cellMapKey = generateCellKey(rowKey, colKey, isNaN(measureIndex) ? 0 : measureIndex);
+    const cellMapKey = generateCellKey(rowKey, colKey, measureIndex);
 
     if (editStr.startsWith("=")) {
       const formula = editStr.slice(1);
@@ -475,7 +525,7 @@ export function applyManualOverrides(
       engine.updateContext({
         currentRowKey: rowKey,
         currentColKey: colKey,
-        currentMeasureIndex: isNaN(measureIndex) ? 0 : measureIndex,
+        currentMeasureIndex: measureIndex,
       });
 
       const result = engine.evaluate(formula);
@@ -518,7 +568,7 @@ export function applyManualOverrides(
   // 3. Row Order
   const rowOrder = JSON.parse(overrides.rowOrder || "[]");
   let reorderedRows = updatedRows;
-  
+
   // Helper function to add rows in order (hoisted to function body root)
   function addRowsInOrder(
     parentKey: string,
@@ -529,56 +579,81 @@ export function applyManualOverrides(
     result: FlattenedNode[],
     processed: Set<string>
   ): void {
-    // Get all direct children of this parent
+    // Get all direct children of this parent. Use the same row-key encoding
+    // as the tree (generateRowKey of path.slice(0, -1)) so that recursion
+    // by parent row.key actually matches child rows — otherwise children
+    // become orphaned and the hierarchy structure breaks.
     const children = updatedRows.filter(r => {
-      const pKey = r.path.length <= 1 ? "root" : r.path.slice(0, -1).join("⟂");
+      const pKey = computeParentKey(r);
       return pKey === parentKey && !processed.has(r.key);
     });
-    
+
     if (children.length === 0) return;
-    
+
     // Sort children according to rowOrder if available
     const parentOrder: string[] = rowOrder.filter((key: string) => children.some(c => c.key === key));
-    const orderedChildren = parentOrder.length > 0 
+    const orderedChildren = parentOrder.length > 0
       ? parentOrder.map((key: string) => rowMap.get(key)!).filter(Boolean)
       : children;
-    
+
     // Add any new children not in the order
     const orderedSet = new Set(parentOrder);
     const newChildren = children.filter(c => !orderedSet.has(c.key));
     const allChildren = [...orderedChildren, ...newChildren];
-    
+
     for (const row of allChildren) {
       if (processed.has(row.key)) continue;
       processed.add(row.key);
       result.push({ ...row, visibleIndex: result.length });
-      
+
       // Recursively add children if expanded
       if (row.hasChildren && row.isExpanded) {
         addRowsInOrder(row.key, indent + 1, updatedRows, rowOrder, rowMap, result, processed);
       }
+
+      // Keep attached subtotal / grand-total rows with their parent group.
+      const attachedTotals = updatedRows.filter(candidate => {
+        if (processed.has(candidate.key) || (!candidate.isSubtotal && !candidate.isGrandTotal)) {
+          return false;
+        }
+
+        if ((candidate.level ?? 0) !== (row.level ?? 0)) {
+          return false;
+        }
+
+        const rowPath = Array.isArray(row.path) ? row.path : [];
+        const candidatePath = Array.isArray(candidate.path) ? candidate.path : [];
+        return rowPath.length > 0 &&
+          candidatePath.length >= rowPath.length &&
+          rowPath.every((part, index) => candidatePath[index] === part);
+      });
+
+      for (const totalRow of attachedTotals) {
+        if (processed.has(totalRow.key)) continue;
+        processed.add(totalRow.key);
+        result.push({ ...totalRow, visibleIndex: result.length });
+      }
     }
   }
-  
+
   if (rowOrder && rowOrder.length > 0) {
     // Build a map of key to row for quick lookup
     const rowMap = new Map(updatedRows.map(r => [r.key, r]));
-    const orderedKeys = new Set(rowOrder);
-    
+
     // Reconstruct rows maintaining hierarchy but respecting order
     const result: FlattenedNode[] = [];
     const processed = new Set<string>();
-    
+
     // Start from root
     addRowsInOrder("root", 0, updatedRows, rowOrder, rowMap, result, processed);
-    
+
     // Add any remaining rows not processed
     for (const row of updatedRows) {
       if (!processed.has(row.key)) {
         result.push({ ...row, visibleIndex: result.length });
       }
     }
-    
+
     reorderedRows = result;
   }
 
@@ -609,9 +684,10 @@ function applyHierarchyRollupsFromTree(
     indexRowTree(child);
   }
 
-  // Get all leaf columns from the full column tree
+  // Get all leaf columns from the full column tree (exclude subtotal/grand total nodes)
   const leafColumns: TreeNode[] = [];
   const collectLeafColumns = (node: TreeNode): void => {
+    if (node.isSubtotal || node.isGrandTotal) return;
     if (node.isLeaf && node.level > 0) {
       leafColumns.push(node);
     }
@@ -630,10 +706,14 @@ function applyHierarchyRollupsFromTree(
     const treeNode = rowKeyToNode.get(parent.key);
     if (!treeNode || treeNode.children.length === 0) continue;
 
-    // Collect all leaf descendants from the full tree (not just flattened)
+    // Collect all leaf descendants from the full tree (not just flattened).
+    // Critical: skip subtotal/grand-total nodes — PowerBI injects them as
+    // sibling children with pre-aggregated values; including them here would
+    // double-count the parent's rollup (real leaves PLUS their aggregate).
     const leafDescendants: TreeNode[] = [];
     const collectLeaves = (node: TreeNode): void => {
-      if (node.isLeaf || node.children.length === 0) {
+      if (node.isSubtotal || node.isGrandTotal) return;
+      if (node.isLeaf || node.children.every(c => c.isSubtotal || c.isGrandTotal)) {
         leafDescendants.push(node);
       } else {
         for (const child of node.children) {
@@ -692,9 +772,10 @@ function applyHierarchyRollupsFromTree(
     indexColTree(child);
   }
 
-  // Get all leaf rows from the full row tree
+  // Get all leaf rows from the full row tree (exclude subtotal/grand total nodes)
   const leafRows: TreeNode[] = [];
   function collectLeafRows(node: TreeNode): void {
+    if (node.isSubtotal || node.isGrandTotal) return;
     if (node.isLeaf && node.level > 0) {
       leafRows.push(node);
     }
@@ -714,17 +795,20 @@ function applyHierarchyRollupsFromTree(
       const treeNode = colKeyToNode.get(parentCol.key);
       if (!treeNode || treeNode.children.length === 0) continue;
 
-      // Collect all leaf descendants from the full tree
+      // Collect all leaf descendants from the full tree (skip PowerBI-injected
+      // subtotal/grand-total siblings — their pre-aggregated values would
+      // double-count parent rollups).
       const leafDescendants: TreeNode[] = [];
-      function collectColLeaves(node: TreeNode): void {
-        if (node.isLeaf || node.children.length === 0) {
+      const collectColLeaves = (node: TreeNode): void => {
+        if (node.isSubtotal || node.isGrandTotal) return;
+        if (node.isLeaf || node.children.every(c => c.isSubtotal || c.isGrandTotal)) {
           leafDescendants.push(node);
         } else {
           for (const child of node.children) {
             collectColLeaves(child);
           }
         }
-      }
+      };
       collectColLeaves(treeNode);
 
       if (leafDescendants.length === 0) continue;

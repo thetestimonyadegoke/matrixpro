@@ -1,5 +1,8 @@
 import { generateRowKey, generateColumnKey, generateCellKey, parseRowKey, parseColumnKey } from "../model/keys";
-import { computeSubtotal, AggregationType } from "../model/totals";
+import { applyManualOverrides, CellValue, MeasureInfo } from "../model/pivot";
+import { computeSubtotal } from "../model/totals";
+import { FlattenedNode } from "../model/tree";
+import { defaultSettings } from "../settings/settings";
 
 describe("Key Generation", () => {
   describe("generateRowKey", () => {
@@ -151,5 +154,65 @@ describe("Subtotal Computation", () => {
       expect(computeSubtotal(decimalValues, "sum")).toBe(7.5);
       expect(computeSubtotal(decimalValues, "avg")).toBe(2.5);
     });
+  });
+});
+
+describe("Manual row ordering", () => {
+  function makeRow(path: string[], label: string, level: number, options: Partial<FlattenedNode> = {}): FlattenedNode {
+    return {
+      key: generateRowKey(path),
+      label,
+      value: label,
+      level,
+      path,
+      children: [],
+      isExpanded: true,
+      isLeaf: !options.hasChildren,
+      isSubtotal: false,
+      isGrandTotal: false,
+      indent: Math.max(0, level - 1),
+      hasChildren: false,
+      visibleIndex: 0,
+      ...options,
+    };
+  }
+
+  it("keeps subtotal rows attached to their moved parent group", () => {
+    const revenue = makeRow(["Revenue"], "Revenue", 1, { hasChildren: true, isLeaf: false });
+    const revenueChild = makeRow(["Revenue", "Revenue Detail"], "Revenue Detail", 2);
+    const revenueTotal = {
+      ...makeRow(["Revenue"], "Revenue Total", 1),
+      key: generateRowKey(["Revenue", "__subtotal"]),
+      isSubtotal: true,
+    };
+    const expense = makeRow(["Expense"], "Expense", 1);
+
+    const rows = [revenue, revenueChild, revenueTotal, expense].map((row, index) => ({
+      ...row,
+      visibleIndex: index,
+    }));
+
+    const settings = {
+      ...defaultSettings,
+      manualData: {
+        ...defaultSettings.manualData,
+        rowOrder: JSON.stringify([expense.key, revenue.key, revenueChild.key, revenueTotal.key]),
+      },
+    };
+
+    const result = applyManualOverrides(
+      rows,
+      new Map<string, CellValue>(),
+      settings,
+      [] as MeasureInfo[],
+      []
+    );
+
+    expect(result.rows.map(row => row.label)).toEqual([
+      "Expense",
+      "Revenue",
+      "Revenue Detail",
+      "Revenue Total",
+    ]);
   });
 });

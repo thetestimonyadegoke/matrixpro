@@ -3,7 +3,7 @@
  * Provides Excel-like search functionality within the matrix
  */
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CellValue } from '../model/pivot';
 import { FlattenedNode } from '../model/tree';
 
@@ -53,7 +53,7 @@ export const MatrixSearch: React.FC<MatrixSearchProps> = ({
   columns,
   measures,
   cellMap,
-  currentPosition,
+  currentPosition: _currentPosition,
   onNavigateToResult,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -126,7 +126,7 @@ export const MatrixSearch: React.FC<MatrixSearchProps> = ({
     // Search in cell values and formulas
     rows.forEach((row, rowIndex) => {
       columns.forEach((col, colIndex) => {
-        measures.forEach((measure, measureIndex) => {
+        measures.forEach((measure, _measureIndex) => {
           const cellKey = `${row.key}|${col.key}|${measure.index}`;
           const cell = cellMap.get(cellKey);
           

@@ -396,7 +396,7 @@ export class PerformanceBenchmarks {
   private estimateMapMemory(map: Map<string, number>): number {
     // Rough estimate: 72 bytes per entry + key length + value
     let bytes = 0;
-    for (const [key, value] of map) {
+    for (const [key] of map) {
       bytes += 72 + key.length * 2 + 8;
     }
     return bytes;

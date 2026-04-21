@@ -31,6 +31,18 @@ export interface FlattenedNode extends TreeNode {
     borderTop?: "none" | "single" | "double";
     borderBottom?: "none" | "single" | "double";
   };
+  /** Discriminator for inserted rows that are not the default "calculated". */
+  calcRowKind?: "calculated" | "blank" | "group" | "child" | "divider";
+  /** Group row only — whether its children are hidden. */
+  groupCollapsed?: boolean;
+  /** Group / child row back-reference to parent group id. */
+  calcRowGroupId?: string;
+  /** Divider row presentation. */
+  dividerProps?: { lineStyle: "single" | "double" | "dashed"; lineColor: string };
+  /** Blank row height override (px). */
+  blankHeight?: number;
+  /** Original inserted-row definition id (used for collapse-toggle persistence). */
+  calcRowDefId?: string;
 }
 
 export function buildRowTree(

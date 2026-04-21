@@ -87,7 +87,7 @@ export function applyManualOrderToFlattenedRows(
   }
 
   // Build row lookup map
-  const rowMap = new Map(rows.map(r => [r.key, r]));
+
 
   function addRowsRecursively(parentKey: string, indent: number): void {
     const siblings = groupByParent.get(parentKey) || [];

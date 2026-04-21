@@ -106,5 +106,5 @@ export function formatCellReferenceForFormula(
     const colRef = escapeCellReference(col.label);
     const measureRef = escapeCellReference(measure.name);
 
-    return `CELL(${rowRef}, ${colRef}, ${measureRef})`;
+    return `CELL(row=${rowRef}, col=${colRef}, measure=${measureRef})`;
 }

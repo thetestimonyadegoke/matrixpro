@@ -15,6 +15,8 @@ import { Ribbon, RibbonTab, ToolbarMode } from "./Ribbon";
 import { ExplorerPanel } from "./ExplorerPanel";
 import { CalcMeasureWizard } from "./CalcMeasureWizard";
 import { CalcRowWizard } from "./CalcRowWizard";
+import { CalcRowPanel } from "./CalcRowPanel";
+import { InsertedRow } from "../settings/settings";
 import { TotalsControlPanel } from "./TotalsControlPanel";
 import { ManageColumnsPanel } from "./ManageColumnsPanel";
 import { ConditionalFormattingPanel } from "./ConditionalFormattingPanel";
@@ -26,6 +28,10 @@ import { GroupPanel } from "./GroupPanel";
 import { AggregationPanel } from "./AggregationPanel";
 import { NotesPanel } from "./NotesPanel";
 import { SimulateBar } from "./SimulateBar";
+import { Footer } from "./Footer";
+import { TopNPanel } from "./TopNPanel";
+import { FilterPanel, FilterRule } from "./FilterPanel";
+import { LevelVisibilityPanel } from "./LevelVisibilityPanel";
 
 export interface AppProps {
   model: MatrixModel;
@@ -59,8 +65,8 @@ export const App: React.FC<AppProps> = ({
   selectionManager,
   tooltipService,
   allowInteractions,
-  isHighContrast,
-  highContrastColors,
+  isHighContrast: _isHighContrast,
+  highContrastColors: _highContrastColors,
   width,
   height,
   onPersistProperty,
@@ -78,11 +84,24 @@ export const App: React.FC<AppProps> = ({
   const [toolbarPinned, setToolbarPinned] = useState(true);
   const [explorerOpen, setExplorerOpen] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(100); // percentage: 50–200
-  const [calcMeasureWizardOpen, setCalcMeasureWizardOpen] = useState(false);
+  const [calcMeasureWizardOpen, setCalcMeasureWizardOpen] = useState<string | null>(null);
   const [calcRowWizardOpen, setCalcRowWizardOpen] = useState(false);
+  const [calcRowPanelOpen, setCalcRowPanelOpen] = useState(false);
   const [totalsPanelOpen, setTotalsPanelOpen] = useState(false);
   const [manageColumnsPanelOpen, setManageColumnsPanelOpen] = useState(false);
   const [condFormatPanelOpen, setCondFormatPanelOpen] = useState(false);
+  // Preconfigured draft rule passed to ConditionalFormattingPanel when the
+  // user selects a Quick Conditional Formatting preset from the ribbon.
+  // The panel opens on the edit view with this rule populated (not saved yet)
+  // so users can review / customize before hitting Apply.
+  const [condFormatInitialDraft, setCondFormatInitialDraft] = useState<any | null>(null);
+  // Currently-selected column key(s) — used to scope formatting & conditional
+  // formatting to a specific column via ribbon actions.
+  const [selectedColumnKeys, setSelectedColumnKeys] = useState<string[]>([]);
+  // Selected row keys for DIRECT FORMATTING (distinct from Power BI's
+  // cross-filter selection state, which uses `selectionState`). Populated
+  // when the user clicks a row header while holding nothing / Ctrl / Shift.
+  const [selectedRowKeysForFormat, setSelectedRowKeysForFormat] = useState<string[]>([]);
 
   // New panel states
   const [sortPanelOpen, setSortPanelOpen] = useState(false);
@@ -92,6 +111,9 @@ export const App: React.FC<AppProps> = ({
   const [groupPanelOpen, setGroupPanelOpen] = useState(false);
   const [aggregationOpen, setAggregationOpen] = useState(false);
   const [notesPanelOpen, setNotesPanelOpen] = useState(false);
+  const [topNPanelOpen, setTopNPanelOpen] = useState(false);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [levelPanelOpen, setLevelPanelOpen] = useState(false);
 
   // Undo/redo stacks (snapshots of manualData.edits JSON)
   const [undoStack, setUndoStack] = useState<string[]>([]);
@@ -160,6 +182,71 @@ export const App: React.FC<AppProps> = ({
   const displayRows = useMemo(() => {
     let rows = settings.general.invertRows ? [...sortedRows].reverse() : sortedRows;
 
+    // Apply value filter rules (hide rows where all cells for a measure fail the criteria)
+    try {
+      const rules: FilterRule[] = JSON.parse(settings.manualData.filterRules || "[]");
+      if (Array.isArray(rules) && rules.length > 0 && model.flattenedColumns.length > 0) {
+        const leafCols = model.flattenedColumns.filter(c => c.isLeaf);
+        const evalRule = (v: number | null, r: FilterRule): boolean => {
+          if (v === null || v === undefined || isNaN(v)) return false;
+          switch (r.operator) {
+            case "gt": return v > r.value;
+            case "gte": return v >= r.value;
+            case "lt": return v < r.value;
+            case "lte": return v <= r.value;
+            case "eq": return v === r.value;
+            case "neq": return v !== r.value;
+            case "between": return v >= r.value && v <= (r.value2 ?? r.value);
+            default: return true;
+          }
+        };
+        rows = rows.filter(row => {
+          if (row.isSubtotal || row.isGrandTotal || (row as any).isCalculatedRow) return true;
+          // Must pass ALL rules
+          return rules.every(rule => {
+            // At least one leaf cell for this measure must satisfy
+            return leafCols.some(col => {
+              const cell = model.cellMap.get(`${row.key}__${col.key}__${rule.measureIndex}`);
+              return cell ? evalRule(cell.value, rule) : false;
+            });
+          });
+        });
+      }
+    } catch { /* ignore parse errors */ }
+
+    // Apply Top N
+    try {
+      const topNCfg = JSON.parse(settings.manualData.topNConfig || "{}");
+      const n: number = topNCfg.topN || 0;
+      const mi: number = topNCfg.measureIndex ?? 0;
+      const direction: "top" | "bottom" = topNCfg.direction || "top";
+      if (n > 0 && model.flattenedColumns.length > 0) {
+        const firstLeafCol = model.flattenedColumns.find(c => c.isLeaf);
+        if (firstLeafCol) {
+          // Only filter at leaf level (where indent matches deepest leafs)
+          const dataRows = rows.filter(r => !r.isSubtotal && !r.isGrandTotal && !(r as any).isCalculatedRow);
+          const otherRows = rows.filter(r => r.isSubtotal || r.isGrandTotal || (r as any).isCalculatedRow);
+          const scored = dataRows.map(row => {
+            const cell = model.cellMap.get(`${row.key}__${firstLeafCol.key}__${mi}`);
+            return { row, score: cell?.value ?? 0 };
+          });
+          scored.sort((a, b) => direction === "top" ? (b.score - a.score) : (a.score - b.score));
+          const selected = scored.slice(0, n).map(s => s.row);
+          const selectedSet = new Set(selected.map(r => r.key));
+          rows = rows.filter(r => selectedSet.has(r.key) || otherRows.includes(r));
+        }
+      }
+    } catch { /* ignore parse errors */ }
+
+    // Apply hidden hierarchy levels (hide rows at specified levels)
+    try {
+      const hidden: number[] = JSON.parse(settings.manualData.hiddenRowLevels || "[]");
+      if (Array.isArray(hidden) && hidden.length > 0) {
+        const hset = new Set<number>(hidden);
+        rows = rows.filter(r => !hset.has(r.level ?? 0));
+      }
+    } catch { /* ignore */ }
+
     // Inject group header rows from settings.manualData.groupings
     type GroupDef = { id: string; label: string; rowKeys: string[] };
     let groupings: GroupDef[] = [];
@@ -196,7 +283,7 @@ export const App: React.FC<AppProps> = ({
           hasChildren: false,
           visibleIndex: result.length,
           isCalculatedRow: true,
-          calculatedRowStyle: { bold: true, backgroundColor: "rgba(0,0,0,0.04)" },
+          calculatedRowStyle: { bold: true, backgroundColor: "var(--mx-accent-10)", textColor: "var(--mx-cell-fg)" },
         });
         // Then the group members
         for (const row of rows) {
@@ -267,12 +354,12 @@ export const App: React.FC<AppProps> = ({
 
           let newValue: number | null = null;
           switch (override) {
-            case "avg":   newValue = values.reduce((a, b) => a + b, 0) / values.length; break;
-            case "min":   newValue = Math.min(...values); break;
-            case "max":   newValue = Math.max(...values); break;
+            case "avg": newValue = values.reduce((a, b) => a + b, 0) / values.length; break;
+            case "min": newValue = Math.min(...values); break;
+            case "max": newValue = Math.max(...values); break;
             case "count": newValue = values.length; break;
-            case "none":  newValue = null; break;
-            default:      newValue = values.reduce((a, b) => a + b, 0);
+            case "none": newValue = null; break;
+            default: newValue = values.reduce((a, b) => a + b, 0);
           }
 
           const cellKey = `${totalRow.key}__${col.key}__${measure.index}`;
@@ -360,6 +447,10 @@ export const App: React.FC<AppProps> = ({
     setZoomLevel(100);
   }, []);
 
+  const handleZoomSet = useCallback((level: number) => {
+    setZoomLevel(Math.max(50, Math.min(200, level)));
+  }, []);
+
   // Zoom is applied as a CSS transform on the matrix container (safer than
   // scaling settings, which would invalidate virtualization math and caches).
   const zoomFactor = zoomLevel / 100;
@@ -372,12 +463,12 @@ export const App: React.FC<AppProps> = ({
     setExplorerOpen(false);
   }, []);
 
-  const openCalcMeasureWizard = useCallback(() => {
-    setCalcMeasureWizardOpen(true);
+  const openCalcMeasureWizard = useCallback((id?: string) => {
+    setCalcMeasureWizardOpen(id || "new");
   }, []);
 
   const closeCalcMeasureWizard = useCallback(() => {
-    setCalcMeasureWizardOpen(false);
+    setCalcMeasureWizardOpen(null);
   }, []);
 
   const openCalcRowWizard = useCallback(() => {
@@ -388,7 +479,21 @@ export const App: React.FC<AppProps> = ({
     setCalcRowWizardOpen(false);
   }, []);
 
+  const openCalcRowPanel = useCallback(() => {
+    setCalcRowPanelOpen(true);
+  }, []);
+
+  const closeCalcRowPanel = useCallback(() => {
+    setCalcRowPanelOpen(false);
+  }, []);
+
+  const handleApplyCalcRows = useCallback((nextRows: InsertedRow[]) => {
+    onPersistProperty("calculations", "rows", JSON.stringify(nextRows));
+    setCalcRowPanelOpen(false);
+  }, [onPersistProperty]);
+
   const handleSaveCalcMeasure = useCallback((measure: {
+    id?: string;
     name: string;
     description: string;
     formula: string;
@@ -396,20 +501,34 @@ export const App: React.FC<AppProps> = ({
     aggregation: "afterTotals" | "beforeTotals";
   }) => {
     try {
-      const currentMeasures = JSON.parse(settings.calculations.measures || "[]");
-      const newMeasure = {
-        id: `cm_${Date.now()}`,
-        name: measure.name,
-        description: measure.description,
-        formula: measure.formula,
-        format: measure.format,
-        aggregationMode: measure.aggregation,
-        enabled: true,
-        order: currentMeasures.length,
-      };
-      const updatedMeasures = [...currentMeasures, newMeasure];
-      onPersistProperty("calculations", "measures", JSON.stringify(updatedMeasures));
-      setCalcMeasureWizardOpen(false);
+      const currentMeasures: any[] = JSON.parse(settings.calculations.measures || "[]");
+      if (measure.id) {
+        const idx = currentMeasures.findIndex(m => m.id === measure.id);
+        if (idx !== -1) {
+          currentMeasures[idx] = {
+            ...currentMeasures[idx],
+            name: measure.name,
+            description: measure.description,
+            formula: measure.formula,
+            format: measure.format,
+            aggregationMode: measure.aggregation,
+          };
+        }
+      } else {
+        const newMeasure = {
+          id: `cm_${Date.now()}`,
+          name: measure.name,
+          description: measure.description,
+          formula: measure.formula,
+          format: measure.format,
+          aggregationMode: measure.aggregation,
+          enabled: true,
+          order: currentMeasures.length,
+        };
+        currentMeasures.push(newMeasure);
+      }
+      onPersistProperty("calculations", "measures", JSON.stringify(currentMeasures));
+      setCalcMeasureWizardOpen(null);
     } catch (e) {
       console.error("Failed to save calculated measure", e);
     }
@@ -569,6 +688,48 @@ export const App: React.FC<AppProps> = ({
     onPersistProperty(objectName, propertyName, value);
   }, [onPersistProperty, settings.manualData.edits]);
 
+  /**
+   * Merge a direct-format patch into `manualData.colFormats` for every
+   * composite column key in `keys`. A key shaped like "<colKey>::m<idx>"
+   * scopes the patch to one column+measure pair.
+   */
+  const applyColumnFormat = useCallback((keys: string[], patch: Record<string, any>) => {
+    if (!keys || keys.length === 0) return;
+    let current: Record<string, any> = {};
+    try { current = JSON.parse(settings.manualData.colFormats || "{}") || {}; } catch { current = {}; }
+    for (const k of keys) {
+      const prev = current[k] || {};
+      current[k] = { ...prev, ...patch };
+    }
+    onPersistProperty("manualData", "colFormats", JSON.stringify(current));
+  }, [onPersistProperty, settings.manualData.colFormats]);
+
+  /**
+   * Toggle the `collapsed` field of a calc-row group definition and persist.
+   * Called when the user clicks a group row's chevron in the Matrix.
+   */
+  const handleToggleGroupCollapsed = useCallback((rowDefId: string) => {
+    try {
+      const rows: any[] = JSON.parse(settings.calculations.rows || "[]");
+      const idx = rows.findIndex((r: any) => r.id === rowDefId);
+      if (idx < 0) return;
+      rows[idx] = { ...rows[idx], collapsed: !rows[idx].collapsed };
+      onPersistProperty("calculations", "rows", JSON.stringify(rows));
+    } catch { /* ignore parse errors */ }
+  }, [settings.calculations.rows, onPersistProperty]);
+
+  /** Mirror of `applyColumnFormat` but for row formats keyed by rowKey. */
+  const applyRowFormat = useCallback((rowKeys: string[], patch: Record<string, any>) => {
+    if (!rowKeys || rowKeys.length === 0) return;
+    let current: Record<string, any> = {};
+    try { current = JSON.parse(settings.manualData.rowFormats || "{}") || {}; } catch { current = {}; }
+    for (const k of rowKeys) {
+      const prev = current[k] || {};
+      current[k] = { ...prev, ...patch };
+    }
+    onPersistProperty("manualData", "rowFormats", JSON.stringify(current));
+  }, [onPersistProperty, settings.manualData.rowFormats]);
+
   if (!model.hasData) {
     return (
       <div className="advanced-matrix-visual" style={{ width, height }}>
@@ -605,9 +766,12 @@ export const App: React.FC<AppProps> = ({
     );
   }
 
-  const ribbonHeight = settings.appearance.showToolbar ? 86 : 0;
+  const ribbonHeight = settings.appearance.showToolbar
+    ? (toolbarMode === "full" ? 86 : toolbarMode === "minimal-tabs" ? 34 : 40)
+    : 0;
   const simulateBarHeight = settings.general.simulateMode ? 34 : 0;
-  const workspaceHeight = Math.max(0, height - ribbonHeight - simulateBarHeight);
+  const footerHeight = 28;
+  const workspaceHeight = Math.max(0, height - ribbonHeight - simulateBarHeight - footerHeight);
 
   const explorerWidth = explorerOpen ? 280 : 0;
   const matrixWidth = Math.max(0, width - explorerWidth);
@@ -643,10 +807,18 @@ export const App: React.FC<AppProps> = ({
           onExportXLSX={handleExportXLSX}
           onExportPDF={handleExportPDF}
           onOpenCalcMeasurePanel={openCalcMeasureWizard}
-          onOpenCalcRowPanel={openCalcRowWizard}
+          onOpenCalcRowPanel={openCalcRowPanel}
           onOpenTotalsPanel={() => setTotalsPanelOpen(true)}
           onOpenManageColumnsPanel={() => setManageColumnsPanelOpen(true)}
           onOpenCondFormatPanel={() => setCondFormatPanelOpen(true)}
+          onOpenCondFormatDraft={(draft: any) => {
+            setCondFormatInitialDraft(draft);
+            setCondFormatPanelOpen(true);
+          }}
+          selectedColumnKeys={selectedColumnKeys}
+          selectedRowKeys={selectedRowKeysForFormat}
+          onApplyColumnFormat={applyColumnFormat}
+          onApplyRowFormat={applyRowFormat}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
           onZoomReset={handleZoomReset}
@@ -661,6 +833,10 @@ export const App: React.FC<AppProps> = ({
           onOpenGroupPanel={() => setGroupPanelOpen(true)}
           onOpenAggregation={() => setAggregationOpen(true)}
           onOpenNotesPanel={() => setNotesPanelOpen(true)}
+          onOpenTopNPanel={() => setTopNPanelOpen(true)}
+          onOpenFilterPanel={() => setFilterPanelOpen(true)}
+          onOpenLevelPanel={() => setLevelPanelOpen(true)}
+          onAddQuickVariance={() => handleQuickVariance("", 0)}
           canUndo={undoStack.length > 0}
           canRedo={redoStack.length > 0}
           onUndo={handleUndo}
@@ -692,53 +868,86 @@ export const App: React.FC<AppProps> = ({
         <div
           className="mx-main"
           style={{
-            width: matrixWidth / zoomFactor,
-            height: workspaceHeight / zoomFactor,
-            transform: zoomFactor === 1 ? undefined : `scale(${zoomFactor})`,
-            transformOrigin: 'top left',
+            width: matrixWidth,
+            height: workspaceHeight,
           }}
         >
-          <Matrix
-            rows={displayRows}
-            columns={model.flattenedColumns}
-            cellMap={quickCalcView.cellMap}
-            measures={quickCalcView.measures}
-            settings={settings}
-            tooltipService={tooltipService}
-            allowInteractions={allowInteractions}
-            width={matrixWidth / zoomFactor}
-            height={workspaceHeight / zoomFactor}
-            sortConfig={sortConfig}
-            selectionState={selectionState}
-            sparklineMeasureIndex={model.sparklineMeasureIndex}
-            onSort={handleSort}
-            onToggleRowExpand={onToggleRowExpand}
-            onToggleColumnExpand={onToggleColumnExpand}
-            onExpandAllUnder={handleExpandAllUnder}
-            onCollapseAllUnder={handleCollapseAllUnder}
-            onRowSelect={handleRowSelect}
-            onClearSelection={handleClearSelection}
-            onPersistProperty={handlePersistPropertyWithUndo}
-            onOpenCalcMeasureWizard={openCalcMeasureWizard}
-            onOpenCalcRowWizard={openCalcRowWizard}
-            onOpenBulkOperations={() => {
-              // Call the global function set up by Matrix
-              (window as any).__openBulkOperations?.();
+          <div
+            className="mx-zoom-stage"
+            style={{
+              width: matrixWidth / zoomFactor,
+              height: workspaceHeight / zoomFactor,
+              transform: zoomFactor === 1 ? undefined : `scale(${zoomFactor})`,
+              transformOrigin: "top left",
             }}
-            onAddQuickVariance={handleQuickVariance}
-            intelliSenseContext={{
-              calculatedMeasures: JSON.parse(settings.calculations.measures || "[]"),
-              rowHierarchyLevels: model.flattenedRows.length > 0 ? (model.flattenedRows[0] as any).hierarchyLevels || [] : [],
-              columnHierarchyLevels: model.flattenedColumns.length > 0 ? (model.flattenedColumns[0] as any).hierarchyLevels || [] : [],
-            }}
-          />
+          >
+            <Matrix
+              rows={displayRows}
+              columns={model.flattenedColumns}
+              cellMap={quickCalcView.cellMap}
+              measures={quickCalcView.measures}
+              settings={settings}
+              tooltipService={tooltipService}
+              allowInteractions={allowInteractions}
+              width={matrixWidth / zoomFactor}
+              height={workspaceHeight / zoomFactor}
+              sortConfig={sortConfig}
+              selectionState={selectionState}
+              selectionManager={selectionManager}
+              sparklineMeasureIndex={model.sparklineMeasureIndex}
+              onSort={handleSort}
+              onToggleRowExpand={onToggleRowExpand}
+              onToggleColumnExpand={onToggleColumnExpand}
+              onExpandAllUnder={handleExpandAllUnder}
+              onCollapseAllUnder={handleCollapseAllUnder}
+              onRowSelect={handleRowSelect}
+              onClearSelection={handleClearSelection}
+              onPersistProperty={handlePersistPropertyWithUndo}
+              onOpenCalcMeasureWizard={openCalcMeasureWizard}
+              onOpenCalcRowWizard={openCalcRowWizard}
+              onOpenBulkOperations={() => {
+                // Call the global function set up by Matrix
+                (window as any).__openBulkOperations?.();
+              }}
+              onAddQuickVariance={handleQuickVariance}
+              intelliSenseContext={{
+                calculatedMeasures: JSON.parse(settings.calculations.measures || "[]"),
+                rowHierarchyLevels: model.rowLevelNames,
+                columnHierarchyLevels: model.columnLevelNames,
+              }}
+              selectedColumnKeys={selectedColumnKeys}
+              onColumnSelectionChange={setSelectedColumnKeys}
+              selectedRowKeysForFormat={selectedRowKeysForFormat}
+              onRowSelectionForFormatChange={setSelectedRowKeysForFormat}
+              onToggleGroupCollapsed={handleToggleGroupCollapsed}
+            />
+          </div>
         </div>
       </div>
+
+      <Footer
+        rowCount={displayRows.length}
+        zoomLevel={zoomLevel}
+        toolbarMode={toolbarMode}
+        explorerOpen={explorerOpen}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        onZoomReset={handleZoomReset}
+        onZoomSet={handleZoomSet}
+        onToolbarModeChange={setToolbarMode}
+        onToggleExplorer={toggleExplorer}
+      />
+
       {calcMeasureWizardOpen && (
         <CalcMeasureWizard
           measures={model.measures}
           onSave={handleSaveCalcMeasure}
           onClose={closeCalcMeasureWizard}
+          initialMeasure={(() => {
+            if (calcMeasureWizardOpen === "new") return undefined;
+            const parsed = JSON.parse(settings.calculations.measures || "[]");
+            return parsed.find((m: any) => m.id === calcMeasureWizardOpen);
+          })()}
         />
       )}
 
@@ -750,11 +959,20 @@ export const App: React.FC<AppProps> = ({
         />
       )}
 
+      {calcRowPanelOpen && (
+        <CalcRowPanel
+          rows={displayRows}
+          settings={settings}
+          onClose={closeCalcRowPanel}
+          onApply={handleApplyCalcRows}
+        />
+      )}
+
       {totalsPanelOpen && (
         <TotalsControlPanel
           settings={settings}
-          rowLevels={model.flattenedRows.length > 0 ? (model.flattenedRows[0] as any).hierarchyLevels || [] : []}
-          columnLevels={model.flattenedColumns.length > 0 ? (model.flattenedColumns[0] as any).hierarchyLevels || [] : []}
+          rowLevels={model.rowLevelNames}
+          columnLevels={model.columnLevelNames}
           onPersistProperty={onPersistProperty}
           onClose={() => setTotalsPanelOpen(false)}
         />
@@ -771,12 +989,30 @@ export const App: React.FC<AppProps> = ({
         />
       )}
 
+      {/* Floating Restore Ribbon Button (Only shown when toolbar is OFF) */}
+      {!settings.appearance.showToolbar && (
+        <button
+          className="restore-ribbon-fab"
+          onClick={() => onPersistProperty("appearance", "showToolbar", true)}
+          title="Restore Ribbon Toolbar"
+          aria-label="Restore Ribbon"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 15 9 9 15 15 21 9"></polyline>
+          </svg>
+        </button>
+      )}
+
       {condFormatPanelOpen && (
         <ConditionalFormattingPanel
           settings={settings}
           measures={model.measures}
-          onClose={() => setCondFormatPanelOpen(false)}
+          onClose={() => {
+            setCondFormatPanelOpen(false);
+            setCondFormatInitialDraft(null);
+          }}
           onPersistProperty={onPersistProperty}
+          initialDraft={condFormatInitialDraft}
         />
       )}
 
@@ -844,6 +1080,45 @@ export const App: React.FC<AppProps> = ({
           settings={settings}
           rows={displayRows}
           onClose={() => setNotesPanelOpen(false)}
+          onPersistProperty={onPersistProperty}
+        />
+      )}
+
+      {topNPanelOpen && (
+        <TopNPanel
+          measures={quickCalcView.measures}
+          settings={settings}
+          onClose={() => setTopNPanelOpen(false)}
+          onApply={(n, measureIndex, direction) => {
+            onPersistProperty(
+              "manualData",
+              "topNConfig",
+              JSON.stringify({ topN: n, measureIndex, direction })
+            );
+            setTopNPanelOpen(false);
+          }}
+        />
+      )}
+
+      {filterPanelOpen && (
+        <FilterPanel
+          rows={displayRows}
+          measures={quickCalcView.measures}
+          settings={settings}
+          onClose={() => setFilterPanelOpen(false)}
+          onApply={(rules) => {
+            onPersistProperty("manualData", "filterRules", JSON.stringify(rules));
+            setFilterPanelOpen(false);
+          }}
+        />
+      )}
+
+      {levelPanelOpen && (
+        <LevelVisibilityPanel
+          rowLevels={model.rowLevelNames}
+          colLevels={model.columnLevelNames}
+          settings={settings}
+          onClose={() => setLevelPanelOpen(false)}
           onPersistProperty={onPersistProperty}
         />
       )}

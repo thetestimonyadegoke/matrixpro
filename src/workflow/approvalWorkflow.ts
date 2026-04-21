@@ -515,7 +515,7 @@ export class WorkflowEngine {
     return true;
   }
 
-  private autoApprove(workflow: ApprovalWorkflow, user: UserInfo): void {
+  private autoApprove(workflow: ApprovalWorkflow, _user: UserInfo): void {
     workflow.status = "approved";
     workflow.currentStepIndex = workflow.steps.length - 1;
 

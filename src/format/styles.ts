@@ -1,6 +1,6 @@
 import React from "react";
 import { CellStyle } from "./conditional";
-import { VisualSettings } from "../settings/settings";
+import { defaultSettings, VisualSettings } from "../settings/settings";
 
 export interface ComposedCellStyle extends CellStyle {
   textAlign?: string;
@@ -41,6 +41,20 @@ export function composeCellStyle(
   return composed;
 }
 
+function resolveThemeAwareColor(value: string, defaultValue: string, cssVar: string): string | undefined {
+  if (!value || value === "transparent") {
+    return undefined;
+  }
+  return value === defaultValue ? `var(${cssVar})` : value;
+}
+
+function resolveThemeAwareBackground(value: string, defaultValue: string, cssVar: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  return value === defaultValue ? `var(${cssVar})` : value;
+}
+
 export function styleToCSS(style: ComposedCellStyle): React.CSSProperties {
   const css: React.CSSProperties = {};
 
@@ -79,7 +93,6 @@ export function getRowStyle(
   isSelected: boolean
 ): React.CSSProperties {
   const isBanded = settings.general.rowBanding && rowIndex % 2 === 1;
-  const isHighlighted = settings.general.rowHighlight;
 
   let backgroundColor = isSelected
     ? "var(--mx-selection-bg)"
@@ -93,7 +106,11 @@ export function getRowStyle(
 
   // Use the value's background color if no other state overrides it
   if (!isSelected && !isGrandTotal && !isSubtotal && !isBanded && settings.values.backgroundColor && settings.values.backgroundColor !== "transparent") {
-    backgroundColor = settings.values.backgroundColor;
+    backgroundColor = resolveThemeAwareBackground(
+      settings.values.backgroundColor,
+      defaultSettings.values.backgroundColor,
+      "--mx-cell-bg"
+    ) ?? backgroundColor;
   }
 
   let fontWeight: number | string = isSubtotal || isGrandTotal ? 600 : "normal";
@@ -113,15 +130,15 @@ export function getRowStyle(
     fontWeight,
     fontStyle,
     textDecoration,
-    color: settings.values.textColor || "inherit",
+    color: resolveThemeAwareColor(settings.values.textColor, defaultSettings.values.textColor, "--mx-cell-fg") || "inherit",
     fontSize: `${settings.values.fontSize || 12}px`,
   };
 }
 
 export function getHeaderStyle(settings: VisualSettings): React.CSSProperties {
   return {
-    backgroundColor: settings.headers.backgroundColor,
-    color: settings.headers.textColor,
+    backgroundColor: resolveThemeAwareBackground(settings.headers.backgroundColor, defaultSettings.headers.backgroundColor, "--mx-header-bg"),
+    color: resolveThemeAwareColor(settings.headers.textColor, defaultSettings.headers.textColor, "--mx-header-fg"),
     fontSize: `${settings.headers.fontSize}px`,
     fontWeight: settings.headers.bold ? 600 : "normal",
   };

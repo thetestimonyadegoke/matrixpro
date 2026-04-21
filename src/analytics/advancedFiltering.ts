@@ -86,7 +86,7 @@ export function applyTopNFilter(
   const tiesAtCutoff: string[] = [];
 
   for (let i = 0; i < rowValues.length; i++) {
-    const { row, value, key } = rowValues[i];
+    const { value, key } = rowValues[i];
     
     if (lastValue === null || value !== lastValue) {
       currentRank = i + 1;
@@ -204,7 +204,7 @@ export function applyTopNByParent(
   const allRankings = new Map<string, RankedRow>();
   const inFilterKeys = new Set<string>();
 
-  for (const [parentKey, parentRows] of byParent) {
+  for (const [, parentRows] of byParent) {
     const result = applyTopNFilter(parentRows, cellMap, columns, filter);
     
     // Merge rankings

@@ -9,7 +9,7 @@ export interface ManageColumnsPanelProps {
   settings: VisualSettings;
   onClose: () => void;
   onPersistProperty: (objectName: string, propertyName: string, value: any) => void;
-  onOpenCalcMeasureWizard?: () => void;
+  onOpenCalcMeasureWizard?: (id?: string) => void;
 }
 
 type TabId = "measures" | "columns";
@@ -119,6 +119,11 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
     [settings.manualData.labelOverrides]
   );
 
+  const aggregationOverrides = useMemo(
+    () => parseJSON<Record<string, string>>(settings.manualData.aggregationOverrides, {}),
+    [settings.manualData.aggregationOverrides]
+  );
+
   // ── derived item lists ────────────────────────────────────────────────────
   const measureItems = useMemo(() => {
     const base = measures.map(m => ({ id: `m_${m.index}`, label: m.name, sub: m.format || "General", measure: m }));
@@ -169,6 +174,10 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
     }
     setEditingWidth(null);
   }, [colWidths, onPersistProperty]);
+
+  const saveAggregation = useCallback((measureIndex: number, val: string) => {
+    onPersistProperty("manualData", "aggregationOverrides", JSON.stringify({ ...aggregationOverrides, [measureIndex]: val }));
+  }, [aggregationOverrides, onPersistProperty]);
 
   // ── drag-and-drop ─────────────────────────────────────────────────────────
   const allKeys = (activeTab === "measures" ? measureItems : columnItems).map(i => i.id);
@@ -293,6 +302,7 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
           {/* Column header row */}
           <div style={{ display: "flex", padding: "4px 12px 4px 40px", borderBottom: "1px solid #eee", fontSize: 11, color: "#888", gap: 8 }}>
             <span style={{ flex: 1 }}>Name</span>
+            {activeTab === "measures" && <span style={{ width: 90, textAlign: "left" }}>Aggregation</span>}
             <span style={{ width: 80, textAlign: "right" }}>Width (px)</span>
             <span style={{ width: 32 }} />
           </div>
@@ -334,6 +344,22 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
                     <div style={{ fontSize: 11, color: "#888" }}>{item.sub}</div>
                   </div>
 
+                  {/* Aggregation select for measures */}
+                  {activeTab === "measures" && "measure" in item ? (
+                    <select
+                      value={aggregationOverrides[item.measure.index] || "sum"}
+                      onChange={e => saveAggregation(item.measure.index, e.target.value)}
+                      style={{ width: 90, padding: "2px 4px", fontSize: 11, borderRadius: 3, border: "1px solid #ddd" }}
+                    >
+                      <option value="sum">Sum</option>
+                      <option value="avg">Average</option>
+                      <option value="min">Min</option>
+                      <option value="max">Max</option>
+                      <option value="count">Count</option>
+                      <option value="none">None</option>
+                    </select>
+                  ) : null}
+
                   {/* Custom width input */}
                   {editingWidth === item.id ? (
                     <input
@@ -355,6 +381,17 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
                       style={{ width: 64, padding: "3px 6px", border: "1px solid #e0e0e0", borderRadius: 3, background: customWidth ? "#e8f4ff" : "#fafafa", cursor: "pointer", fontSize: 12, color: customWidth ? "#0071e3" : "#555", textAlign: "right" }}
                     >
                       {customWidth ? `${customWidth}px` : "default"}
+                    </button>
+                  )}
+
+                  {/* Edit button for calculated measures */}
+                  {activeTab === "measures" && "measure" in item && item.measure.id && onOpenCalcMeasureWizard && (
+                    <button
+                      title="Edit calculated measure"
+                      onClick={() => { onClose(); onOpenCalcMeasureWizard!(item.measure.id); }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", padding: "2px 4px" }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                     </button>
                   )}
 

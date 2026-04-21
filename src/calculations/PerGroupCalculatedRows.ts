@@ -101,8 +101,8 @@ export function findGroupsAtLevel(
 export function resolveRowReference(
   refLabel: string,
   group: GroupNode,
-  allRows: FlattenedNode[],
-  missingBehavior: "zero" | "null" | "warn"
+  _allRows: FlattenedNode[],
+  _missingBehavior: "zero" | "null" | "warn"
 ): { row: FlattenedNode | null; warning?: string } {
   const labelLower = refLabel.toLowerCase().trim();
 
@@ -217,7 +217,7 @@ export function applyPerGroupCalculatedRows(
           for (const ref of scopedRefs) {
             const match = ref.match(/(\w+)\[([^\]]+)\]/);
             if (match) {
-              const [, scope, member] = match;
+              const [, , member] = match;
               const resolved = resolveRowReference(member, group, rows, def.missingRefBehavior);
 
               if (resolved.warning) {

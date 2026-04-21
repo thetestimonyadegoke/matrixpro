@@ -124,8 +124,8 @@ export class ValidationEngine {
   }
 
   private validateCustomRule(
-    change: WritebackChange,
-    config: ValidationRuleConfig
+    _change: WritebackChange,
+    _config: ValidationRuleConfig
   ): "valid" | "error" {
     // In a real implementation, this would evaluate a custom formula
     // For now, return valid

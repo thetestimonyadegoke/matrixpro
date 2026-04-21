@@ -152,50 +152,10 @@ interface VisualFeedbackProviderProps {
 }
 
 export const VisualFeedbackProvider: React.FC<VisualFeedbackProviderProps> = ({ children }) => {
-  const [feedback, setFeedback] = useState<{
-    type: 'success' | 'error' | 'info';
-    message: string;
-    id: number;
-  } | null>(null);
-
-  const showFeedback = useCallback((type: 'success' | 'error' | 'info', message: string) => {
-    const id = Date.now();
-    setFeedback({ type, message, id });
-    setTimeout(() => {
-      setFeedback(current => current?.id === id ? null : current);
-    }, 3000);
-  }, []);
 
   return (
     <>
       {children}
-      {feedback && (
-        <div
-          className={`matrix-feedback-toast ${feedback.type}`}
-          style={{
-            position: 'fixed',
-            bottom: 24,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            padding: '12px 24px',
-            borderRadius: 8,
-            backgroundColor: 
-              feedback.type === 'success' ? 'var(--matrix-success)' :
-              feedback.type === 'error' ? 'var(--matrix-error)' :
-              'var(--matrix-info)',
-            color: 'white',
-            fontSize: 14,
-            fontWeight: 500,
-            boxShadow: 'var(--matrix-shadow-lg)',
-            zIndex: 10000,
-            animation: 'matrix-slide-in 0.3s ease',
-          }}
-          role="status"
-          aria-live="polite"
-        >
-          {feedback.message}
-        </div>
-      )}
     </>
   );
 };

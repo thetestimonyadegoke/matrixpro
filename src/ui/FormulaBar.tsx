@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef, useImperativeHandle, forwardRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useImperativeHandle, forwardRef } from "react";
 import { FormulaEditor } from "./IntelliSenseDropdown";
 import { IntelliSenseContext } from "../intellisense/FormulaIntelliSense";
 
@@ -39,7 +39,6 @@ export const FormulaBar = forwardRef<FormulaBarRef, FormulaBarProps>(({
 }, ref) => {
   const [internalValue, setInternalValue] = useState(value);
   const [isEditing, setIsEditing] = useState(false);
-  const [cursorPosition, setCursorPosition] = useState(0);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -161,10 +160,26 @@ export const FormulaBar = forwardRef<FormulaBarRef, FormulaBarProps>(({
         )}
         {internalValue !== value && (
           <>
-            <button className="formula-bar-btn cancel" onClick={onCancel} title="Cancel (Esc)">
+            <button
+              className="formula-bar-btn cancel"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCancel();
+                setIsEditing(false);
+              }}
+              title="Cancel (Esc)"
+            >
               ✕
             </button>
-            <button className="formula-bar-btn commit" onClick={() => onCommit(internalValue)} title="Commit (Enter)">
+            <button
+              className="formula-bar-btn commit"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCommit(internalValue);
+                setIsEditing(false);
+              }}
+              title="Commit (Enter)"
+            >
               ✓
             </button>
           </>

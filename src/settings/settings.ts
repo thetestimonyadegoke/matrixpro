@@ -107,13 +107,43 @@ export interface LayoutSettings {
   mode: LayoutMode;
 }
 
-export type ThemePresetId = "modern-light" | "modern-dark" | "finance-statement" | "minimal" | "tableau-like" | "figma-like";
-export type ThemeDensity = "compact" | "comfortable";
+export type ThemePresetId =
+  // Original presets
+  | "modern-light"
+  | "modern-dark"
+  | "finance-statement"
+  | "minimal"
+  | "tableau-like"
+  | "figma-like"
+  | "apple-glass"
+  // New financial-reporting presets
+  | "finance-classic"
+  | "finance-executive"
+  | "finance-annual-report"
+  | "audit-paper"
+  // New layout-emphasis presets
+  | "minimal-whitespace"
+  | "dense-grid"
+  | "dark-contrast"
+  // New brand-accent presets
+  | "brand-blue"
+  | "brand-green"
+  | "brand-orange";
+
+export type ThemeDensity = "compact" | "comfortable" | "spacious";
 
 export interface ThemeSettings {
   preset: ThemePresetId;
   density: ThemeDensity;
   customAccentColor: string;
+  /** Render a horizontal rule above subtotal / level-0 rows. */
+  dividerLines: boolean;
+  /** Subtle background on row hover. */
+  rowHover: boolean;
+  /** Grand total row becomes sticky at the bottom of the viewport. */
+  stickyTotals: boolean;
+  /** Auto-right-align numeric measure columns irrespective of global alignment. */
+  numberAlignmentByMeasure: boolean;
 }
 
 export type QuickCalcType = "none" | "percentOfTotal" | "runningTotal" | "variance" | "percentChange" | "rank";
@@ -133,6 +163,23 @@ export interface AppearanceSettings {
   showToolbar: boolean;
 }
 
+export interface TitleSettings {
+  /** Whether the custom in-visual title bar is shown. */
+  show: boolean;
+  /** Title text displayed in the bar. */
+  text: string;
+  /** Font size in px. */
+  fontSize: number;
+  /** Font color (CSS color string). */
+  color: string;
+  /** Background color of the title bar. */
+  backgroundColor: string;
+  /** Text alignment. */
+  alignment: "left" | "center" | "right";
+  /** Height of the title bar in px. */
+  height: number;
+}
+
 export interface VisualSettings {
   general: GeneralSettings;
   layout: LayoutSettings;
@@ -146,6 +193,7 @@ export interface VisualSettings {
   sparklines: SparklineSettings;
   quickCalcs: QuickCalcSettings;
   appearance: AppearanceSettings;
+  title: TitleSettings;
   calculations: CalculationsSettings;
   manualData: ManualDataSettings;
 }
@@ -153,6 +201,236 @@ export interface VisualSettings {
 export interface CalculationsSettings {
   measures: string;
   rows: string;
+}
+
+// ─── Inserted-row schema ─────────────────────────────────────────────────────
+// `calculations.rows` is persisted as a JSON-encoded array. Each entry has a
+// `kind` discriminator. Legacy entries (pre-kind) are migrated to "calculated"
+// by `migrateInsertedRows` on read, so existing reports continue to work.
+
+export type InsertedRowKind =
+  | "calculated"
+  | "blank"
+  | "group"
+  | "child"
+  | "divider";
+
+export interface InsertedRowStyle {
+  bold?: boolean;
+  italic?: boolean;
+  backgroundColor?: string;
+  textColor?: string;
+  borderTop?: string;
+  borderBottom?: string;
+  indentOverride?: number | null;
+}
+
+interface InsertedRowBaseFields {
+  id: string;
+  name: string;
+  enabled: boolean;
+  order: number;
+  /** How this row is positioned relative to `targetRowKey` (legacy fields below also kept for back-compat). */
+  placement?: "before" | "after" | "child";
+  targetRowKey?: string;
+  /** Back-compat fields preserved from the original wizard shape. */
+  parentRowKey?: string | null;
+  insertAfterRowKey?: string | null;
+  insertAtTop?: boolean;
+}
+
+export type RowScalingFactor =
+  | "none"
+  | "thousands"
+  | "millions"
+  | "billions"
+  | "trillions"
+  | "auto";
+
+export type RowQuickFormat = "none" | "number" | "currency" | "percentage";
+
+export type RowBindingMode = "none" | "existing" | "new";
+
+export interface RowBinding {
+  mode: RowBindingMode;
+  /** Row key to bind to when mode === "existing". */
+  existingRowKey?: string;
+  /** New binding identifier when mode === "new". */
+  newKey?: string;
+}
+
+export interface CalculatedInsertedRow extends InsertedRowBaseFields {
+  kind: "calculated" | "child";
+  formulaType: "sum" | "subtract" | "custom";
+  rowReferences: string[];
+  customFormula: string;
+  style?: InsertedRowStyle;
+  includeInTotals?: boolean;
+  isSubtotal?: boolean;
+  /** Cross-filter / RLS binding. Optional. Defaults to `{ mode: "none" }`. */
+  binding?: RowBinding;
+  /** Per-row numeric scaling divisor. Default "none". */
+  scalingFactor?: RowScalingFactor;
+  /** Per-row quick format override. Default "none". */
+  quickFormat?: RowQuickFormat;
+  /** Include in totals (new spelling; prefer this over legacy `includeInTotals`). Default true. */
+  includeInTotal?: boolean;
+  /**
+   * When true, column calc measures are evaluated before this row's formula.
+   * When false, this row's formula evaluates against the base (pre-calc-measure)
+   * cell map. Default (for existing rows without the field) is true to preserve
+   * historical behavior; the CalcRowForm defaults new rows to false.
+   */
+  evaluateColumnsBeforeRows?: boolean;
+  /** Free-form description. Optional. */
+  description?: string;
+}
+
+export interface BlankInsertedRow extends InsertedRowBaseFields {
+  kind: "blank";
+  height?: number;
+}
+
+export interface GroupInsertedRow extends InsertedRowBaseFields {
+  kind: "group";
+  label?: string;
+  style?: InsertedRowStyle;
+}
+
+export interface DividerInsertedRow extends InsertedRowBaseFields {
+  kind: "divider";
+  lineStyle?: "single" | "double" | "dashed";
+  lineColor?: string;
+}
+
+export type InsertedRow =
+  | CalculatedInsertedRow
+  | BlankInsertedRow
+  | GroupInsertedRow
+  | DividerInsertedRow;
+
+/**
+ * Parse and migrate the persisted `calculations.rows` JSON string.
+ * - Returns an empty array on null / invalid JSON / non-array input.
+ * - Stamps `kind: "calculated"` on any legacy entry missing a discriminator.
+ * - Fills in defaults so the runtime shape matches the typed unions.
+ */
+export function migrateInsertedRows(raw: string | undefined | null): InsertedRow[] {
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed.map((r: any, i: number): InsertedRow => {
+    const kind: InsertedRowKind =
+      r && typeof r.kind === "string" &&
+      (r.kind === "calculated" || r.kind === "blank" || r.kind === "group" || r.kind === "child" || r.kind === "divider")
+        ? r.kind
+        : "calculated";
+
+    const base: InsertedRowBaseFields = {
+      id: typeof r?.id === "string" && r.id ? r.id : `row_${Date.now()}_${i}`,
+      name: typeof r?.name === "string" ? r.name : "",
+      enabled: r?.enabled !== false,
+      order: typeof r?.order === "number" ? r.order : i,
+      placement: r?.placement,
+      targetRowKey: r?.targetRowKey,
+      parentRowKey: r?.parentRowKey ?? null,
+      insertAfterRowKey: r?.insertAfterRowKey ?? null,
+      insertAtTop: r?.insertAtTop === true,
+    };
+
+    switch (kind) {
+      case "calculated":
+      case "child": {
+        const scalingFactor: RowScalingFactor =
+          r?.scalingFactor === "thousands" ||
+          r?.scalingFactor === "millions" ||
+          r?.scalingFactor === "billions" ||
+          r?.scalingFactor === "trillions" ||
+          r?.scalingFactor === "auto"
+            ? r.scalingFactor
+            : "none";
+        const quickFormat: RowQuickFormat =
+          r?.quickFormat === "number" ||
+          r?.quickFormat === "currency" ||
+          r?.quickFormat === "percentage"
+            ? r.quickFormat
+            : "none";
+        const bindingMode: RowBindingMode =
+          r?.binding?.mode === "existing" || r?.binding?.mode === "new"
+            ? r.binding.mode
+            : "none";
+        const binding: RowBinding = {
+          mode: bindingMode,
+          existingRowKey:
+            bindingMode === "existing" && typeof r?.binding?.existingRowKey === "string"
+              ? r.binding.existingRowKey
+              : undefined,
+          newKey:
+            bindingMode === "new" && typeof r?.binding?.newKey === "string"
+              ? r.binding.newKey
+              : undefined,
+        };
+        // New `includeInTotal` field takes precedence over legacy `includeInTotals`
+        // when present. Default true.
+        const includeInTotal =
+          r?.includeInTotal === false ? false :
+          r?.includeInTotal === true ? true :
+          r?.includeInTotals !== false;
+        return {
+          ...base,
+          kind,
+          formulaType:
+            r?.formulaType === "subtract" || r?.formulaType === "custom"
+              ? r.formulaType
+              : "sum",
+          rowReferences: Array.isArray(r?.rowReferences) ? r.rowReferences : [],
+          customFormula: typeof r?.customFormula === "string" ? r.customFormula : "",
+          style: r?.style,
+          includeInTotals: includeInTotal,
+          isSubtotal: r?.isSubtotal === true,
+          binding,
+          scalingFactor,
+          quickFormat,
+          includeInTotal,
+          // Legacy entries preserve pre-feature behavior (columns evaluate first).
+          evaluateColumnsBeforeRows:
+            typeof r?.evaluateColumnsBeforeRows === "boolean"
+              ? r.evaluateColumnsBeforeRows
+              : true,
+          description: typeof r?.description === "string" ? r.description : undefined,
+        };
+      }
+      case "blank":
+        return {
+          ...base,
+          kind: "blank",
+          height: typeof r?.height === "number" ? r.height : undefined,
+        };
+      case "group":
+        return {
+          ...base,
+          kind: "group",
+          label: typeof r?.label === "string" ? r.label : undefined,
+          style: r?.style,
+        };
+      case "divider":
+        return {
+          ...base,
+          kind: "divider",
+          lineStyle:
+            r?.lineStyle === "double" || r?.lineStyle === "dashed"
+              ? r.lineStyle
+              : "single",
+          lineColor: typeof r?.lineColor === "string" ? r.lineColor : "#d1d5db",
+        };
+    }
+  });
 }
 
 export interface ManualDataSettings {
@@ -174,6 +452,33 @@ export interface ManualDataSettings {
   sortRules: string;
   /** JSON Record<measureIndex, string> aggregation overrides */
   aggregationOverrides: string;
+  /** JSON FilterRule[] for value-based row filtering */
+  filterRules: string;
+  /** JSON { topN: number; measureIndex: number; direction: "top"|"bottom" } Top N config */
+  topNConfig: string;
+  /** JSON number[] of hidden row hierarchy levels */
+  hiddenRowLevels: string;
+  /** JSON number[] of hidden column hierarchy levels */
+  hiddenColumnLevels: string;
+  /**
+   * JSON Record<compositeColKey, ColumnFormat> — per-column direct formatting.
+   * compositeColKey is "<flattenedColKey>::m<measureIndex>" (same as gridColumn.key).
+   * ColumnFormat fields are partial: bold, italic, underline, textColor,
+   * backgroundColor, alignment, quickFormat ("none"|"auto"|"thousands"|
+   * "millions"|"billions"|"trillions"), numberFormat, decimals.
+   */
+  colFormats: string;
+  /**
+   * JSON Record<rowKey, RowFormat> — per-row direct formatting. Mirrors the
+   * column-format shape for bold/italic/underline/textColor/backgroundColor/
+   * alignment, plus optional borderTop/borderBottom dividers.
+   */
+  rowFormats: string;
+  /** JSON string[] — row keys that are expanded. Persisted so expansion
+   * state survives page navigation and file reload. */
+  expandedRows: string;
+  /** JSON string[] — column keys that are expanded. Same as expandedRows. */
+  expandedCols: string;
 }
 
 export const defaultSettings: VisualSettings = {
@@ -199,6 +504,10 @@ export const defaultSettings: VisualSettings = {
     preset: "modern-light",
     density: "comfortable",
     customAccentColor: "#2563eb",
+    dividerLines: false,
+    rowHover: true,
+    stickyTotals: false,
+    numberAlignmentByMeasure: false,
   },
   headers: {
     fontSize: 11,
@@ -277,6 +586,15 @@ export const defaultSettings: VisualSettings = {
     cornerRadius: 8,
     showToolbar: true,
   },
+  title: {
+    show: false,
+    text: "",
+    fontSize: 16,
+    color: "#111827",
+    backgroundColor: "#ffffff",
+    alignment: "left",
+    height: 40,
+  },
   calculations: {
     measures: "[]",
     rows: "[]",
@@ -294,6 +612,14 @@ export const defaultSettings: VisualSettings = {
     groupings: "[]",
     sortRules: "[]",
     aggregationOverrides: "{}",
+    filterRules: "[]",
+    topNConfig: "{}",
+    hiddenRowLevels: "[]",
+    hiddenColumnLevels: "[]",
+    colFormats: "{}",
+    rowFormats: "{}",
+    expandedRows: "[]",
+    expandedCols: "[]",
   },
 };
 
@@ -359,6 +685,10 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       preset: getValue(objects, "theme", "preset", defaultSettings.theme.preset),
       density: getValue(objects, "theme", "density", defaultSettings.theme.density),
       customAccentColor: getColor(objects, "theme", "customAccentColor", defaultSettings.theme.customAccentColor),
+      dividerLines: getValue(objects, "theme", "dividerLines", defaultSettings.theme.dividerLines),
+      rowHover: getValue(objects, "theme", "rowHover", defaultSettings.theme.rowHover),
+      stickyTotals: getValue(objects, "theme", "stickyTotals", defaultSettings.theme.stickyTotals),
+      numberAlignmentByMeasure: getValue(objects, "theme", "numberAlignmentByMeasure", defaultSettings.theme.numberAlignmentByMeasure),
     },
     headers: {
       fontSize: getValue(objects, "headers", "fontSize", defaultSettings.headers.fontSize),
@@ -445,6 +775,15 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       cornerRadius: getValue(objects, "appearance", "cornerRadius", defaultSettings.appearance.cornerRadius),
       showToolbar: getValue(objects, "appearance", "showToolbar", defaultSettings.appearance.showToolbar),
     },
+    title: {
+      show: getValue(objects, "title", "show", defaultSettings.title.show),
+      text: getValue(objects, "title", "text", defaultSettings.title.text),
+      fontSize: getValue(objects, "title", "fontSize", defaultSettings.title.fontSize),
+      color: getColor(objects, "title", "color", defaultSettings.title.color),
+      backgroundColor: getColor(objects, "title", "backgroundColor", defaultSettings.title.backgroundColor),
+      alignment: getValue(objects, "title", "alignment", defaultSettings.title.alignment),
+      height: getValue(objects, "title", "height", defaultSettings.title.height),
+    },
     calculations: {
       measures: getValue(objects, "calculations", "measures", defaultSettings.calculations.measures),
       rows: getValue(objects, "calculations", "rows", defaultSettings.calculations.rows),
@@ -462,6 +801,14 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       groupings: getValue(objects, "manualData", "groupings", defaultSettings.manualData.groupings),
       sortRules: getValue(objects, "manualData", "sortRules", defaultSettings.manualData.sortRules),
       aggregationOverrides: getValue(objects, "manualData", "aggregationOverrides", defaultSettings.manualData.aggregationOverrides),
+      filterRules: getValue(objects, "manualData", "filterRules", defaultSettings.manualData.filterRules),
+      topNConfig: getValue(objects, "manualData", "topNConfig", defaultSettings.manualData.topNConfig),
+      hiddenRowLevels: getValue(objects, "manualData", "hiddenRowLevels", defaultSettings.manualData.hiddenRowLevels),
+      hiddenColumnLevels: getValue(objects, "manualData", "hiddenColumnLevels", defaultSettings.manualData.hiddenColumnLevels),
+      colFormats: getValue(objects, "manualData", "colFormats", defaultSettings.manualData.colFormats),
+      rowFormats: getValue(objects, "manualData", "rowFormats", defaultSettings.manualData.rowFormats),
+      expandedRows: getValue(objects, "manualData", "expandedRows", defaultSettings.manualData.expandedRows),
+      expandedCols: getValue(objects, "manualData", "expandedCols", defaultSettings.manualData.expandedCols),
     },
   };
 }

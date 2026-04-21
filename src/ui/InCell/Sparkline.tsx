@@ -72,7 +72,7 @@ export const Sparkline: React.FC<SparklineProps> = memo(({
       onInspect(values, labels);
     }
   }, [onInspect, values, labels]);
-  const { points, minIndex, maxIndex, min, max } = useMemo(() => {
+  const { points, minIndex, maxIndex } = useMemo(() => {
     const validValues = values.map((v, i) => ({
       value: v === null ? (nullHandling === "zero" ? 0 : null) : v,
       index: i,
@@ -83,7 +83,7 @@ export const Sparkline: React.FC<SparklineProps> = memo(({
       .map(v => v.value);
 
     if (numericValues.length === 0) {
-      return { points: [], minIndex: -1, maxIndex: -1, min: 0, max: 0 };
+      return { points: [] as { x: number; y: number; isNull: boolean }[], minIndex: -1, maxIndex: -1, min: 0, max: 0 };
     }
 
     const localMin = Math.min(...numericValues);
@@ -123,7 +123,7 @@ export const Sparkline: React.FC<SparklineProps> = memo(({
       }
     });
 
-    return { points: pointsArr, minIndex: minIdx, maxIndex: maxIdx, min, max };
+    return { points: pointsArr, minIndex: minIdx, maxIndex: maxIdx };
   }, [values, width, height, normalizePerRow, nullHandling, globalMin, globalMax]);
 
   if (points.length === 0) {
@@ -133,7 +133,7 @@ export const Sparkline: React.FC<SparklineProps> = memo(({
   const pathSegments: string[] = [];
   let currentPath = "";
 
-  points.forEach((point, i) => {
+  points.forEach((point, _i) => {
     if (point.isNull) {
       if (currentPath) {
         pathSegments.push(currentPath);

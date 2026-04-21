@@ -10,6 +10,7 @@ export interface RowHeaderProps {
   settings: VisualSettings;
   tooltipService: TooltipServiceWrapper | null;
   isSelected: boolean;
+  isFormatSelected?: boolean;
   style: React.CSSProperties;
   onToggleExpand: (nodeKey: string) => void;
   onClick: (e: React.MouseEvent) => void;
@@ -26,10 +27,11 @@ export interface RowHeaderProps {
 
 export const RowHeader: React.FC<RowHeaderProps> = memo(({
   row,
-  index,
+  index: _index,
   settings,
   tooltipService,
   isSelected,
+  isFormatSelected,
   style,
   onToggleExpand,
   onClick,
@@ -77,6 +79,7 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
     row.isSubtotal ? "subtotal-row" : "",
     row.isGrandTotal ? "grandtotal-row" : "",
     isSelected ? "selected" : "",
+    isFormatSelected ? "format-selected" : "",
     isDragOver ? `drag-over ${dropPosition}` : "",
   ].filter(Boolean).join(" ");
 

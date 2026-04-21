@@ -6,7 +6,6 @@
 import {
   AuditLogEntry,
   AuditAction,
-  AuditActionDetails,
   WritebackChange,
   WritebackBatch,
   ValidationError,

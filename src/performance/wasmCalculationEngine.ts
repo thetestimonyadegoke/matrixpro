@@ -13,7 +13,6 @@
 // Memory layout constants
 const MEMORY_PAGE_SIZE = 65536; // 64KB per WebAssembly page
 const BYTES_PER_FLOAT64 = 8;
-const MAX_CELLS_PER_PAGE = Math.floor(MEMORY_PAGE_SIZE / BYTES_PER_FLOAT64);
 
 export interface WasmCell {
   row: number;

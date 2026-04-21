@@ -5,7 +5,7 @@
  */
 
 import { VisualSettings, defaultSettings } from "./settings";
-import { validateSettings, ValidationResult, mergeWithDefaults } from "./settingsValidation";
+import { validateSettings, ValidationResult } from "./settingsValidation";
 
 export type SettingsStorageType = "localStorage" | "sessionStorage" | "memory" | "custom";
 

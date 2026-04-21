@@ -7,6 +7,7 @@ import React, { memo, useMemo } from "react";
 import { FlattenedNode } from "../model/tree";
 import { MeasureInfo } from "../model/pivot";
 import { SortConfig, SortDirection } from "../model/sorting";
+import { ColumnFormat, quickFormatHeaderLabel } from "../format/directFormats";
 
 export type ColumnArrangement = "time-then-measure" | "measure-then-time";
 
@@ -22,6 +23,14 @@ export interface MergedColumnHeadersProps {
   columnWidth: number;
   scrollLeft: number;
   totalContentWidth: number;
+  selectedColumnKeys?: Set<string>;
+  onColumnHeaderClick?: (
+    columnKey: string,
+    measureIndex: number,
+    modifiers: { ctrl: boolean; shift: boolean }
+  ) => void;
+  /** Per-column direct formats, keyed by "<colKey>::m<measureIndex>". */
+  colFormats?: Record<string, ColumnFormat>;
 }
 
 interface HeaderCell {
@@ -52,14 +61,29 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
   columnWidth,
   scrollLeft,
   totalContentWidth,
+  selectedColumnKeys,
+  onColumnHeaderClick,
+  colFormats,
 }) => {
   const headerRows = useMemo(() => {
     return buildMergedHeaders(columns, measures, arrangement, sortConfig);
   }, [columns, measures, arrangement, sortConfig]);
 
-  const handleSort = (columnKey: string | undefined, measureIndex: number | undefined) => {
+  const handleLeafClick = (
+    e: React.MouseEvent,
+    columnKey: string | undefined,
+    measureIndex: number | undefined
+  ) => {
     if (!allowInteractions || columnKey === undefined || measureIndex === undefined) return;
-    onSort(columnKey, measureIndex);
+    const ctrl = e.ctrlKey || e.metaKey;
+    const shift = e.shiftKey;
+    // Notify column selection first so downstream state updates regardless of sort.
+    onColumnHeaderClick?.(columnKey, measureIndex, { ctrl, shift });
+    // Preserve existing sort behavior only on plain clicks (no modifier),
+    // so Ctrl/Shift clicks are reserved for multi-select without side effects.
+    if (!ctrl && !shift) {
+      onSort(columnKey, measureIndex);
+    }
   };
 
   return (
@@ -89,16 +113,26 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
               transform: `translateX(-${scrollLeft}px)`,
             }}
           >
-            {row.cells.map((cell, cellIndex) => (
+            {row.cells.map((cell, cellIndex) => {
+              const compositeKey = cell.isLeaf && cell.columnKey !== undefined && cell.measureIndex !== undefined
+                ? `${cell.columnKey}::m${cell.measureIndex}`
+                : undefined;
+              const isColSelected = !!(compositeKey && selectedColumnKeys?.has(compositeKey));
+              // Append "in Thousands" / "in Millions" etc. when a quickFormat
+              // is set for this leaf column. We suffix rather than replace so
+              // the measure name remains readable.
+              const colFmt = compositeKey ? colFormats?.[compositeKey] : undefined;
+              const suffix = quickFormatHeaderLabel(colFmt?.quickFormat);
+              const displayLabel = suffix ? `${cell.label} ${suffix}` : cell.label;
+              return (
               <div
                 key={`${cell.key}-${cellIndex}`}
-                className={`merged-header-cell ${cell.isLeaf ? "leaf" : "group"} ${cell.sortDirection && cell.sortDirection !== "none" ? "sorted" : ""
-                  }`}
+                className={`merged-header-cell ${cell.isLeaf ? "leaf" : "group"} ${cell.sortDirection && cell.sortDirection !== "none" ? "sorted" : ""} ${isColSelected ? "col-selected" : ""}`}
                 style={{
                   width: cell.colSpan * columnWidth,
                   minWidth: cell.colSpan * columnWidth,
                 }}
-                onClick={() => cell.isLeaf && handleSort(cell.columnKey, cell.measureIndex)}
+                onClick={(e) => cell.isLeaf && handleLeafClick(e, cell.columnKey, cell.measureIndex)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   onContextMenu(e, cell.columnKey, cell.measureIndex);
@@ -106,14 +140,15 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
                 role={cell.isLeaf ? "button" : undefined}
                 tabIndex={cell.isLeaf && allowInteractions ? 0 : undefined}
               >
-                <span className="merged-header-label">{cell.label}</span>
+                <span className="merged-header-label">{displayLabel}</span>
                 {cell.isLeaf && cell.sortDirection && cell.sortDirection !== "none" && (
                   <span className="merged-header-sort-icon">
                     {cell.sortDirection === "asc" ? "↑" : "↓"}
                   </span>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ))}
@@ -174,8 +209,6 @@ function buildTimeFirstHeaders(
   // Build hierarchy levels (Year, Quarter, Month, etc.)
   for (let level = 0; level <= maxLevel; level++) {
     const cells: HeaderCell[] = [];
-    let currentGroup: { label: string; count: number; key: string } | null = null;
-
     for (let i = 0; i < columns.length; i++) {
       const col = columns[i];
       if (col.level === level) {

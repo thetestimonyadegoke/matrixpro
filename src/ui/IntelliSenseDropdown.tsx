@@ -286,7 +286,7 @@ export const FormulaEditor: React.FC<FormulaEditorProps> = ({
 
   // Render error squiggles
   const errorHighlights = useMemo(() => {
-    return errors.map((err, i) => ({
+    return errors.map((err, _i) => ({
       start: err.position,
       end: err.position + err.length,
       message: err.message,

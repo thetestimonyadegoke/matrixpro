@@ -8,7 +8,7 @@ import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
 
 import { App } from "./ui/App";
-import { parseSettings, VisualSettings } from "./settings/settings";
+import { defaultSettings, parseSettings, VisualSettings } from "./settings/settings";
 import { getFormattingModel } from "./settings/formattingModel";
 import { buildMatrixModel, MatrixModel } from "./model/pivot";
 import { toggleNodeExpansion } from "./model/tree";
@@ -210,6 +210,13 @@ export class Visual implements IVisual {
       this.lastViewport = { width: options.viewport.width, height: options.viewport.height };
       this.settings = parseSettings(dataView);
 
+      // Restore persisted expansion state on first load (when in-memory state is empty).
+      // Subsequent calls keep the already-toggled in-memory state so user interactions
+      // aren't overwritten by the incoming data view on every Power BI update cycle.
+      if (this.rowExpandedState.size === 0 && this.columnExpandedState.size === 0) {
+        this.restoreExpansionStateFromSettings();
+      }
+
       // Apply theme tokens based on selected preset
       const themeTokens = getThemePreset(this.settings.theme.preset as ThemePresetId);
       applyThemeTokensToElement(this.reactRoot, themeTokens);
@@ -231,18 +238,69 @@ export class Visual implements IVisual {
         }
       }
 
+      if (this.settings.appearance.accentColor !== defaultSettings.appearance.accentColor) {
+        const rgb = this.tryHexToRgb(this.settings.appearance.accentColor);
+        this.reactRoot.style.setProperty("--mx-accent", this.settings.appearance.accentColor);
+        if (rgb) {
+          this.reactRoot.style.setProperty("--mx-accent-12", `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.12)`);
+          this.reactRoot.style.setProperty("--mx-accent-10", `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.10)`);
+          this.reactRoot.style.setProperty("--mx-accent-55", `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.55)`);
+        }
+      }
+
       // Legacy appearance overrides (for backward compatibility)
       if (this.settings.appearance.surfaceColor !== "#ffffff") {
         this.reactRoot.style.setProperty("--mx-surface", this.settings.appearance.surfaceColor);
+        this.reactRoot.style.setProperty("--mx-panel-bg", this.settings.appearance.surfaceColor);
+        this.reactRoot.style.setProperty("--mx-cell-bg", this.settings.appearance.surfaceColor);
       }
       if (this.settings.appearance.toolbarBackgroundColor !== "#f8f9fa") {
         this.reactRoot.style.setProperty("--mx-toolbar-bg", this.settings.appearance.toolbarBackgroundColor);
+        this.reactRoot.style.setProperty("--mx-header-bg", this.settings.appearance.toolbarBackgroundColor);
       }
       if (this.settings.appearance.borderColor !== "#e0e0e0") {
         this.reactRoot.style.setProperty("--mx-border", this.settings.appearance.borderColor);
+        this.reactRoot.style.setProperty("--mx-panel-border", this.settings.appearance.borderColor);
       }
       if (this.settings.appearance.cornerRadius !== 8) {
         this.reactRoot.style.setProperty("--mx-radius", `${this.settings.appearance.cornerRadius}px`);
+      }
+
+      if (this.settings.headers.backgroundColor !== defaultSettings.headers.backgroundColor) {
+        this.reactRoot.style.setProperty("--mx-header-bg", this.settings.headers.backgroundColor);
+      }
+      if (this.settings.headers.textColor !== defaultSettings.headers.textColor) {
+        this.reactRoot.style.setProperty("--mx-header-fg", this.settings.headers.textColor);
+      }
+      if (this.settings.values.textColor !== defaultSettings.values.textColor) {
+        this.reactRoot.style.setProperty("--mx-cell-fg", this.settings.values.textColor);
+        this.reactRoot.style.setProperty("--mx-text", this.settings.values.textColor);
+      }
+      if (this.settings.values.backgroundColor !== defaultSettings.values.backgroundColor) {
+        this.reactRoot.style.setProperty("--mx-cell-bg", this.settings.values.backgroundColor);
+      }
+      if (this.settings.totals.backgroundColor !== defaultSettings.totals.backgroundColor) {
+        this.reactRoot.style.setProperty("--mx-total-bg", this.settings.totals.backgroundColor);
+        this.reactRoot.style.setProperty("--mx-subtotal-bg", this.settings.totals.backgroundColor);
+        this.reactRoot.style.setProperty("--mx-grandtotal-bg", this.settings.totals.backgroundColor);
+      }
+      if (this.settings.totals.textColor !== defaultSettings.totals.textColor) {
+        this.reactRoot.style.setProperty("--mx-total-fg", this.settings.totals.textColor);
+      }
+      if (this.settings.conditionalFormatting.lowColor !== defaultSettings.conditionalFormatting.lowColor) {
+        this.reactRoot.style.setProperty("--mx-cond-low", this.settings.conditionalFormatting.lowColor);
+      }
+      if (this.settings.conditionalFormatting.midColor !== defaultSettings.conditionalFormatting.midColor) {
+        this.reactRoot.style.setProperty("--mx-cond-mid", this.settings.conditionalFormatting.midColor);
+      }
+      if (this.settings.conditionalFormatting.highColor !== defaultSettings.conditionalFormatting.highColor) {
+        this.reactRoot.style.setProperty("--mx-cond-high", this.settings.conditionalFormatting.highColor);
+      }
+      if (this.settings.dataBars.positiveColor !== defaultSettings.dataBars.positiveColor) {
+        this.reactRoot.style.setProperty("--mx-databar-pos", this.settings.dataBars.positiveColor);
+      }
+      if (this.settings.dataBars.negativeColor !== defaultSettings.dataBars.negativeColor) {
+        this.reactRoot.style.setProperty("--mx-databar-neg", this.settings.dataBars.negativeColor);
       }
 
       this.model = buildMatrixModel({
@@ -309,27 +367,60 @@ export class Visual implements IVisual {
     ReactDOM.render(element, this.reactRoot);
   }
 
+  /** Serialize expansion state to JSON string[] and persist to manualData. */
+  private persistExpansionState(): void {
+    // Only persist the keys that are explicitly collapsed (false). Default is expanded.
+    const collapsedRowKeys = Array.from(this.rowExpandedState.entries())
+      .filter(([, v]) => v === false)
+      .map(([k]) => k);
+    const collapsedColKeys = Array.from(this.columnExpandedState.entries())
+      .filter(([, v]) => v === false)
+      .map(([k]) => k);
+    this.persistProperty("manualData", "expandedRows", JSON.stringify(collapsedRowKeys));
+    this.persistProperty("manualData", "expandedCols", JSON.stringify(collapsedColKeys));
+  }
+
+  /** Restore expansion state from settings (called once during update). */
+  private restoreExpansionStateFromSettings(): void {
+    try {
+      const collapsedRowKeys: string[] = JSON.parse(this.settings.manualData.expandedRows || "[]");
+      const collapsedColKeys: string[] = JSON.parse(this.settings.manualData.expandedCols || "[]");
+      // If nothing is stored, leave the current in-memory state intact
+      if (collapsedRowKeys.length === 0 && collapsedColKeys.length === 0) return;
+      const newRowState = new Map<string, boolean>();
+      for (const k of collapsedRowKeys) newRowState.set(k, false);
+      this.rowExpandedState = newRowState;
+      const newColState = new Map<string, boolean>();
+      for (const k of collapsedColKeys) newColState.set(k, false);
+      this.columnExpandedState = newColState;
+    } catch {
+      // ignore parse errors — leave current state
+    }
+  }
+
   private handleToggleRowExpand(nodeKey: string): void {
     const currentState = this.rowExpandedState.get(nodeKey) ?? true;
     this.rowExpandedState = toggleNodeExpansion(this.rowExpandedState, nodeKey, currentState);
-
+    this.persistExpansionState();
     this.scheduleRebuildAndRender();
   }
 
   private handleToggleColumnExpand(nodeKey: string): void {
     const currentState = this.columnExpandedState.get(nodeKey) ?? true;
     this.columnExpandedState = toggleNodeExpansion(this.columnExpandedState, nodeKey, currentState);
-
+    this.persistExpansionState();
     this.scheduleRebuildAndRender();
   }
 
   private handleResetRowExpansion(): void {
     this.rowExpandedState = new Map();
+    this.persistExpansionState();
     this.scheduleRebuildAndRender();
   }
 
   private handleResetColumnExpansion(): void {
     this.columnExpandedState = new Map();
+    this.persistExpansionState();
     this.scheduleRebuildAndRender();
   }
 
@@ -348,6 +439,7 @@ export class Visual implements IVisual {
       setExpansionForLevel(this.model.rowTree, 0);
     }
     this.rowExpandedState = newState;
+    this.persistExpansionState();
     this.scheduleRebuildAndRender();
   }
 
@@ -366,6 +458,7 @@ export class Visual implements IVisual {
       setExpansionForLevel(this.model.columnTree, 0);
     }
     this.columnExpandedState = newState;
+    this.persistExpansionState();
     this.scheduleRebuildAndRender();
   }
 
@@ -382,6 +475,7 @@ export class Visual implements IVisual {
       }
     };
     searchAndExpand(this.model.rowTree);
+    this.persistExpansionState();
     this.scheduleRebuildAndRender();
   }
 
@@ -398,6 +492,7 @@ export class Visual implements IVisual {
       }
     };
     searchAndCollapse(this.model.rowTree);
+    this.persistExpansionState();
     this.scheduleRebuildAndRender();
   }
 

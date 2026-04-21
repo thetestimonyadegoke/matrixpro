@@ -61,3 +61,17 @@ export function getParentKey(key: string): string | null {
   if (lastPipe === -1) return null;
   return key.slice(0, lastPipe);
 }
+
+/**
+ * Generates a secure random string for IDs.
+ */
+export function secureRandomId(length: number = 6): string {
+  const array = new Uint8Array(length);
+  window.crypto.getRandomValues(array);
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += chars[array[i] % chars.length];
+  }
+  return result;
+}

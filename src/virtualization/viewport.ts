@@ -34,9 +34,6 @@ export function computeVisibleRange(
     totalColumns,
   } = config;
 
-  const visibleRowCount = Math.ceil(viewportHeight / rowHeight);
-  const visibleColCount = Math.ceil(viewportWidth / columnWidth);
-
   const startRow = Math.max(0, Math.floor(scrollTop / rowHeight) - rowBuffer);
   const endRow = Math.min(totalRows, Math.ceil((scrollTop + viewportHeight) / rowHeight) + rowBuffer);
 

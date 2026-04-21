@@ -100,6 +100,19 @@
       }
     }
   ],
+  "drilldown": {
+    "roles": [
+      "Rows",
+      "Columns"
+    ]
+  },
+  "supportsHighlight": true,
+  "sorting": {
+    "default": {
+      "Rows": {},
+      "Columns": {}
+    }
+  },
   "objects": {
     "general": {
       "displayName": "General",
@@ -226,6 +239,46 @@
               {
                 "value": "apple-glass",
                 "displayName": "Cupertino Glass"
+              },
+              {
+                "value": "finance-classic",
+                "displayName": "Finance Classic"
+              },
+              {
+                "value": "finance-executive",
+                "displayName": "Finance Executive"
+              },
+              {
+                "value": "finance-annual-report",
+                "displayName": "Annual Report"
+              },
+              {
+                "value": "audit-paper",
+                "displayName": "Audit Paper"
+              },
+              {
+                "value": "minimal-whitespace",
+                "displayName": "Minimal Whitespace"
+              },
+              {
+                "value": "dense-grid",
+                "displayName": "Dense Grid"
+              },
+              {
+                "value": "dark-contrast",
+                "displayName": "Dark Contrast"
+              },
+              {
+                "value": "brand-blue",
+                "displayName": "Brand Blue"
+              },
+              {
+                "value": "brand-green",
+                "displayName": "Brand Green"
+              },
+              {
+                "value": "brand-orange",
+                "displayName": "Brand Orange"
               }
             ]
           }
@@ -241,6 +294,10 @@
               {
                 "value": "comfortable",
                 "displayName": "Comfortable"
+              },
+              {
+                "value": "spacious",
+                "displayName": "Spacious"
               }
             ]
           }
@@ -253,6 +310,34 @@
                 "color": true
               }
             }
+          }
+        },
+        "dividerLines": {
+          "displayName": "Divider Lines",
+          "description": "Render horizontal rule above subtotal / top-level rows",
+          "type": {
+            "bool": true
+          }
+        },
+        "rowHover": {
+          "displayName": "Row Hover",
+          "description": "Highlight rows on mouse hover",
+          "type": {
+            "bool": true
+          }
+        },
+        "stickyTotals": {
+          "displayName": "Sticky Totals",
+          "description": "Grand total row sticks to bottom of viewport",
+          "type": {
+            "bool": true
+          }
+        },
+        "numberAlignmentByMeasure": {
+          "displayName": "Auto-Align Numbers",
+          "description": "Right-align numeric measure columns automatically",
+          "type": {
+            "bool": true
           }
         }
       }
@@ -609,6 +694,12 @@
           "type": {
             "numeric": true
           }
+        },
+        "rules": {
+          "displayName": "Conditional Rules JSON",
+          "type": {
+            "text": true
+          }
         }
       }
     },
@@ -942,6 +1033,36 @@
         },
         "locks": {
           "displayName": "Locked Rows JSON",
+          "type": {
+            "text": true
+          }
+        },
+        "colFormats": {
+          "displayName": "Column Formats JSON",
+          "type": {
+            "text": true
+          }
+        },
+        "rowFormats": {
+          "displayName": "Row Formats JSON",
+          "type": {
+            "text": true
+          }
+        },
+        "sortRules": {
+          "displayName": "Multi-Sort Rules JSON",
+          "type": {
+            "text": true
+          }
+        },
+        "filterRules": {
+          "displayName": "Filter Rules JSON",
+          "type": {
+            "text": true
+          }
+        },
+        "topNConfig": {
+          "displayName": "Top N Config JSON",
           "type": {
             "text": true
           }

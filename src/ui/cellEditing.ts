@@ -4,8 +4,7 @@
  * Supports inline editing, range selection, copy-paste, and fill operations
  */
 
-import { useState, useCallback, useRef, useEffect, KeyboardEvent, ClipboardEvent } from 'react';
-import { CellValue } from "../model/pivot";
+import { useState, useEffect } from 'react';
 
 export type EditMode = 'view' | 'edit' | 'formula';
 export type SelectionMode = 'cell' | 'range' | 'column' | 'row';
