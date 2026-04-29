@@ -3,6 +3,7 @@ import { CellValue, MeasureInfo, getCellValue } from "../model/pivot";
 import { VisualSettings } from "../settings/settings";
 import { evaluateConditionalFormatting, computeVisibleRangeStats } from "../format/conditional";
 import { buildCSVContent } from "./csv";
+import { downloadXLSX, downloadCSV } from "./download";
 
 export function exportToXLSX(
   rows: FlattenedNode[],
@@ -21,17 +22,17 @@ export function exportToXLSX(
   }
 }
 
-interface XLSXCell {
-  value: string | number;
-  style?: XLSXStyle;
-}
-
 interface XLSXStyle {
   fill?: string;
   fontColor?: string;
   fontWeight?: "bold" | "normal";
   alignment?: "left" | "center" | "right";
   numberFormat?: string;
+}
+
+interface XLSXCell {
+  value: string | number;
+  styleId?: number;
 }
 
 interface XLSXWorksheet {
@@ -46,32 +47,44 @@ function buildXLSXContent(
   measures: MeasureInfo[],
   settings: VisualSettings
 ): Blob {
+  const styles: XLSXStyle[] = [
+    {}, // ID 0: Default
+  ];
+
+  const getStyleId = (style: XLSXStyle): number => {
+    const json = JSON.stringify(style);
+    const idx = styles.findIndex(s => JSON.stringify(s) === json);
+    if (idx !== -1) return idx;
+    styles.push(style);
+    return styles.length - 1;
+  };
+
   const worksheet: XLSXWorksheet = {
     name: "Matrix Export",
     rows: [],
   };
 
+  // Header style
+  const headerStyleId = getStyleId({
+    fontWeight: "bold",
+    fill: (settings.headers as any).backgroundColor || "#f5f5f5",
+    fontColor: (settings.headers as any).textColor || "#000000",
+    alignment: "center"
+  });
+
   const headerRow: XLSXCell[] = [
-    {
-      value: "Row",
-      style: {
-        fill: settings.headers.backgroundColor,
-        fontColor: settings.headers.textColor,
-        fontWeight: "bold",
-      },
-    },
+    { value: "Row", styleId: headerStyleId },
   ];
 
+  // Flattened column headers
+  const effectiveColumns = columns.length > 0 ? columns : measures.map((m, i) => ({ key: `col:measure_${i}`, label: m.name }));
+  
   if (columns.length > 0) {
     for (const col of columns) {
       for (const measure of measures) {
         headerRow.push({
           value: `${col.label} - ${measure.name}`,
-          style: {
-            fill: settings.headers.backgroundColor,
-            fontColor: settings.headers.textColor,
-            fontWeight: "bold",
-          },
+          styleId: headerStyleId
         });
       }
     }
@@ -79,129 +92,105 @@ function buildXLSXContent(
     for (const measure of measures) {
       headerRow.push({
         value: measure.name,
-        style: {
-          fill: settings.headers.backgroundColor,
-          fontColor: settings.headers.textColor,
-          fontWeight: "bold",
-        },
+        styleId: headerStyleId
       });
     }
   }
-
   worksheet.rows.push(headerRow);
 
+  // Stats for conditional formatting
   const columnStats = new Map<string, { min: number; max: number }>();
   if (settings.conditionalFormatting.enabled) {
-    const effectiveColumns = columns.length > 0 ? columns : measures.map((m, i) => ({ key: `col:measure_${i}` }));
     for (const col of effectiveColumns) {
       for (let m = 0; m < measures.length; m++) {
         const values: (number | null)[] = [];
         for (const row of rows) {
           const cell = getCellValue(cellMap, row.key, col.key, m);
-          if (cell?.value !== null) {
-            values.push(cell?.value ?? null);
+          if (cell?.value !== null && cell?.value !== undefined) {
+             values.push(cell.value);
           }
         }
-        const stats = computeVisibleRangeStats(values);
-        columnStats.set(`${col.key}:${m}`, stats);
+        columnStats.set(`${col.key}:${m}`, computeVisibleRangeStats(values));
       }
     }
   }
 
+  // Data rows
   for (const row of rows) {
-    // Skip rows that don't carry data: blank spacer + visual divider.
-    if (row.calcRowKind === "blank" || row.calcRowKind === "divider") {
-      continue;
-    }
+    if (row.calcRowKind === "blank" || row.calcRowKind === "divider") continue;
 
     const xlsxRow: XLSXCell[] = [];
+    const indent = "  ".repeat(row.indent || 0);
+    const label = row.isGrandTotal ? "Grand Total" : row.isSubtotal ? row.label : `${indent}${row.label}`;
 
-    const indent = "  ".repeat(row.indent);
-    const rowLabel = row.isGrandTotal ? "Grand Total" : row.isSubtotal ? row.label : `${indent}${row.label}`;
-
-    const rowStyle: XLSXStyle = {};
+    // Row header style
+    const rowHeaderStyle: XLSXStyle = {
+      alignment: "left"
+    };
     if (row.isGrandTotal || row.isSubtotal) {
-      rowStyle.fill = settings.totals.backgroundColor;
-      rowStyle.fontColor = settings.totals.textColor;
-      rowStyle.fontWeight = "bold";
+      rowHeaderStyle.fontWeight = "bold";
+      rowHeaderStyle.fill = settings.totals.backgroundColor;
+      rowHeaderStyle.fontColor = settings.totals.textColor;
     }
+    
+    xlsxRow.push({ value: label, styleId: getStyleId(rowHeaderStyle) });
 
-    xlsxRow.push({ value: rowLabel, style: rowStyle });
-
-    // Group rows export as label-only: pad remaining cells empty.
     if (row.calcRowKind === "group") {
-      const effectiveColumns = columns.length > 0 ? columns : measures.map((_, i) => ({ key: `col:measure_${i}` }));
-      for (let i = 0; i < effectiveColumns.length * measures.length; i++) {
-        xlsxRow.push({ value: "", style: { fontWeight: "bold" } });
-      }
-      worksheet.rows.push(xlsxRow);
-      continue;
+       for (let i = 0; i < effectiveColumns.length * (columns.length > 0 ? measures.length : 1); i++) {
+         xlsxRow.push({ value: "", styleId: getStyleId({ fontWeight: "bold" }) });
+       }
+       worksheet.rows.push(xlsxRow);
+       continue;
     }
-
-    const effectiveColumns = columns.length > 0 ? columns : measures.map((m, i) => ({ key: `col:measure_${i}`, label: m.name }));
 
     for (const col of effectiveColumns) {
       for (let m = 0; m < measures.length; m++) {
         const cell = getCellValue(cellMap, row.key, col.key, m);
         const value = cell?.value ?? null;
-        const formattedValue = cell?.formattedValue ?? "";
-
+        
         const cellStyle: XLSXStyle = {
-          alignment: settings.values.alignment,
+          alignment: settings.values.alignment as any || "right"
         };
 
         if (row.isGrandTotal || row.isSubtotal) {
+          cellStyle.fontWeight = "bold";
           cellStyle.fill = settings.totals.backgroundColor;
           cellStyle.fontColor = settings.totals.textColor;
-          cellStyle.fontWeight = "bold";
         } else if (settings.conditionalFormatting.enabled && value !== null) {
-          const statsKey = `${col.key}:${m}`;
-          const stats = columnStats.get(statsKey) || { min: 0, max: 0 };
-          const cfStyle = evaluateConditionalFormatting(value, stats.min, stats.max, settings.conditionalFormatting);
-          if (cfStyle.backgroundColor) {
-            cellStyle.fill = cfStyle.backgroundColor;
-          }
-          if (cfStyle.color) {
-            cellStyle.fontColor = cfStyle.color;
-          }
+          const stats = columnStats.get(`${col.key}:${m}`) || { min: 0, max: 0 };
+          const cf = evaluateConditionalFormatting(value, stats.min, stats.max, settings.conditionalFormatting);
+          if (cf.backgroundColor) cellStyle.fill = cf.backgroundColor;
+          if (cf.color) cellStyle.fontColor = cf.color;
         }
 
         xlsxRow.push({
-          value: value !== null ? value : formattedValue,
-          style: cellStyle,
+          value: value !== null ? value : (cell?.formattedValue ?? ""),
+          styleId: getStyleId(cellStyle)
         });
       }
     }
-
     worksheet.rows.push(xlsxRow);
   }
 
-  return generateSimpleXLSX(worksheet);
+  return generateAdvancedXLSX(worksheet, styles);
 }
 
-function generateSimpleXLSX(worksheet: XLSXWorksheet): Blob {
+function generateAdvancedXLSX(worksheet: XLSXWorksheet, styles: XLSXStyle[]): Blob {
   const xmlHeader = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
 
+  // Build Sheet XML
   const sheetData = worksheet.rows.map((row, rowIndex) => {
     const cells = row.map((cell, colIndex) => {
       const colLetter = getColumnLetter(colIndex);
       const cellRef = `${colLetter}${rowIndex + 1}`;
-
-      let cellValue: string;
-      let cellType: string;
+      const s = cell.styleId ? ` s="${cell.styleId}"` : "";
 
       if (typeof cell.value === "number") {
-        cellValue = `<v>${cell.value}</v>`;
-        cellType = "";
+        return `<c r="${cellRef}"${s}><v>${cell.value}</v></c>`;
       } else {
-        cellValue = `<v>${escapeXML(String(cell.value))}</v>`;
-        cellType = ' t="inlineStr"';
-        cellValue = `<is><t>${escapeXML(String(cell.value))}</t></is>`;
+        return `<c r="${cellRef}"${s} t="inlineStr"><is><t>${escapeXML(String(cell.value))}</t></is></c>`;
       }
-
-      return `<c r="${cellRef}"${cellType}>${cellValue}</c>`;
     }).join("");
-
     return `<row r="${rowIndex + 1}">${cells}</row>`;
   }).join("");
 
@@ -210,11 +199,42 @@ function generateSimpleXLSX(worksheet: XLSXWorksheet): Blob {
   <sheetData>${sheetData}</sheetData>
 </worksheet>`;
 
+  // Build Styles XML
+  // We need to map HEX colors to ARGB for Excel (AARRGGBB)
+  const toARGB = (hex: string) => "FF" + hex.replace("#", "");
+  
+  const fonts = styles.map(s => {
+    const bold = s.fontWeight === "bold" ? "<b/>" : "";
+    const color = s.fontColor ? `<color rgb="${toARGB(s.fontColor)}"/>` : "";
+    return `<font>${bold}<sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/>${color}</font>`;
+  }).join("");
+
+  const fills = styles.map(s => {
+    if (!s.fill) return '<fill><patternFill patternType="none"/></fill>';
+    return `<fill><patternFill patternType="solid"><fgColor rgb="${toARGB(s.fill)}"/><bgColor indexed="64"/></patternFill></fill>`;
+  }).join("");
+  // Excel expects two default fills: none and gray125
+  const fullFills = `<fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>${fills}`;
+
+  const cellXfs = styles.map((s, i) => {
+    const align = s.alignment ? `<alignment horizontal="${s.alignment}"/>` : "";
+    // fillId + 2 because we added 2 default fills
+    const fillId = s.fill ? i + 2 : 0;
+    return `<xf numFmtId="0" fontId="${i}" fillId="${fillId}" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${align}</xf>`;
+  }).join("");
+
+  const stylesXML = `${xmlHeader}
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="${styles.length}">${fonts}</fonts>
+  <fills count="${styles.length + 2}">${fullFills}</fills>
+  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="${styles.length}">${cellXfs}</cellXfs>
+</styleSheet>`;
+
   const workbookXML = `${xmlHeader}
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets>
-    <sheet name="${escapeXML(worksheet.name)}" sheetId="1" r:id="rId1"/>
-  </sheets>
+  <sheets><sheet name="${escapeXML(worksheet.name)}" sheetId="1" r:id="rId1"/></sheets>
 </workbook>`;
 
   const relsXML = `${xmlHeader}
@@ -225,6 +245,7 @@ function generateSimpleXLSX(worksheet: XLSXWorksheet): Blob {
   const workbookRelsXML = `${xmlHeader}
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`;
 
   const contentTypesXML = `${xmlHeader}
@@ -233,6 +254,7 @@ function generateSimpleXLSX(worksheet: XLSXWorksheet): Blob {
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
   <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
 </Types>`;
 
   const zip = createZip([
@@ -241,6 +263,7 @@ function generateSimpleXLSX(worksheet: XLSXWorksheet): Blob {
     { path: "xl/workbook.xml", content: workbookXML },
     { path: "xl/_rels/workbook.xml.rels", content: workbookRelsXML },
     { path: "xl/worksheets/sheet1.xml", content: sheetXML },
+    { path: "xl/styles.xml", content: stylesXML },
   ]);
 
   return zip;
@@ -249,28 +272,18 @@ function generateSimpleXLSX(worksheet: XLSXWorksheet): Blob {
 function getColumnLetter(index: number): string {
   let letter = "";
   let temp = index;
-
   while (temp >= 0) {
     letter = String.fromCharCode((temp % 26) + 65) + letter;
     temp = Math.floor(temp / 26) - 1;
   }
-
   return letter;
 }
 
 function escapeXML(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 
-interface ZipEntry {
-  path: string;
-  content: string;
-}
+interface ZipEntry { path: string; content: string; }
 
 function createZip(entries: ZipEntry[]): Blob {
   const encoder = new TextEncoder();
@@ -284,52 +297,31 @@ function createZip(entries: ZipEntry[]): Blob {
 
     const localHeader = new Uint8Array(30 + path.length);
     const view = new DataView(localHeader.buffer);
-
     view.setUint32(0, 0x04034b50, true);
     view.setUint16(4, 20, true);
-    view.setUint16(6, 0, true);
-    view.setUint16(8, 0, true);
-    view.setUint16(10, 0, true);
-    view.setUint16(12, 0, true);
-    view.setUint32(14, 0, true);
-    view.setUint32(18, content.length, true);
+    view.setUint16(18, content.length, true);
     view.setUint32(22, content.length, true);
     view.setUint16(26, path.length, true);
-    view.setUint16(28, 0, true);
     localHeader.set(path, 30);
 
     const cdHeader = new Uint8Array(46 + path.length);
     const cdView = new DataView(cdHeader.buffer);
-
     cdView.setUint32(0, 0x02014b50, true);
     cdView.setUint16(4, 20, true);
     cdView.setUint16(6, 20, true);
-    cdView.setUint16(8, 0, true);
-    cdView.setUint16(10, 0, true);
-    cdView.setUint16(12, 0, true);
-    cdView.setUint16(14, 0, true);
-    cdView.setUint32(16, 0, true);
     cdView.setUint32(20, content.length, true);
     cdView.setUint32(24, content.length, true);
     cdView.setUint16(28, path.length, true);
-    cdView.setUint16(30, 0, true);
-    cdView.setUint16(32, 0, true);
-    cdView.setUint16(34, 0, true);
-    cdView.setUint16(36, 0, true);
-    cdView.setUint32(38, 0, true);
     cdView.setUint32(42, offset, true);
     cdHeader.set(path, 46);
 
-    parts.push(localHeader);
-    parts.push(content);
+    parts.push(localHeader, content);
     centralDirectory.push(cdHeader);
-
     offset += localHeader.length + content.length;
   }
 
   const cdOffset = offset;
   let cdSize = 0;
-
   for (const cd of centralDirectory) {
     parts.push(cd);
     cdSize += cd.length;
@@ -337,48 +329,12 @@ function createZip(entries: ZipEntry[]): Blob {
 
   const endOfCd = new Uint8Array(22);
   const endView = new DataView(endOfCd.buffer);
-
   endView.setUint32(0, 0x06054b50, true);
-  endView.setUint16(4, 0, true);
-  endView.setUint16(6, 0, true);
   endView.setUint16(8, entries.length, true);
   endView.setUint16(10, entries.length, true);
   endView.setUint32(12, cdSize, true);
   endView.setUint32(16, cdOffset, true);
-  endView.setUint16(20, 0, true);
-
   parts.push(endOfCd);
 
   return new Blob(parts as BlobPart[], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-}
-
-function downloadXLSX(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement("a");
-  link.setAttribute("href", url);
-  link.setAttribute("download", filename);
-  link.style.visibility = "hidden";
-
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-
-  URL.revokeObjectURL(url);
-}
-
-function downloadCSV(content: string, filename: string): void {
-  const blob = new Blob(["\ufeff" + content], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement("a");
-  link.setAttribute("href", url);
-  link.setAttribute("download", filename);
-  link.style.visibility = "hidden";
-
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-
-  URL.revokeObjectURL(url);
 }

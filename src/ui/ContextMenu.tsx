@@ -150,6 +150,10 @@ export function buildRowHeaderMenuItems(
   onMoveToGroup: () => void,
   onLockRow: () => void,
   isLocked: boolean,
+  isCalculated: boolean,
+  onHide: () => void,
+  onEditRow?: () => void,
+  onDeleteRow?: () => void,
   onDrillThrough?: () => void
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [
@@ -159,9 +163,17 @@ export function buildRowHeaderMenuItems(
     { id: "addCalcRow", label: "Add Calculated Row...", icon: "➕", action: onAddCalcRow },
     { id: "renameRow", label: "Rename Row", icon: "✏️", action: onRenameRow },
     { id: "moveToGroup", label: "Move to Group...", icon: "📁", action: onMoveToGroup },
+    { id: "hideRow", label: "Hide Row/Hierarchy", icon: "👁️‍🗨️", action: onHide },
     { id: "divider2", label: "", divider: true },
     { id: "lockRow", label: isLocked ? "Unlock Row" : "Lock Row", icon: isLocked ? "🔓" : "🔒", action: onLockRow },
   ];
+
+  if (isCalculated) {
+    items.push({ id: "dividerCalc", label: "", divider: true });
+    items.push({ id: "editCalcRow", label: "Edit Calculated Row", icon: "⚙️", action: onEditRow });
+    items.push({ id: "deleteCalcRow", label: "Delete Calculated Row", icon: "🗑️", action: onDeleteRow });
+  }
+
   if (onDrillThrough) {
     items.push({ id: "divider3", label: "", divider: true });
     items.push({ id: "drillThrough", label: "Drill Through...", icon: "⤵", action: onDrillThrough });

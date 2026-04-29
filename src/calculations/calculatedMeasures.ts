@@ -3,8 +3,10 @@
  * Manages visual-level computed measures that don't affect the semantic model
  */
 
-import { CellValue, MeasureInfo } from "../model/pivot";
+import { CellValue, MeasureInfo, formatValue } from "../model/pivot";
 import { generateCellKey } from "../model/keys";
+import { ColumnFormat, resolveColumnFormat } from "../format/directFormats";
+import { VisualSettings } from "../settings/settings";
 import { parseFormula, ASTNode, ParseError } from "./formulaParser";
 import { evaluateFormula, EvaluationContext, detectCircularReferences } from "./formulaEvaluator";
 
@@ -133,7 +135,9 @@ export function computeCalculatedMeasures(
   baseMeasures: MeasureInfo[],
   baseCellMap: Map<string, CellValue>,
   rowKeys: string[],
-  colKeys: string[]
+  colKeys: string[],
+  settings?: VisualSettings,
+  colFormats?: Record<string, ColumnFormat>
 ): {
   calculatedCellMap: Map<string, CellValue>;
   calculatedMeasures: MeasureInfo[];
@@ -198,9 +202,16 @@ export function computeCalculatedMeasures(
 
         // Create cell value
         const cellKey = generateCellKey(rowKey, colKey, measureIndex);
+        const colFormat = colFormats ? resolveColumnFormat(colFormats, colKey, measureIndex) : undefined;
+        
         calculatedCellMap.set(cellKey, {
           value,
-          formattedValue: formatValue(value, calc.definition.format),
+          formattedValue: formatValue(
+            value, 
+            colFormat?.numberFormat || calc.definition.format || "", 
+            settings,
+            colFormat
+          ),
           measureIndex,
           rowKey,
           colKey,
@@ -212,29 +223,7 @@ export function computeCalculatedMeasures(
   return { calculatedCellMap, calculatedMeasures };
 }
 
-function formatValue(value: number | null, format: string): string {
-  if (value === null) return "—";
-  
-  if (format === "percent" || format === "%") {
-    return `${(value * 100).toFixed(1)}%`;
-  }
-  if (format === "currency" || format === "$") {
-    return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  }
-  if (format.startsWith("decimal:")) {
-    const decimals = parseInt(format.split(":")[1], 10) || 2;
-    return value.toFixed(decimals);
-  }
-  
-  // Default: auto format
-  if (Math.abs(value) >= 1000000) {
-    return `${(value / 1000000).toFixed(1)}M`;
-  }
-  if (Math.abs(value) >= 1000) {
-    return `${(value / 1000).toFixed(1)}K`;
-  }
-  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
+
 
 /**
  * Generate a unique ID for a new calculated measure

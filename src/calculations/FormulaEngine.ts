@@ -70,6 +70,7 @@ export class FormulaEngine {
       // Aggregations over row/column/range references must run before the
       // scalar reference expansion below.
       processedFormula = this.expandAggregateReferences(processedFormula, referencedCells, warnings);
+      processedFormula = this.expandTimeFunctions(processedFormula, referencedCells, warnings);
       processedFormula = this.expandMeasureRefs(processedFormula, referencedCells, warnings);
       processedFormula = this.expandMeasureFunctionRefs(processedFormula, referencedCells, warnings);
       processedFormula = this.expandScopedRowRefs(processedFormula, referencedCells, warnings);
@@ -78,7 +79,6 @@ export class FormulaEngine {
       processedFormula = this.expandRowPathRefs(processedFormula, referencedCells, warnings);
       processedFormula = this.expandCellRefs(processedFormula, referencedCells, warnings);
       processedFormula = this.expandShortcuts(processedFormula, referencedCells);
-      processedFormula = this.expandTimeFunctions(processedFormula, referencedCells, warnings);
 
       const value = this.safeEval(processedFormula);
       return { value, warnings, referencedCells };
@@ -111,22 +111,60 @@ export class FormulaEngine {
     const member = rowLabel.toLowerCase().trim();
     const candidates: RowMatch[] = [];
 
+    // Common path separators used in financial modeling and user requests
+    const pathSeparators = /\s*(?:\||>|›|→|\/|—|-)\s*/;
+
     for (const row of this.context.rows) {
       const labelLower = row.label.toLowerCase();
+      
+      // 1. Exact Label Match
       if (labelLower === member) {
         candidates.push({ row, matchType: "exact", confidence: 1.0 });
-      } else if (labelLower.includes(member) || member.includes(labelLower)) {
+        continue;
+      }
+
+      // 2. Path Match (e.g. "Parent > Child" or "Parent - Child")
+      // Check original path joiners
+      const standardPath = row.path.join(" > ").toLowerCase();
+      if (standardPath === member) {
+        candidates.push({ row, matchType: "path", confidence: 1.0 });
+        continue;
+      }
+
+      // Check alternate joiners if the input label contains a separator
+      if (member.match(pathSeparators)) {
+        const altPath = row.path.join(" - ").toLowerCase();
+        if (altPath === member) {
+          candidates.push({ row, matchType: "path", confidence: 0.98 });
+          continue;
+        }
+        
+        // General separator-normalized path check
+        const normalizedMember = member.split(pathSeparators).join("|");
+        const normalizedPath = row.path.map(s => String(s).toLowerCase()).join("|");
+        if (normalizedPath === normalizedMember) {
+          candidates.push({ row, matchType: "path", confidence: 0.95 });
+          continue;
+        }
+      }
+
+      // 3. Contains Match (Lower Confidence)
+      if (labelLower.includes(member) || member.includes(labelLower)) {
         candidates.push({ row, matchType: "contains", confidence: 0.7 });
-      } else if (row.path.join(" > ").toLowerCase() === member) {
-        candidates.push({ row, matchType: "path", confidence: 0.95 });
       }
     }
 
     if (candidates.length === 0) return null;
+    
+    // Sort by confidence descending
     candidates.sort((a, b) => b.confidence - a.confidence);
+    
     if (warnings && candidates.length > 1 && candidates[0].confidence === candidates[1].confidence) {
-      warnings.push(`Multiple rows matched "${rowLabel}"`);
+      // If we have multiple exact matches (e.g. "Sales" appearing in different branches)
+      // and haven't used a path, warn the user.
+      warnings.push(`Multiple rows matched "${rowLabel}". Try using a full path (e.g. [Parent - ${rowLabel}])`);
     }
+    
     return candidates[0].row;
   }
 
@@ -516,13 +554,30 @@ export class FormulaEngine {
     let result = formula;
     const leafColumns = this.getLeafColumns();
 
-    result = result.replace(/PREV\s*\(\s*(\d*)\s*\)/gi, (_match, n) => {
-      const periods = parseInt(String(n), 10) || 1;
+    result = result.replace(/PREV\s*\(\s*([^)]*)\s*\)/gi, (_match, args) => {
+      const trimmed = args.trim();
+      let periods = 1;
+      let targetMeasureIndex = this.context.currentMeasureIndex;
+
+      if (trimmed) {
+        // Handle PREV(n)
+        if (/^\d+$/.test(trimmed)) {
+          periods = parseInt(trimmed, 10);
+        } else {
+          // Handle PREV([Measure])
+          const mMatch = trimmed.match(/^\[(.*)\]$/);
+          if (mMatch) {
+            const measure = this.findMeasureByName(mMatch[1]);
+            if (measure) targetMeasureIndex = measure.index;
+          }
+        }
+      }
+
       const currentColIndex = leafColumns.findIndex(c => c.key === this.context.currentColKey);
       const targetIndex = currentColIndex - periods;
       if (targetIndex < 0 || targetIndex >= leafColumns.length) return "0";
       return String(
-        this.getCellNumericValue(this.context.currentRowKey, leafColumns[targetIndex].key, this.context.currentMeasureIndex, refs) ?? 0
+        this.getCellNumericValue(this.context.currentRowKey, leafColumns[targetIndex].key, targetMeasureIndex, refs) ?? 0
       );
     });
 

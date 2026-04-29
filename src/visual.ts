@@ -16,6 +16,7 @@ import { SelectionManagerWrapper } from "./powerbi/selection";
 import { RenderingEventsManager } from "./powerbi/events";
 import { TooltipServiceWrapper } from "./powerbi/tooltip";
 import { getThemePreset, applyThemeTokensToElement, ThemePresetId } from "./themes/themeTokens";
+import { debugMatrixData } from "./debug_logger";
 
 import "../style/visual.less";
 
@@ -312,6 +313,8 @@ export class Visual implements IVisual {
       });
 
       this.pruneExpansionState();
+
+      debugMatrixData(dataView, this.model);
 
       const width = options.viewport.width;
       const height = options.viewport.height;

@@ -180,7 +180,7 @@ export function flattenTree(
 
   if (node.isSubtotal && !node.isGrandTotal) {
     if (!showSubtotals) return result;
-    if (hiddenLevels && hiddenLevels.includes(String(node.level))) return result;
+    if (hiddenLevels && hiddenLevels.includes(String(Math.max(0, node.level - 1)))) return result;
   }
 
   // Prevent duplicate nodes
@@ -231,6 +231,34 @@ export function flattenTree(
   return result;
 }
 
+function findTreeNodeByKey(node: TreeNode | null, key: string): TreeNode | null {
+  if (!node) return null;
+  if (node.key === key) return node;
+
+  for (const child of node.children) {
+    const match = findTreeNodeByKey(child, key);
+    if (match) return match;
+  }
+
+  return null;
+}
+
+function collectTreeKeys(node: TreeNode, out: string[]): void {
+  out.push(node.key);
+  for (const child of node.children) {
+    collectTreeKeys(child, out);
+  }
+}
+
+export function getNodeAndDescendantKeys(root: TreeNode | null, key: string): string[] {
+  const target = findTreeNodeByKey(root, key);
+  if (!target) return key ? [key] : [];
+
+  const keys: string[] = [];
+  collectTreeKeys(target, keys);
+  return keys;
+}
+
 export function flattenColumnTree(
   node: TreeNode,
   expandedState: Map<string, boolean>,
@@ -258,7 +286,7 @@ function flattenColumnTreeRecursive(
 
   if (node.isSubtotal && !node.isGrandTotal) {
     if (!showSubtotals) return;
-    if (hiddenLevels && hiddenLevels.includes(String(node.level))) return;
+    if (hiddenLevels && hiddenLevels.includes(String(Math.max(0, node.level - 1)))) return;
   }
 
   if (node.level > 0 || node.isGrandTotal) {

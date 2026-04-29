@@ -136,7 +136,10 @@ export const Cell: React.FC<CellProps> = memo(({
             }),
         ...getBorderStyle(),
       }}
-      onClick={(e) => onClick(e)}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick(e);
+      }}
     >
       {isEdited && <div className="edited-marker" title="Edited cell" />}
       {hasNote && <div className="note-marker" title="Has note" />}

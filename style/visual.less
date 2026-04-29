@@ -18,6 +18,7 @@
   --mx-cell-bg: transparent;
   --mx-header-bg: var(--mx-surface-subtle);
   --mx-header-fg: var(--mx-text);
+  --mx-row-header-bg: #ffffff;
   --mx-total-fg: var(--mx-text);
   --mx-row-even: transparent;
   --mx-row-odd: var(--pbi-row-banding-bg);
@@ -54,6 +55,11 @@
   --mx-danger: #dc2626;
   --mx-danger-muted: rgba(220, 38, 38, 0.12);
   --mx-success: #16a34a;
+
+  // Header Level Colors (Individual variables for fine-grained control)
+  --mx-col-l0-color: var(--mx-text);
+  --mx-col-l1-color: var(--mx-text-secondary);
+  --mx-col-leaf-color: var(--mx-text-secondary);
 }
 
 .advanced-matrix-visual {
@@ -652,7 +658,7 @@
     display: flex;
     overflow: hidden;
     min-height: 0;
-    padding-bottom: 10px;
+    padding-bottom: 0;
     box-sizing: border-box;
   }
 
@@ -666,6 +672,8 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    position: relative;
+    z-index: 5000;
     transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
@@ -677,6 +685,8 @@
     border-bottom: 1px solid var(--mx-border);
     background: rgba(255, 255, 255, 0.85);
     flex-shrink: 0;
+    position: relative;
+    z-index: 1;
   }
 
   .mx-explorer-title {
@@ -865,15 +875,33 @@
   }
 
   // Formula Bar
+  .matrix-formula-shell {
+    display: flex;
+    flex-shrink: 0;
+    width: 100%;
+    min-height: 40px;
+    height: 40px;
+    overflow: visible;
+    background: var(--mx-surface, #ffffff);
+    border-bottom: 1px solid var(--mx-border, rgba(0, 0, 0, 0.1));
+    position: relative;
+    z-index: 30;
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.03);
+  }
+
   .matrix-formula-bar {
     display: flex;
     align-items: center;
     height: 40px;
+    min-height: 40px;
     background: var(--mx-surface);
-    border-bottom: 1px solid var(--mx-border);
+    border-bottom: none;
     padding: 0 4px;
     gap: 0;
     flex-shrink: 0;
+    width: 100%;
+    position: relative;
+    z-index: 1;
 
     .formula-bar-address {
       min-width: 120px;
@@ -1012,14 +1040,20 @@
     flex-direction: column;
   }
 
-  .matrix-col-header-row {
+  .merged-header-row {
     display: flex;
+    height: 28px;
+    align-items: stretch;
   }
 
-  .matrix-col-header-cell {
+  .matrix-col-header-cell,
+  .merged-header-cell {
     position: relative;
     flex-shrink: 0;
-    padding: 4px 8px;
+    padding: 0 8px;
+    height: 100%;
+    display: flex;
+    align-items: center;
     border-right: 1px solid var(--mx-grid, #e0e0e0);
     border-bottom: 1px solid var(--mx-grid, #e0e0e0);
     background: var(--mx-header-bg, #f5f5f5);
@@ -1115,29 +1149,134 @@
     }
   }
 
-  // Body area
+  // Body area — master scroll container
   .matrix-body-area {
     flex: 1;
     display: flex;
-    overflow: auto; // This is now the master scroll container
+    overflow: hidden; // Default: no scrollbars
     position: relative;
     will-change: scroll-position;
-    scrollbar-gutter: stable both-edges;
-
-    // Smooth scrolling for modern browsers
-    scroll-behavior: auto;
     -webkit-overflow-scrolling: touch;
+
+    // Only show scrollbars when content overflows
+    &.has-h-scroll {
+      overflow-x: hidden !important;
+      overflow-y: hidden;
+    }
+    &.has-v-scroll {
+      overflow-y: auto !important;
+      overflow-x: hidden;
+    }
+    &.has-h-scroll.has-v-scroll {
+      overflow-x: hidden !important;
+      overflow-y: auto !important;
+    }
+
+    &:focus {
+      outline: none;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--mx-accent, #2563eb);
+      outline-offset: -2px;
+    }
+
+    // Custom scrollbar styling to ensure visibility
+    &::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+      display: block !important;
+    }
+    &::-webkit-scrollbar-track {
+      background: #f1f1f1;
+      border-radius: 5px;
+    }
+    &::-webkit-scrollbar-thumb {
+      background: #ccc;
+      border-radius: 5px;
+      border: 2px solid #f1f1f1;
+      &:hover {
+        background: #999;
+      }
+    }
+  }
+
+  .matrix-horizontal-scrollbar-shell {
+    display: flex;
+    align-items: flex-start;
+    flex-shrink: 0;
+    min-width: 0;
+    min-height: 24px;
+    padding: 2px 0;
+    background: var(--mx-surface-subtle, #f5f5f5);
+    border-top: 1px solid var(--mx-border);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+    box-sizing: border-box;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 35;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  }
+
+  .matrix-horizontal-scrollbar-spacer {
+    flex-shrink: 0;
+    border-right: 1px solid var(--mx-border);
+    background: var(--mx-surface-subtle, #f5f5f5);
+  }
+
+  .matrix-horizontal-scrollbar {
+    min-width: 0;
+    overflow-x: scroll;
+    overflow-y: hidden;
+    flex: 1 1 auto;
+    position: relative;
+    background: var(--mx-surface-subtle, #f5f5f5);
+    scrollbar-width: auto;
+    scrollbar-color: #94a3b8 #e5e7eb;
+
+    &::-webkit-scrollbar {
+      height: 18px;
+    }
+
+    &::-webkit-scrollbar-track {
+      background: #e5e7eb;
+      border-radius: 999px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background: #94a3b8;
+      border-radius: 999px;
+      border: 3px solid #e5e7eb;
+    }
+
+    &::-webkit-scrollbar-thumb:hover {
+      background: #64748b;
+    }
+  }
+
+  .matrix-horizontal-scrollbar-track {
+    display: none;
+  }
+
+  .matrix-horizontal-scrollbar-thumb {
+    display: none;
   }
 
   .matrix-row-headers {
     flex-shrink: 0;
-    overflow: visible; // No longer scrolls itself
-    background: var(--mx-surface);
+    overflow: hidden;
+    background: var(--mx-row-header-bg, var(--mx-surface, #ffffff));
+    background-clip: padding-box;
     border-right: 1px solid var(--mx-border);
     position: sticky; // Native sticky positioning
     left: 0;
-    z-index: 25; // Increased z-index to ensure row headers always sit above scrolling cells
+    top: 0;
+    align-self: flex-start;
+    z-index: 80; // Keep row headers above horizontally scrolling cells
     isolation: isolate; // Create stacking context
+    box-shadow: 2px 0 0 var(--mx-row-header-bg, var(--mx-surface, #ffffff));
 
     // Ensure background stays solid during scroll
     &::before {
@@ -1147,13 +1286,14 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background: var(--mx-surface);
+      background: var(--mx-row-header-bg, var(--mx-surface, #ffffff));
       z-index: -1;
     }
   }
 
   .matrix-row-headers-inner {
     position: relative;
+    background: var(--mx-row-header-bg, var(--mx-surface, #ffffff));
   }
 
   .matrix-row-header {
@@ -1162,12 +1302,14 @@
     align-items: center;
     padding: 0 8px;
     border-bottom: var(--mx-gridline-width) solid var(--mx-gridline-color);
+    background: var(--mx-row-header-bg, var(--mx-surface, #ffffff));
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     cursor: pointer;
     user-select: none;
     min-height: 0;
+    z-index: 1;
 
     .row-label {
       display: block;
@@ -1232,16 +1374,16 @@
       background: var(--mx-selection-bg);
     }
 
-    &.subtotal-row,
-    &.grandtotal-row {
-      font-weight: 600;
-      background: var(--mx-total-bg, var(--mx-subtotal-bg));
-      color: var(--mx-total-fg, inherit);
+    &.subtotal-row {
+      font-weight: var(--mx-st-fw, 600);
+      background: var(--mx-st-bg, #f3f4f6);
+      color: var(--mx-st-fg, inherit);
     }
 
     &.grandtotal-row {
-      background: var(--mx-total-bg, var(--mx-grandtotal-bg));
-      color: var(--mx-total-fg, inherit);
+      font-weight: var(--mx-gt-fw, 700);
+      background: var(--mx-gt-bg, #d1d5db);
+      color: var(--mx-gt-fg, inherit);
     }
 
     .expand-toggle {
@@ -1292,15 +1434,15 @@
     }
 
     &.subtotal-row {
-      background: var(--mx-total-bg, var(--mx-subtotal-bg));
-      color: var(--mx-total-fg, inherit);
-      font-weight: 600;
+      background: var(--mx-st-bg, #f3f4f6);
+      color: var(--mx-st-fg, inherit);
+      font-weight: var(--mx-st-fw, 600);
     }
 
     &.grandtotal-row {
-      background: var(--mx-total-bg, var(--mx-grandtotal-bg));
-      color: var(--mx-total-fg, inherit);
-      font-weight: 700;
+      background: var(--mx-gt-bg, #d1d5db);
+      color: var(--mx-gt-fg, inherit);
+      font-weight: var(--mx-gt-fw, 700);
     }
 
     &.selected {
@@ -1549,6 +1691,65 @@
   }
 }
 
+  // Ribbon Scrollers
+  .mx-ribbon-tabs-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    height: 32px;
+    width: 100%;
+  }
+
+  .ribbon-scroll-btn {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 24px;
+    background: var(--mx-toolbar-bg, #f3f2f1);
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 100;
+    font-size: 18px;
+    color: var(--mx-accent, #2563eb);
+    transition: background 0.2s;
+    opacity: 0.9;
+    padding: 0;
+
+    &:hover {
+      background: var(--mx-hover-bg, rgba(0,0,0,0.05));
+      opacity: 1;
+    }
+
+    &.left {
+      left: 0;
+      box-shadow: 4px 0 8px rgba(0,0,0,0.05);
+      border-right: 1px solid var(--mx-border, #edebe9);
+    }
+
+    &.right {
+      right: 0;
+      box-shadow: -4px 0 8px rgba(0,0,0,0.05);
+      border-left: 1px solid var(--mx-border, #edebe9);
+    }
+  }
+
+  .mx-ribbon-tabs {
+    flex: 1;
+    display: flex;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding: 0 24px;
+    
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
 // Calculated Measure/Row Wizard Modal
 .restore-ribbon-fab {
   position: absolute;
@@ -1584,26 +1785,29 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(15, 23, 42, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 10000;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .calc-wizard-modal {
   background: var(--mx-surface, #fff);
-  border-radius: var(--mx-radius, 8px);
-  box-shadow: var(--mx-shadow-elevated, 0 4px 24px rgba(0, 0, 0, 0.15));
-  width: 480px;
-  max-width: 90vw;
-  max-height: 85vh;
+  border-radius: 12px;
+  box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.25);
+  width: min(420px, 90vw);
+  max-height: min(600px, 85vh);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border: 1px solid var(--mx-border, #e2e8f0);
 
   &.calc-wizard-wide {
-    width: 600px;
+    width: min(480px, 92vw);
+    max-height: min(650px, 88vh);
   }
 }
 
@@ -2646,15 +2850,18 @@
   &.level-0 {
     background: var(--mx-header-bg, #f8f9fa);
     font-weight: 600;
+    height: 28px;
   }
 
   &.level-1,
   &.level-2 {
     background: var(--mx-surface-elevated, #fafafa);
+    height: 28px;
   }
 }
 
 .merged-header-cell {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2674,6 +2881,29 @@
     left: 0;
     z-index: 30;
     /* Keep corner cell above horizontally scrolling header labels */
+
+    .row-header-width-resize-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      right: -2px;
+      width: 5px;
+      cursor: col-resize;
+      z-index: 100;
+      background: transparent;
+      transition: background 0.2s;
+
+      &:hover {
+        background: var(--mx-accent, #2563eb);
+        opacity: 0.3;
+      }
+      &:active {
+        background: var(--mx-accent, #2563eb);
+        opacity: 0.9;
+        width: 3px;
+        right: -1px;
+      }
+    }
   }
 
   &.group {
@@ -2687,6 +2917,29 @@
 
     &:hover {
       background: var(--mx-hover-bg, rgba(0, 0, 0, 0.05));
+    }
+
+    .col-resize-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      right: -2px;
+      width: 5px;
+      cursor: col-resize;
+      z-index: 100;
+      background: transparent;
+      transition: background 0.2s;
+
+      &:hover {
+        background: var(--mx-accent, #2563eb);
+        opacity: 0.3;
+      }
+      &:active {
+        background: var(--mx-accent, #2563eb);
+        opacity: 0.9;
+        width: 3px;
+        right: -1px;
+      }
     }
   }
 
@@ -3628,6 +3881,7 @@
     --mx-subtotal-bg: #111827;
     --mx-grandtotal-bg: #334155;
     --mx-toolbar-bg: #1f2937;
+    --mx-row-header-bg: #0b0f19;
     --mx-shadow-subtle: 0 1px 3px rgba(0, 0, 0, 0.4);
     --mx-gridline-color: rgba(255, 255, 255, 0.06);
     --mx-hover-bg: rgba(255, 255, 255, 0.05);
@@ -3661,15 +3915,18 @@
 
     .matrix-cell,
     .row-header,
-    .column-header {
-      background: var(--mx-surface);
-      color: var(--mx-text);
+    .column-header,
+    .merged-header-cell {
+      background: var(--mx-row-header-bg, var(--mx-surface, #ffffff));
+      color: var(--mx-text) !important;
       border-color: var(--mx-border);
     }
 
-    .column-header {
-      background: var(--mx-surface-elevated);
-    }
+    --mx-col-l0-color: #ffffff;
+    --mx-col-l1-color: #f3f4f6;
+    --mx-col-leaf-color: #e5e7eb;
+    --mx-row-parent-color: #ffffff;
+    --mx-row-child-color: #cbd5e1;
   }
 
   &.theme-tableau-like {
@@ -3783,7 +4040,9 @@
     --mx-radius: 4px;
     --mx-gridline-color: rgba(255, 255, 255, 0.06);
 
-    background: var(--mx-surface);
+    --mx-row-header-bg: #1e1e1e;
+
+    background: var(--mx-row-header-bg, var(--mx-surface, #ffffff));
     color: var(--mx-text);
 
     .mx-ribbon,
@@ -3813,7 +4072,7 @@
     .matrix-cell,
     .row-header,
     .column-header {
-      background: var(--mx-surface);
+      background: var(--mx-row-header-bg, var(--mx-surface, #ffffff));
       color: var(--mx-text);
       border-color: var(--mx-border);
     }
@@ -3952,5 +4211,97 @@
   .matrix-row-headers .matrix-row-label {
     padding-top: 10px;
     padding-bottom: 10px;
+  }
+}
+
+/* ============================================================
+   PRINT STYLES (PDF EXPORT)
+   ============================================================ */
+@media print {
+  @page {
+    size: landscape;
+    margin: 1cm;
+  }
+
+  .mx-visual-root {
+    background: #fff !important;
+    color: #000 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Hide UI elements */
+  .mx-ribbon,
+  .matrix-formula-bar,
+  .matrix-status-bar,
+  .explorer-panel,
+  .wizard-overlay,
+  .ribbon-container,
+  .formula-bar-container,
+  .footer-area,
+  .context-menu,
+  .ribbon-dropdown-menu {
+    display: none !important;
+  }
+
+  /* Optimize Matrix for Page */
+  .matrix-main-area {
+    width: 100% !important;
+    height: auto !important;
+    display: block !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  .matrix-body-area {
+    overflow: visible !important;
+    height: auto !important;
+    position: static !important;
+  }
+
+  .matrix-container {
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  /* Expand hidden contents */
+  .matrix-cells,
+  .matrix-row-headers,
+  .matrix-col-headers {
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  .matrix-cells-inner,
+  .matrix-row-headers-inner {
+    position: static !important;
+    height: auto !important;
+  }
+
+  .matrix-row {
+    position: static !important;
+    display: flex !important;
+    page-break-inside: avoid;
+  }
+
+  /* Preserve Colors and Formatting */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-shadow: none !important;
+  }
+
+  .matrix-cell,
+  .matrix-row-header,
+  .matrix-col-header-cell {
+    border-color: #eee !important;
+  }
+
+  /* Ensure row headers are visible but not necessarily sticky in print */
+  .matrix-row-headers {
+    border-right: 1px solid #eee !important;
   }
 }

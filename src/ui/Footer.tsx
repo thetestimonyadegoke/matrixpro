@@ -65,6 +65,7 @@ export const Footer: React.FC<FooterProps> = ({
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     position: "relative",
     zIndex: 50,
+    boxSizing: "border-box"
   };
 
   const iconBtn: React.CSSProperties = {

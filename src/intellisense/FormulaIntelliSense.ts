@@ -179,6 +179,19 @@ export class FormulaIntelliSense {
       }
     }
 
+    // Rows and Groups
+    for (const row of this.context.rows) {
+      if (row.label.toLowerCase().includes(filterLower)) {
+        suggestions.push({
+          type: "row",
+          label: row.label,
+          insertText: `[${row.label}]`,
+          detail: row.calcRowKind ? `Calculated ${row.calcRowKind}` : "Row",
+          documentation: `Path: ${row.path.join(" > ")}`,
+        });
+      }
+    }
+
     return suggestions;
   }
 
@@ -260,10 +273,9 @@ export class FormulaIntelliSense {
       }
     }
 
-    // Measures (if filter starts with [)
-    if (filter === "" || filter.startsWith("[")) {
-      suggestions.push(...this.getMeasureSuggestions(filter.replace("[", "")));
-    }
+    // Measures and Rows/Groups (always visible in general list if matching)
+    const measureAndRowSuggestions = this.getMeasureSuggestions(filter.startsWith("[") ? filter.slice(1) : filter);
+    suggestions.push(...measureAndRowSuggestions);
 
     return suggestions;
   }

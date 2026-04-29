@@ -1,13 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlattenedNode } from "../model/tree";
-import { MeasureInfo } from "../model/pivot";
-import { generateCalcRowId } from "../calculations/calculatedRows";
+import React, { useState, useMemo, useCallback, useRef } from "react";
+import { FormulaEditor } from "./IntelliSenseDropdown";
+import { IntelliSenseContext } from "../intellisense/FormulaIntelliSense";
 import {
   InsertedRow,
   InsertedRowKind,
   migrateInsertedRows,
   VisualSettings,
 } from "../settings/settings";
+import { FlattenedNode } from "../model/tree";
+import { MeasureInfo } from "../model/pivot";
+import { generateCalcRowId } from "../calculations/calculatedRows";
 
 export interface CalcRowPanelProps {
   rows: FlattenedNode[];
@@ -237,7 +239,7 @@ export const CalcRowPanel: React.FC<CalcRowPanelProps> = ({
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return items.filter(r => {
+    return items.filter((r: InsertedRow) => {
       if (tab !== "all" && r.kind !== tab) return false;
       if (q && !r.name.toLowerCase().includes(q)) return false;
       return true;
@@ -245,7 +247,7 @@ export const CalcRowPanel: React.FC<CalcRowPanelProps> = ({
   }, [items, tab, search]);
 
   const selected = useMemo(
-    () => items.find(r => r.id === selectedId) ?? null,
+    () => items.find((r: InsertedRow) => r.id === selectedId) ?? null,
     [items, selectedId]
   );
 
@@ -261,18 +263,18 @@ export const CalcRowPanel: React.FC<CalcRowPanelProps> = ({
 
   const deleteRow = useCallback((id: string) => {
     setItems(prev => {
-      const next = prev.filter(r => r.id !== id).map((r, i) => ({ ...r, order: i }));
+      const next = prev.filter((r: InsertedRow) => r.id !== id).map((r, i) => ({ ...r, order: i }));
       if (selectedId === id) setSelectedId(next[0]?.id ?? null);
       return next;
     });
   }, [selectedId]);
 
   const toggleEnabled = useCallback((id: string) => {
-    setItems(prev => prev.map(r => r.id === id ? { ...r, enabled: !r.enabled } : r));
+    setItems(prev => prev.map((r: InsertedRow) => r.id === id ? { ...r, enabled: !r.enabled } : r));
   }, []);
 
   const updateSelected = useCallback((patch: Partial<InsertedRow>) => {
-    setItems(prev => prev.map(r => {
+    setItems(prev => prev.map((r: InsertedRow) => {
       if (r.id !== selectedId) return r;
       // Cast through `unknown` — the union is discriminated; callers only pass
       // shape-compatible patches for the currently selected row's kind.
@@ -426,10 +428,10 @@ export const CalcRowPanel: React.FC<CalcRowPanelProps> = ({
                     </span>
                     <span style={{
                       fontSize: 10, padding: "1px 6px", borderRadius: 10,
-                      background: KIND_BADGE_BG[row.kind], color: KIND_BADGE_FG[row.kind],
+                      background: (KIND_BADGE_BG as any)[row.kind], color: (KIND_BADGE_FG as any)[row.kind],
                       fontWeight: 600, whiteSpace: "nowrap",
                     }}>
-                      {KIND_LABEL[row.kind]}
+                      {(KIND_LABEL as any)[row.kind]}
                     </span>
                     {isHover && (
                       <>
@@ -604,77 +606,14 @@ const selectStyle: React.CSSProperties = { ...inputStyle, cursor: "pointer" };
 const sectionStyle: React.CSSProperties = { marginBottom: 14 };
 
 const RowDetailForm: React.FC<RowDetailFormProps> = ({ row, sourceRows, measures = [], onChange }) => {
-  const formulaRef = useRef<HTMLTextAreaElement>(null);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [dropdownItems, setDropdownItems] = useState<{ label: string; insert: string; kind: "row" | "measure" }[]>([]);
-  const [dropdownIndex, setDropdownIndex] = useState(0);
-  const [triggerStart, setTriggerStart] = useState(0);
-  const [queryStr, setQueryStr] = useState("");
-
-  const completions = useMemo(() => {
-    const items: { label: string; insert: string; kind: "row" | "measure" }[] = [];
-    for (const r of sourceRows) {
-      if (!r.isGrandTotal) items.push({ label: r.label, insert: `[${r.label}]`, kind: "row" });
-    }
-    for (const m of measures) {
-      items.push({ label: m.name, insert: `[${m.name}]`, kind: "measure" });
-    }
-    return items;
-  }, [sourceRows, measures]);
-
-  const applyItem = useCallback((item: { insert: string }) => {
-    if (row.kind !== "calculated" && row.kind !== "child") return;
-    const current = row.customFormula ?? "";
-    const before = current.slice(0, triggerStart);
-    const after = current.slice(triggerStart + 1 + queryStr.length);
-    onChange({ customFormula: before + item.insert + after });
-    setIsDropdownOpen(false);
-    const newPos = triggerStart + item.insert.length;
-    requestAnimationFrame(() => {
-      if (formulaRef.current) {
-        formulaRef.current.selectionStart = formulaRef.current.selectionEnd = newPos;
-        formulaRef.current.focus();
-      }
-    });
-  }, [row, triggerStart, queryStr, onChange]);
-
-  const handleFormulaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    onChange({ customFormula: val });
-    const cursor = e.target.selectionStart ?? val.length;
-    const textBefore = val.slice(0, cursor);
-    const lastOpen = textBefore.lastIndexOf("[");
-    if (lastOpen >= 0) {
-      const fragment = textBefore.slice(lastOpen + 1);
-      if (!fragment.includes("]")) {
-        const filtered = completions.filter(c => c.label.toLowerCase().includes(fragment.toLowerCase()));
-        if (filtered.length > 0) {
-          setDropdownItems(filtered);
-          setDropdownIndex(0);
-          setTriggerStart(lastOpen);
-          setQueryStr(fragment);
-          setIsDropdownOpen(true);
-          return;
-        }
-      }
-    }
-    setIsDropdownOpen(false);
-  }, [completions, onChange]);
-
-  const handleFormulaKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!isDropdownOpen) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); setDropdownIndex(i => Math.min(i + 1, dropdownItems.length - 1)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setDropdownIndex(i => Math.max(i - 1, 0)); }
-    else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); applyItem(dropdownItems[dropdownIndex] ?? dropdownItems[0]); }
-    else if (e.key === "Escape") { e.preventDefault(); setIsDropdownOpen(false); }
-  }, [isDropdownOpen, dropdownItems, dropdownIndex, applyItem]);
-
-  useEffect(() => {
-    if (!isDropdownOpen) return undefined;
-    const handler = () => setIsDropdownOpen(false);
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [isDropdownOpen]);
+  const intelliSenseContext: IntelliSenseContext = useMemo(() => ({
+    measures: measures,
+    calculatedMeasures: [] as any[],
+    columns: [] as any[], // Column context not strictly required for row formulas, but could be added
+    rows: sourceRows,
+    rowHierarchyLevels: [] as string[],
+    columnHierarchyLevels: [] as string[],
+  }), [measures, sourceRows]);
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
@@ -755,62 +694,14 @@ const RowDetailForm: React.FC<RowDetailFormProps> = ({ row, sourceRows, measures
           ) : (
             <div style={sectionStyle}>
               <label style={labelStyle}>Custom formula</label>
-              <div style={{ position: "relative" }}>
-                <textarea
-                  ref={formulaRef}
-                  style={{ ...inputStyle, minHeight: 70, fontFamily: "SF Mono, Consolas, monospace" }}
-                  value={row.customFormula}
-                  onChange={handleFormulaChange}
-                  onKeyDown={handleFormulaKeyDown}
-                  placeholder="e.g., [Revenue] - [COGS]"
-                />
-                {isDropdownOpen && dropdownItems.length > 0 && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "100%",
-                      left: 0,
-                      zIndex: 9999,
-                      background: "#ffffff",
-                      border: "1px solid #d1d5db",
-                      borderRadius: 6,
-                      boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                      maxHeight: 200,
-                      overflowY: "auto",
-                      minWidth: 220,
-                    }}
-                    onMouseDown={e => e.preventDefault()}
-                  >
-                    {dropdownItems.map((item, idx) => (
-                      <div
-                        key={`${item.kind}-${item.label}`}
-                        style={{
-                          padding: "6px 12px",
-                          cursor: "pointer",
-                          background: idx === dropdownIndex ? "#eff6ff" : "transparent",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          fontSize: 13,
-                        }}
-                        onMouseEnter={() => setDropdownIndex(idx)}
-                        onClick={() => applyItem(item)}
-                      >
-                        <span style={{
-                          fontSize: 10, fontWeight: 600, padding: "1px 5px", borderRadius: 3,
-                          background: item.kind === "row" ? "#dbeafe" : "#dcfce7",
-                          color: item.kind === "row" ? "#1d4ed8" : "#15803d",
-                        }}>
-                          {item.kind === "row" ? "ROW" : "MSRE"}
-                        </span>
-                        <span>{item.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <FormulaEditor
+                value={row.customFormula ?? ""}
+                onChange={val => onChange({ customFormula: val })}
+                context={intelliSenseContext}
+                placeholder="e.g., [Revenue] - [COGS]"
+              />
               <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
-                Type <b>[</b> to autocomplete rows &amp; measures. ↑↓ navigate, Enter/Tab insert, Esc dismiss.
+                Reference rows and measures by name in brackets: [Row/Measure Name]
               </div>
             </div>
           )}

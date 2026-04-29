@@ -68,6 +68,12 @@ export const headerSettingsMetadata: Record<keyof HeaderSettings, SettingMetadat
   bold: { description: "Make headers bold", type: "boolean", defaultValue: true, category: "Appearance", excelEquivalent: "Bold" },
   backgroundColor: { description: "Header background color", type: "color", defaultValue: "#f5f5f5", category: "Appearance", excelEquivalent: "Fill Color" },
   textColor: { description: "Header text color", type: "color", defaultValue: "#333333", category: "Appearance", excelEquivalent: "Font Color" },
+  rowHeaderParentBold: { description: "Make parent row headers bold", type: "boolean", defaultValue: true, category: "Structural Styling" },
+  rowHeaderParentColor: { description: "Parent row header background", type: "color", defaultValue: "#f8f9fa", category: "Structural Styling" },
+  rowHeaderChildColor: { description: "Child row header background", type: "color", defaultValue: "#ffffff", category: "Structural Styling" },
+  colHeaderLevel0Color: { description: "Top level column header color", type: "color", defaultValue: "#f0f2f5", category: "Structural Styling" },
+  colHeaderLevel1Color: { description: "Mid level column header color", type: "color", defaultValue: "#f8f9fa", category: "Structural Styling" },
+  colHeaderLeafColor: { description: "Leaf column header color", type: "color", defaultValue: "#ffffff", category: "Structural Styling" },
 };
 
 export const valueSettingsMetadata: Record<keyof ValueSettings, SettingMetadata> = {
@@ -81,6 +87,8 @@ export const valueSettingsMetadata: Record<keyof ValueSettings, SettingMetadata>
   underline: { description: "Underline values", type: "boolean", defaultValue: false, category: "Appearance", excelEquivalent: "Underline" },
   borderStyle: { description: "Cell border style", type: "enum", defaultValue: "none", allowedValues: ["none", "all", "horizontal", "vertical", "outline"], category: "Appearance", excelEquivalent: "Borders" },
   borderColor: { description: "Cell border color", type: "color", defaultValue: "#d0d0d0", category: "Appearance", excelEquivalent: "Border Color" },
+  quickFormat: { description: "Quick formatting profile", type: "string", defaultValue: "none", category: "Formatting" },
+  decimals: { description: "Decimal places for numeric values", type: "number", defaultValue: 0, min: 0, max: 10, category: "Formatting", excelEquivalent: "Increase/Decrease Decimal" },
 };
 
 export const settingsMetadata: SettingsMetadata = {
@@ -135,6 +143,14 @@ export const settingsMetadata: SettingsMetadata = {
       category: "Appearance",
       excelEquivalent: "Font Color",
     },
+    grandTotalBold: { description: "Make grand totals bold", type: "boolean", defaultValue: true, category: "Structural Styling" },
+    grandTotalBackgroundColor: { description: "Grand total background", type: "color", defaultValue: "#e8eaed", category: "Structural Styling" },
+    grandTotalTextColor: { description: "Grand total text color", type: "color", defaultValue: "#000000", category: "Structural Styling" },
+    subtotalBold: { description: "Make subtotals bold", type: "boolean", defaultValue: true, category: "Structural Styling" },
+    subtotalBackgroundColor: { description: "Subtotal background", type: "color", defaultValue: "#f1f3f4", category: "Structural Styling" },
+    subtotalTextColor: { description: "Subtotal text color", type: "color", defaultValue: "#333333", category: "Structural Styling", excelEquivalent: "Font Color" },
+    rowSubtotalLevels: { description: "Hidden row levels for subtotals", type: "json", defaultValue: "[]", category: "Totals", excelEquivalent: "Outline Levels" },
+    colSubtotalLevels: { description: "Hidden column levels for subtotals", type: "json", defaultValue: "[]", category: "Totals", excelEquivalent: "Outline Levels" },
   },
   conditionalFormatting: {
     enabled: {
@@ -365,6 +381,13 @@ export const settingsMetadata: SettingsMetadata = {
       category: "Calculations",
     },
   },
+  uiState: {
+    explorerOpen: { description: "Explorer panel visibility", type: "boolean", defaultValue: false, category: "UI" },
+    toolbarMode: { description: "Current toolbar display mode", type: "string", defaultValue: "full", category: "UI" },
+    toolbarPinned: { description: "Whether the toolbar is pinned", type: "boolean", defaultValue: true, category: "UI" },
+    zoomLevel: { description: "Current zoom level percentage", type: "number", defaultValue: 100, category: "UI" },
+    activeTab: { description: "Currently active ribbon tab", type: "string", defaultValue: "home", category: "UI" },
+  },
   appearance: {
     surfaceColor: {
       description: "Background color of the visual surface",
@@ -490,6 +513,18 @@ export const settingsMetadata: SettingsMetadata = {
       defaultValue: "[]",
       category: "Advanced",
     },
+    timeIntelligence: {
+      description: "JSON array of time intelligence measure definitions",
+      type: "json",
+      defaultValue: "[]",
+      category: "Advanced",
+    },
+    visualColumns: {
+      description: "JSON array of visual column display rules",
+      type: "json",
+      defaultValue: "[]",
+      category: "Advanced",
+    },
   },
   manualData: {
     notes: {
@@ -608,6 +643,12 @@ export const settingsMetadata: SettingsMetadata = {
     },
     expandedCols: {
       description: "JSON array of expanded column keys — persisted so expansion state survives reloads",
+      type: "json",
+      defaultValue: "[]",
+      category: "Data",
+    },
+    hiddenRowKeys: {
+      description: "JSON array of hidden row keys",
       type: "json",
       defaultValue: "[]",
       category: "Data",

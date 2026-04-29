@@ -7,7 +7,7 @@ import React, { memo, useMemo } from "react";
 import { FlattenedNode } from "../model/tree";
 import { MeasureInfo } from "../model/pivot";
 import { SortConfig, SortDirection } from "../model/sorting";
-import { ColumnFormat, quickFormatHeaderLabel } from "../format/directFormats";
+import { ColumnFormat, quickFormatHeaderLabel, resolveColumnFormat } from "../format/directFormats";
 
 export type ColumnArrangement = "time-then-measure" | "measure-then-time";
 
@@ -29,8 +29,12 @@ export interface MergedColumnHeadersProps {
     measureIndex: number,
     modifiers: { ctrl: boolean; shift: boolean }
   ) => void;
+  onStartResize: (clientX: number) => void;
+  onStartRowHeaderResize: (clientX: number) => void;
   /** Per-column direct formats, keyed by "<colKey>::m<measureIndex>". */
   colFormats?: Record<string, ColumnFormat>;
+  colWidths: Record<string, number>;
+  gridColumns?: { key: string; col: FlattenedNode; measure: MeasureInfo; measureIndex: number }[];
 }
 
 interface HeaderCell {
@@ -63,11 +67,15 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
   totalContentWidth,
   selectedColumnKeys,
   onColumnHeaderClick,
+  onStartResize,
+  onStartRowHeaderResize,
   colFormats,
+  colWidths,
+  gridColumns = [],
 }) => {
   const headerRows = useMemo(() => {
-    return buildMergedHeaders(columns, measures, arrangement, sortConfig);
-  }, [columns, measures, arrangement, sortConfig]);
+    return buildMergedHeaders(columns, measures, arrangement, sortConfig, gridColumns);
+  }, [columns, measures, arrangement, sortConfig, gridColumns]);
 
   const handleLeafClick = (
     e: React.MouseEvent,
@@ -92,17 +100,35 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
         <div
           key={`header-row-${rowIndex}`}
           className={`merged-header-row level-${row.level}`}
+          style={{ flexShrink: 0 }}
         >
           {/* Fixed row header corner for all header rows */}
           <div
             className="merged-header-cell corner"
             style={{ width: rowHeaderWidth, minWidth: rowHeaderWidth }}
           >
-            {rowIndex === headerRows.length - 1
-              ? "Rows"
-              : rowIndex === headerRows.length - 2
-                ? "Columns"
+            {rowIndex === headerRows.length - 2
+              ? "Columns"
+              : rowIndex === headerRows.length - 1
+                ? "Rows"
                 : ""}
+            <div 
+              className="row-header-width-resize-handle" 
+              style={{
+                position: "absolute",
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: 5,
+                cursor: "col-resize",
+                zIndex: 10
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onStartRowHeaderResize(e.clientX);
+              }}
+            />
           </div>
 
           {/* Scrollable header track synced with body scroll */}
@@ -118,19 +144,35 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
                 ? `${cell.columnKey}::m${cell.measureIndex}`
                 : undefined;
               const isColSelected = !!(compositeKey && selectedColumnKeys?.has(compositeKey));
-              // Append "in Thousands" / "in Millions" etc. when a quickFormat
-              // is set for this leaf column. We suffix rather than replace so
-              // the measure name remains readable.
-              const colFmt = compositeKey ? colFormats?.[compositeKey] : undefined;
+              const colFmt = cell.isLeaf && cell.columnKey !== undefined && cell.measureIndex !== undefined
+                ? resolveColumnFormat(colFormats || {}, cell.columnKey, cell.measureIndex)
+                : undefined;
               const suffix = quickFormatHeaderLabel(colFmt?.quickFormat);
               const displayLabel = suffix ? `${cell.label} ${suffix}` : cell.label;
+
+              // Calculate width based on underlying columns
+              let currentIdx = 0;
+              for (let i = 0; i < cellIndex; i++) {
+                currentIdx += row.cells[i].colSpan;
+              }
+
+              let width = 0;
+              for (let i = 0; i < cell.colSpan; i++) {
+                const gc = gridColumns[currentIdx + i];
+                if (gc) {
+                  width += colWidths[gc.col.key] || columnWidth;
+                } else {
+                  width += columnWidth;
+                }
+              }
+
               return (
               <div
                 key={`${cell.key}-${cellIndex}`}
                 className={`merged-header-cell ${cell.isLeaf ? "leaf" : "group"} ${cell.sortDirection && cell.sortDirection !== "none" ? "sorted" : ""} ${isColSelected ? "col-selected" : ""}`}
                 style={{
-                  width: cell.colSpan * columnWidth,
-                  minWidth: cell.colSpan * columnWidth,
+                  width: width,
+                  minWidth: width,
                 }}
                 onClick={(e) => cell.isLeaf && handleLeafClick(e, cell.columnKey, cell.measureIndex)}
                 onContextMenu={(e) => {
@@ -140,11 +182,33 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
                 role={cell.isLeaf ? "button" : undefined}
                 tabIndex={cell.isLeaf && allowInteractions ? 0 : undefined}
               >
-                <span className="merged-header-label">{displayLabel}</span>
+                <span 
+                  className="merged-header-label"
+                  style={{
+                    color: cell.level === 0 ? "var(--mx-col-l0-color)" : (cell.level === 1 ? "var(--mx-col-l1-color)" : (cell.isLeaf ? "var(--mx-col-leaf-color)" : "inherit")),
+                    whiteSpace: "normal",
+                    wordBreak: "break-word",
+                    textAlign: "center",
+                    display: "block",
+                    width: "100%",
+                  }}
+                >
+                  {displayLabel}
+                </span>
                 {cell.isLeaf && cell.sortDirection && cell.sortDirection !== "none" && (
                   <span className="merged-header-sort-icon">
                     {cell.sortDirection === "asc" ? "↑" : "↓"}
                   </span>
+                )}
+                {cell.isLeaf && (
+                  <div 
+                    className="col-resize-handle" 
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onStartResize(e.clientX);
+                    }}
+                  />
                 )}
               </div>
               );
@@ -162,8 +226,13 @@ function buildMergedHeaders(
   columns: FlattenedNode[],
   measures: MeasureInfo[],
   arrangement: ColumnArrangement,
-  sortConfig: SortConfig
+  sortConfig: SortConfig,
+  gridColumns?: { key: string; col: FlattenedNode; measure: MeasureInfo; measureIndex: number }[]
 ): HeaderRow[] {
+  if (gridColumns && gridColumns.length > 0) {
+    return buildHeadersFromGridColumns(gridColumns, arrangement, sortConfig);
+  }
+
   if (columns.length === 0) {
     return buildMeasureOnlyHeaders(measures, sortConfig);
   }
@@ -176,6 +245,104 @@ function buildMergedHeaders(
   } else {
     return buildMeasureFirstHeaders(columns, measures, maxLevel, sortConfig);
   }
+}
+
+function buildHeadersFromGridColumns(
+  gridColumns: { key: string; col: FlattenedNode; measure: MeasureInfo; measureIndex: number }[],
+  arrangement: ColumnArrangement,
+  sortConfig: SortConfig
+): HeaderRow[] {
+  const maxDepth = Math.max(...gridColumns.map(gc => Math.max(1, gc.col.path?.length || 1)), 1);
+
+  if (arrangement === "measure-then-time") {
+    const rows: HeaderRow[] = [];
+    const measureCells: HeaderCell[] = [];
+    for (let i = 0; i < gridColumns.length; i++) {
+      const gc = gridColumns[i];
+      measureCells.push({
+        key: `measure-top-${gc.key}-${i}`,
+        label: gc.measure.name,
+        colSpan: 1,
+        level: 0,
+        isLeaf: false,
+      });
+    }
+    rows.push({ level: 0, cells: measureCells });
+
+    for (let level = 0; level < maxDepth; level++) {
+      rows.push({
+        level: level + 1,
+        cells: buildContiguousHeaderCells(gridColumns, level, sortConfig, level === maxDepth - 1),
+      });
+    }
+    return rows.filter(row => row.cells.length > 0);
+  }
+
+  const rows: HeaderRow[] = [];
+  for (let level = 0; level < maxDepth; level++) {
+    const cells = buildContiguousHeaderCells(gridColumns, level, sortConfig, false);
+    if (cells.length > 0) rows.push({ level, cells });
+  }
+
+  rows.push({
+    level: maxDepth,
+    cells: gridColumns.map((gc, index) => ({
+      key: `measure-${gc.key}-${index}`,
+      label: gc.measure.name,
+      colSpan: 1,
+      level: maxDepth,
+      isLeaf: true,
+      columnKey: gc.col.key,
+      measureIndex: gc.measureIndex,
+      sortDirection: sortConfig.columnKey === gc.col.key && sortConfig.measureIndex === gc.measureIndex
+        ? sortConfig.direction
+        : "none",
+    })),
+  });
+
+  return rows;
+}
+
+function buildContiguousHeaderCells(
+  gridColumns: { key: string; col: FlattenedNode; measure: MeasureInfo; measureIndex: number }[],
+  level: number,
+  sortConfig: SortConfig,
+  asLeaf: boolean
+): HeaderCell[] {
+  const cells: HeaderCell[] = [];
+  let index = 0;
+
+  while (index < gridColumns.length) {
+    const current = gridColumns[index];
+    const groupPath = (current.col.path || []).slice(0, level + 1).map(value => String(value ?? ""));
+    const groupKey = groupPath.join("\u0001") || current.col.key;
+    const groupLabel = groupPath[groupPath.length - 1] || current.col.label || "";
+    let span = 1;
+
+    while (index + span < gridColumns.length) {
+      const next = gridColumns[index + span];
+      const nextPath = (next.col.path || []).slice(0, level + 1).map(value => String(value ?? ""));
+      const nextKey = nextPath.join("\u0001") || next.col.key;
+      if (nextKey !== groupKey) break;
+      span++;
+    }
+
+    cells.push({
+      key: `grid-${level}-${current.col.key}-${index}`,
+      label: groupLabel,
+      colSpan: span,
+      level,
+      isLeaf: asLeaf && span === 1,
+      columnKey: asLeaf && span === 1 ? current.col.key : undefined,
+      measureIndex: asLeaf && span === 1 ? current.measureIndex : undefined,
+      sortDirection: asLeaf && span === 1 && sortConfig.columnKey === current.col.key && sortConfig.measureIndex === current.measureIndex
+        ? sortConfig.direction
+        : "none",
+    });
+    index += span;
+  }
+
+  return cells;
 }
 
 function buildMeasureOnlyHeaders(

@@ -1,9 +1,12 @@
 import React, { useState, useCallback } from "react";
 import { FlattenedNode } from "../model/tree";
+import { FormulaEditor } from "./IntelliSenseDropdown";
+import { IntelliSenseContext } from "../intellisense/FormulaIntelliSense";
 
 export interface CalcRowWizardProps {
   rows: FlattenedNode[];
   onSave: (row: {
+    id?: string;
     name: string;
     formulaType: "sum" | "subtract" | "custom";
     sourceRowKeys: string[];
@@ -13,6 +16,8 @@ export interface CalcRowWizardProps {
     style: "normal" | "bold" | "underline" | "doubleUnderline" | "sectionHeader";
   }) => void;
   onClose: () => void;
+  initialData?: any;
+  intelliSenseContext?: IntelliSenseContext;
 }
 
 const STYLE_OPTIONS = [
@@ -27,14 +32,16 @@ export const CalcRowWizard: React.FC<CalcRowWizardProps> = ({
   rows,
   onSave,
   onClose,
+  initialData,
+  intelliSenseContext,
 }) => {
-  const [name, setName] = useState("");
-  const [formulaType, setFormulaType] = useState<"sum" | "subtract" | "custom">("sum");
-  const [selectedRows, setSelectedRows] = useState<string[]>([]);
-  const [customFormula, setCustomFormula] = useState("");
-  const [placement, setPlacement] = useState<"before" | "after" | "child">("after");
-  const [targetRowKey, setTargetRowKey] = useState(rows[0]?.key || "");
-  const [style, setStyle] = useState<"normal" | "bold" | "underline" | "doubleUnderline" | "sectionHeader">("bold");
+  const [name, setName] = useState(initialData?.name || "");
+  const [formulaType, setFormulaType] = useState<"sum" | "subtract" | "custom">(initialData?.formulaType || "sum");
+  const [selectedRows, setSelectedRows] = useState<string[]>(initialData?.sourceRowKeys || []);
+  const [customFormula, setCustomFormula] = useState(initialData?.customFormula || "");
+  const [placement, setPlacement] = useState<"before" | "after" | "child">(initialData?.placement || "after");
+  const [targetRowKey, setTargetRowKey] = useState(initialData?.targetRowKey || rows[0]?.key || "");
+  const [style, setStyle] = useState<"normal" | "bold" | "underline" | "doubleUnderline" | "sectionHeader">(initialData?.style || "bold");
   const [error, setError] = useState<string | null>(null);
 
   const toggleRowSelection = useCallback((rowKey: string) => {
@@ -69,6 +76,7 @@ export const CalcRowWizard: React.FC<CalcRowWizardProps> = ({
     }
 
     onSave({
+      id: initialData?.id,
       name: name.trim(),
       formulaType,
       sourceRowKeys: selectedRows,
@@ -86,7 +94,7 @@ export const CalcRowWizard: React.FC<CalcRowWizardProps> = ({
     <div className="calc-wizard-overlay" onClick={onClose}>
       <div className="calc-wizard-modal calc-wizard-wide" onClick={e => e.stopPropagation()}>
         <div className="calc-wizard-header">
-          <h2>New Calculated Row</h2>
+          <h2>{initialData ? "Edit Calculated Row" : "New Calculated Row"}</h2>
           <button className="calc-wizard-close" onClick={onClose} type="button" aria-label="Close">
             ×
           </button>
@@ -175,15 +183,21 @@ export const CalcRowWizard: React.FC<CalcRowWizardProps> = ({
           {formulaType === "custom" && (
             <div className="calc-wizard-section">
               <label className="calc-wizard-label">Custom Formula</label>
-              <textarea
-                className="calc-wizard-textarea"
+              <FormulaEditor
                 value={customFormula}
-                onChange={e => {
-                  setCustomFormula(e.target.value);
+                onChange={val => {
+                  setCustomFormula(val);
                   setError(null);
                 }}
+                context={intelliSenseContext || {
+                  measures: [],
+                  calculatedMeasures: [],
+                  columns: [],
+                  rows: [],
+                  rowHierarchyLevels: [],
+                  columnHierarchyLevels: [],
+                }}
                 placeholder="e.g., [Revenue] - [COGS] - [Operating Expenses]"
-                rows={3}
               />
               <div className="calc-wizard-hint">
                 Reference rows by name in brackets: [Row Name]
@@ -244,7 +258,7 @@ export const CalcRowWizard: React.FC<CalcRowWizardProps> = ({
             Cancel
           </button>
           <button type="button" className="calc-wizard-btn primary" onClick={handleSave}>
-            Add Row
+            {initialData ? "Save Changes" : "Add Row"}
           </button>
         </div>
       </div>

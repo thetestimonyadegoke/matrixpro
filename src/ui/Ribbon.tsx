@@ -1,10 +1,8 @@
-import React, { memo, useState, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
+import React, { memo, useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { QuickNumberFormat, ColumnFormat, parseColFormats, resolveColumnFormat } from "../format/directFormats";
 import {
   VisualSettings,
   ThemeDensity,
-  ThemePresetId,
-  LayoutMode,
 } from "../settings/settings";
 import { secureRandomId } from "../model/keys";
 import {
@@ -38,23 +36,20 @@ import {
   IconGroup,
   IconAggregation,
   IconVersion,
-  IconCompare,
-  IconContext,
-  IconAudit,
   IconHeaderFooter,
+  IconAudit,
   IconTheme,
   IconPageBreak,
   IconReport,
   IconPageTotal,
-  IconGridlines,
   IconOutline,
   IconHighlight,
   IconPdf,
   IconExcel,
+  IconJson,
   IconWriteback,
   IconSchedule,
   IconSettings,
-  IconBackup,
   IconMenu,
   IconUnpin,
   IconReading,
@@ -64,7 +59,6 @@ import {
   IconTabs,
   IconTopN,
   IconExplorer,
-  IconActions,
   IconManageColumns,
   IconCondFormat,
   IconTotals,
@@ -73,18 +67,20 @@ import {
   IconKpi,
   IconChevronDown,
   IconRows,
-  IconColumns,
   IconExport,
   IconNew,
   IconConfig,
   IconReuse,
   IconAllowed,
   IconGrid,
+  IconChevronLeft,
+  IconChevronRight,
 } from "./icons";
 import { ConditionalFormattingDropdown } from "./ConditionalFormattingDropdown";
 
 export type RibbonTab = "home" | "insert" | "design" | "export";
 export type ToolbarMode = "full" | "minimal" | "minimal-tabs";
+export type RowInsertAction = "panel" | "calculated" | "blank" | "group" | "divider";
 
 export interface RibbonProps {
   settings: VisualSettings;
@@ -102,8 +98,9 @@ export interface RibbonProps {
   onExportCSV: () => void;
   onExportXLSX: () => void;
   onExportPDF?: () => void;
+  onExportJSON: () => void;
   onOpenCalcMeasurePanel?: () => void;
-  onOpenCalcRowPanel?: () => void;
+  onOpenCalcRowPanel?: (action?: RowInsertAction) => void;
   onOpenTotalsPanel?: () => void;
   onOpenManageColumnsPanel?: () => void;
   onOpenCondFormatPanel?: () => void;
@@ -116,6 +113,8 @@ export interface RibbonProps {
   // New props
   onCopyToClipboard?: () => void;
   onOpenSortPanel?: () => void;
+  onOpenThemeGallery?: () => void;
+  onOpenHeaderFooter?: () => void;
   onOpenSmartAnalysis?: () => void;
   onOpenGoalSeek?: () => void;
   onOpenVariables?: () => void;
@@ -136,6 +135,8 @@ export interface RibbonProps {
   onApplyColumnFormat?: (keys: string[], patch: Record<string, any>) => void;
   onApplyRowFormat?: (keys: string[], patch: Record<string, any>) => void;
   onAddQuickVariance?: () => void;
+  /** Raw JSON string from settings.manualData.colFormats for reading column-level state. */
+  colFormatsJson?: string;
 }
 
 interface DropdownItem {
@@ -154,24 +155,25 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   hasValues,
   activeTab,
   explorerOpen,
-  onOpenCondFormatDraft,
+  onOpenCondFormatDraft: _onOpenCondFormatDraft,
   selectedColumnKeys,
-  selectedRowKeys,
+  selectedRowKeys: _selectedRowKeys,
   onApplyColumnFormat,
-  onApplyRowFormat,
+  onApplyRowFormat: _onApplyRowFormat,
   onAddQuickVariance,
-  onZoomIn,
-  onZoomOut,
-  onZoomReset,
+  onZoomIn: _onZoomIn,
+  onZoomOut: _onZoomOut,
+  onZoomReset: _onZoomReset,
   toolbarMode,
   toolbarPinned,
-  zoomLevel = 100,
+  zoomLevel: _zoomLevel = 100,
   onChangeTab,
   onToggleExplorer,
   onPersistProperty,
   onExportCSV,
   onExportXLSX,
   onExportPDF,
+  onExportJSON,
   onOpenCalcMeasurePanel,
   onOpenCalcRowPanel,
   onOpenTotalsPanel,
@@ -191,18 +193,86 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   onOpenTopNPanel,
   onOpenFilterPanel,
   onOpenLevelPanel,
+  onOpenThemeGallery,
+  onOpenHeaderFooter,
   canUndo,
   canRedo,
   onUndo,
   onRedo,
+  colFormatsJson,
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [cfMenuOpen, setCfMenuOpen] = useState(false);
   const [cfAnchorRect, setCfAnchorRect] = useState<DOMRect | null>(null);
   const cfAnchorRef = useRef<HTMLDivElement>(null);
-  const [quickFormatOpen, setQuickFormatOpen] = useState(false);
-  const quickFormatRef = useRef<HTMLDivElement>(null);
+  
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [canScrollContentLeft, setCanScrollContentLeft] = useState(false);
+  const [canScrollContentRight, setCanScrollContentRight] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (tabsRef.current) {
+        const { scrollLeft, scrollWidth, clientWidth } = tabsRef.current;
+        setCanScrollLeft(scrollLeft > 0);
+        setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 5);
+      }
+    };
+    const handleContentScroll = () => {
+      if (contentRef.current) {
+        const { scrollLeft, scrollWidth, clientWidth } = contentRef.current;
+        // High precision check: if width is barely larger, don't show arrows
+        const hasHorizontalOverflow = scrollWidth > clientWidth + 2;
+        setCanScrollContentLeft(scrollLeft > 2);
+        setCanScrollContentRight(hasHorizontalOverflow && scrollLeft < scrollWidth - clientWidth - 2);
+      }
+    };
+    const tabsEl = tabsRef.current;
+    const contentEl = contentRef.current;
+    if (tabsEl) {
+      tabsEl.addEventListener("scroll", handleScroll);
+      handleScroll();
+    }
+    if (contentEl) {
+      contentEl.addEventListener("scroll", handleContentScroll);
+      handleContentScroll();
+    }
+    const onResize = () => {
+      handleScroll();
+      handleContentScroll();
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      tabsEl?.removeEventListener("scroll", handleScroll);
+      contentEl?.removeEventListener("scroll", handleContentScroll);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  const scrollTabs = (direction: "left" | "right") => {
+    if (tabsRef.current) {
+      const scrollAmount = 200;
+      tabsRef.current.scrollBy({
+        left: direction === "left" ? -scrollAmount : scrollAmount,
+        behavior: "smooth"
+      });
+    }
+  };
+
+  const scrollContent = (direction: "left" | "right") => {
+    if (contentRef.current) {
+      const scrollAmount = 300;
+      contentRef.current.scrollBy({
+        left: direction === "left" ? -scrollAmount : scrollAmount,
+        behavior: "smooth"
+      });
+    }
+  };
 
   // For "minimal-tabs" mode: the ribbon content is collapsed by default
   // and expands when a tab is clicked. It auto-collapses after idle timeout.
@@ -227,30 +297,100 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
   const showMinimalTabsCurated = (toolbarMode === "minimal-tabs") && !minimalTabsExpanded;
 
-  // Quick rule helpers — append a new ConditionalRule to the rules array.
-  const appendCfRule = (rule: any) => {
+  // Quick rule helpers — open the ConditionalFormattingPanel with a draft rule
+  // so users can customize before applying (instead of applying immediately).
+  const openCfDraft = (rule: any) => {
     if (!allowInteractions) return;
-    let existing: any[] = [];
-    try {
-      const parsed = JSON.parse(settings.conditionalFormatting.rules || "[]");
-      if (Array.isArray(parsed)) existing = parsed;
-    } catch { /* ignore */ }
-    const next = [...existing, rule];
-    onPersistProperty("conditionalFormatting", "rules", JSON.stringify(next));
-    if (!settings.conditionalFormatting.enabled) {
-      onPersistProperty("conditionalFormatting", "enabled", true);
-    }
     setCfMenuOpen(false);
+    _onOpenCondFormatDraft?.(rule);
   };
+
+  // ── Context-aware formatting state ─────────────────────────────────────
+  // Parse column formats once so we can read effective state for active
+  // indicators and build correct toggle values.
+  const colFormats = useMemo(
+    () => parseColFormats(colFormatsJson),
+    [colFormatsJson]
+  );
+
+  /**
+   * Returns the effective value for a formatting property, respecting
+   * column selection context. When columns are selected, the first
+   * selected column's format is used. Otherwise, global settings.values.
+   */
+  const getEffective = useCallback(<K extends keyof ColumnFormat>(prop: K): ColumnFormat[K] | undefined => {
+    if (selectedColumnKeys && selectedColumnKeys.length > 0) {
+      // Resolve formatting using logical identity fallback.
+      // We look at the first selected column and find its most specific active setting.
+      const firstKey = selectedColumnKeys[0];
+      const parts = firstKey.split("::m");
+      const colKey = parts[0];
+      const mIdx = parts.length > 1 ? parseInt(parts[1]) : -1;
+
+      const fmt = resolveColumnFormat(colFormats, colKey, mIdx);
+      if (fmt && fmt[prop] !== undefined) return fmt[prop];
+    }
+    // Fall back to global settings.values
+    return (settings.values as any)[prop];
+  }, [selectedColumnKeys, colFormats, settings.values]);
+
+  // Convenience readers for commonly used effective values
+  const effBold = getEffective("bold") ?? settings.values.bold;
+  const effItalic = getEffective("italic") ?? settings.values.italic;
+  const effUnderline = getEffective("underline") ?? settings.values.underline;
+  const effNumberFormat = getEffective("numberFormat") ?? settings.values.numberFormat ?? "";
+  const effAlignment = getEffective("alignment") ?? settings.values.alignment;
+  const effDecimals = getEffective("decimals") ?? settings.values.decimals ?? 0;
+  const effTextColor = getEffective("textColor") ?? settings.values.textColor;
+  const effBgColor = getEffective("backgroundColor") ?? settings.values.backgroundColor;
+  const effQuickFormat = getEffective("quickFormat") ?? settings.values.quickFormat ?? "none";
+
+  const quickFormatOptions: Array<{ value: QuickNumberFormat; label: string }> = useMemo(() => ([
+    { value: "none", label: "None" },
+    { value: "auto", label: "Auto" },
+    { value: "thousands", label: "Thousands (K)" },
+    { value: "millions", label: "Millions (M)" },
+    { value: "billions", label: "Billions (B)" },
+    { value: "trillions", label: "Trillions (T)" },
+  ]), []);
+
+  /**
+   * Unified formatting dispatcher. When columns are selected, the patch
+   * is applied to `manualData.colFormats` for those columns. Otherwise,
+   * it's applied to the global `settings.values`.
+   */
+  const handleFormatUpdate = useCallback((patch: Record<string, any>) => {
+    if (selectedColumnKeys && selectedColumnKeys.length > 0) {
+      // Determine logical targets based on user selection.
+      // We target the global measure format (m:index) or dimension format (c:colKey)
+      // so it applies across all hierarchy groups consistently as requested.
+      const logicalTargets = selectedColumnKeys.map(key => {
+        const parts = key.split("::m");
+        if (parts.length > 1) {
+          const mIdx = parseInt(parts[1]);
+          return `m:${mIdx}`;
+        }
+        return `c:${parts[0]}`; // fallback to dimension-global
+      });
+      // Deduplicate targets
+      const uniqueTargets = Array.from(new Set(logicalTargets));
+      onApplyColumnFormat?.(uniqueTargets, patch);
+    } else {
+      Object.keys(patch).forEach(key => {
+        onPersistProperty("values", key, patch[key]);
+      });
+    }
+  }, [selectedColumnKeys, onApplyColumnFormat, onPersistProperty]);
 
   const newRuleId = () => `rule_${Date.now()}_${secureRandomId(6)}`;
   const baseScope = () => ({
+    targetType: "rows" as const,
     targetMeasure: -1,
-    rowHierarchyLevels: "valuesAndTotals",
+    rowHierarchyLevels: "valuesAndTotals" as const,
     excludeColumnGrandTotal: false,
   });
 
-  const quickPositive = () => appendCfRule({
+  const quickPositive = () => openCfDraft({
     id: newRuleId(),
     title: "Quick Positive",
     enabled: true,
@@ -263,7 +403,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     },
   });
 
-  const quickNegative = () => appendCfRule({
+  const quickNegative = () => openCfDraft({
     id: newRuleId(),
     title: "Quick Negative",
     enabled: true,
@@ -276,7 +416,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     },
   });
 
-  const quickColorScale = (colors: string[], name: string) => appendCfRule({
+  const quickColorScale = (colors: string[], name: string) => openCfDraft({
     id: newRuleId(),
     title: name,
     enabled: true,
@@ -296,7 +436,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     },
   });
 
-  const quickClassification = () => appendCfRule({
+  const quickClassification = () => openCfDraft({
     id: newRuleId(),
     title: "Quick Classification",
     enabled: true,
@@ -318,7 +458,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     },
   });
 
-  const quickDataBars = () => appendCfRule({
+  const quickDataBars = () => openCfDraft({
     id: newRuleId(),
     title: "Data Bars",
     enabled: true,
@@ -356,6 +496,10 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     if (!allowInteractions) return;
     onPersistProperty(objectName, propertyName, !currentValue);
   };
+
+  const openRowAction = useCallback((action: RowInsertAction = "panel") => {
+    onOpenCalcRowPanel?.(action);
+  }, [onOpenCalcRowPanel]);
 
   const tabButton = (tab: RibbonTab, label: string) => (
     <button
@@ -401,6 +545,28 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   );
 
   const divider = () => <div className="ribbon-divider" />;
+
+  const quickFormatSelect = (width: number | string = 132, compact: boolean = false) => (
+    <select
+      className="ribbon-select quick-format-select"
+      value={effQuickFormat}
+      disabled={!allowInteractions}
+      title="Display units"
+      onChange={(e) => handleFormatUpdate({ quickFormat: e.target.value as QuickNumberFormat })}
+      style={{
+        width,
+        minWidth: width,
+        fontSize: compact ? 11 : 12,
+        height: compact ? 24 : undefined,
+      }}
+    >
+      {quickFormatOptions.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
 
   const dropdownItems: DropdownItem[] = [
     {
@@ -454,11 +620,31 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     <div className={`mx-ribbon ${toolbarMode}`} role="toolbar" aria-label="Matrix ribbon">
       {toolbarMode !== "minimal" && (
         <div className="mx-ribbon-top">
-          <div className="mx-ribbon-tabs" role="tablist" aria-label="Ribbon tabs">
-            {tabButton("home", "Home")}
-            {tabButton("insert", "Insert")}
-            {tabButton("design", "Design")}
-            {tabButton("export", "Export")}
+          <div className="mx-ribbon-tabs-container" style={{ position: 'relative', display: 'flex', alignItems: 'center', overflow: 'hidden' }}>
+            {canScrollLeft && (
+              <button 
+                className="ribbon-scroll-btn left" 
+                onClick={() => scrollTabs("left")}
+                style={{ position: 'absolute', left: 0, zIndex: 10, background: 'rgba(255,255,255,0.8)', border: 'none', height: '100%', cursor: 'pointer', padding: '0 4px' }}
+              >
+                ‹
+              </button>
+            )}
+            <div className="mx-ribbon-tabs" role="tablist" aria-label="Ribbon tabs" ref={tabsRef} style={{ display: 'flex', overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              {tabButton("home", "Home")}
+              {tabButton("insert", "Insert")}
+              {tabButton("design", "Design")}
+              {tabButton("export", "Export")}
+            </div>
+            {canScrollRight && (
+              <button 
+                className="ribbon-scroll-btn right" 
+                onClick={() => scrollTabs("right")}
+                style={{ position: 'absolute', right: 0, zIndex: 10, background: 'rgba(255,255,255,0.8)', border: 'none', height: '100%', cursor: 'pointer', padding: '0 4px' }}
+              >
+                ›
+              </button>
+            )}
           </div>
 
           <div className="mx-ribbon-actions" aria-label="Quick actions">
@@ -535,24 +721,36 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
           padding: "4px 12px", 
           background: "var(--mx-toolbar-bg, var(--mx-surface, #fff))", 
           borderBottom: "1px solid var(--mx-border, #e5e5e5)",
-          height: 36
+          height: 40
         }}>
            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
              {activeTab === "home" && (
                <>
-                 {toolbarBtn(<IconBold size={13} />, "Bold", () => onPersistProperty("values", "bold", !settings.values.bold), settings.values.bold, !allowInteractions)}
-                 {toolbarBtn(<IconFontColor size={13} />, "Color", () => {}, false, !allowInteractions)}
-                 {toolbarBtn(<IconAlignCenter size={13} />, "Align", () => onPersistProperty("values", "alignment", "center"), settings.values.alignment === "center", !allowInteractions)}
-                 <select className="ribbon-select" style={{ width: 80, fontSize: 11 }} value={settings.general.fontFamily || "-apple-system"} onChange={(e) => onPersistProperty("general", "fontFamily", e.target.value)} disabled={!allowInteractions}>
-                    <option value="-apple-system">System</option>
-                    <option value="Segoe UI">Segoe UI</option>
-                 </select>
-               </>
+                <div className="curated-group" style={{ display: "flex", gap: 2 }}>
+                  {toolbarBtn(<IconBold size={13} />, "", () => handleFormatUpdate({ bold: !effBold }), !!effBold, !allowInteractions, "Bold")}
+                  {toolbarBtn(<IconUnderline size={13} />, "", () => handleFormatUpdate({ underline: !effUnderline }), !!effUnderline, !allowInteractions, "Underline")}
+                  {toolbarBtn(<IconAlignCenter size={13} />, "", () => handleFormatUpdate({ alignment: "center" }), effAlignment === "center", !allowInteractions, "Center Align")}
+                </div>
+                 <span className="ribbon-divider-v" style={{ height: 16, borderLeft: "1px solid var(--mx-toolbar-border, #ddd)", margin: "0 4px" }} />
+                  {quickFormatSelect(132, true)}
+                  <div className="curated-group" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <button className={`ribbon-format-btn sm ${effNumberFormat === "0.0%" ? "active" : ""}`} onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "0.0%" ? "" : "0.0%" })} title="Percentage">%</button>
+                    <button className={`ribbon-format-btn sm ${effNumberFormat === "$#,##0.00" ? "active" : ""}`} onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "$#,##0.00" ? "" : "$#,##0.00" })} title="Currency">$</button>
+                    {/* Decimals — using .0 .00 as labels per user preference */}
+                    <button className="ribbon-format-btn sm" onClick={() => handleFormatUpdate({ decimals: Math.min(10, effDecimals + 1) })} title="Increase decimals">.00</button>
+                    <button className="ribbon-format-btn sm" onClick={() => handleFormatUpdate({ decimals: Math.max(0, effDecimals - 1) })} title="Decrease decimals">.0</button>
+                  </div>
+                  <span className="ribbon-divider-v" style={{ height: 16, borderLeft: "1px solid var(--mx-toolbar-border, #ddd)", margin: "0 4px" }} />
+                  {toolbarBtn(<IconTheme size={13} />, "Themes", onOpenThemeGallery, false, !allowInteractions, "Themes")}
+                  {toolbarBtn(<IconCondFormat size={13} />, "Format", onOpenCondFormatPanel, settings.conditionalFormatting.enabled, !allowInteractions, "Conditional Formatting")}
+                </>
              )}
              {activeTab === "insert" && (
                <>
                  {toolbarBtn(<IconFormula size={13} />, "Measure", onOpenCalcMeasurePanel, false, !allowInteractions)}
-                 {toolbarBtn(<IconInsertRow size={13} />, "Row", onOpenCalcRowPanel, false, !allowInteractions)}
+                 {toolbarBtn(<IconInsertRow size={13} />, "Calc Row", () => openRowAction("calculated"), false, !allowInteractions || !hasData)}
+                 {toolbarBtn(<IconRows size={13} />, "Blank", () => openRowAction("blank"), false, !allowInteractions || !hasData, "Insert Blank Row")}
+                 {toolbarBtn(<IconBorders size={13} />, "Divider", () => openRowAction("divider"), false, !allowInteractions || !hasData, "Insert Divider Line")}
                  {toolbarBtn(<IconNew size={13} />, "Variance", onAddQuickVariance, false, !allowInteractions)}
                </>
              )}
@@ -588,12 +786,38 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
       )}
 
       {showContent && (
-        <div className="mx-ribbon-content" role="tabpanel">
-          {/* ============================================================
-              MINIMAL MODE — full-featured single scrollable row
-              ============================================================ */}
-          {toolbarMode === "minimal" && (
-            <div className="mx-ribbon-minimal-row" style={{ display: "flex", alignItems: "center", gap: 2, padding: "3px 8px", width: "100%", overflowX: "auto", overflowY: "visible", flexWrap: "nowrap", minHeight: 32 }}>
+        <div className="mx-ribbon-content-container" style={{ position: 'relative', display: 'flex', alignItems: 'center', overflow: 'hidden', flex: 1, height: '100%' }}>
+          {canScrollContentLeft && (
+            <button 
+              className="ribbon-scroll-btn left" 
+              onClick={() => scrollContent("left")}
+              style={{ 
+                position: 'absolute', 
+                left: 0, 
+                top: '50%',
+                transform: 'translateY(-50%)',
+                zIndex: 500, 
+                background: 'rgba(255,255,255,0.95)', 
+                border: '1px solid rgba(0,0,0,0.1)', 
+                height: '48px', 
+                width: '24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer', 
+                padding: 0, 
+                boxShadow: '2px 0 8px rgba(0,0,0,0.15)',
+                borderLeft: 'none',
+                borderRadius: '0 4px 4px 0'
+              }}
+              title="Scroll Left"
+            >
+              <IconChevronLeft size={16} />
+            </button>
+          )}
+          <div className="mx-ribbon-content" role="tabpanel" ref={contentRef} style={{ display: 'flex', flex: 1, overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none', height: '100%' }}>
+            {toolbarMode === "minimal" && (
+              <div className="mx-ribbon-minimal-row" style={{ display: "flex", alignItems: "center", gap: 2, padding: "3px 8px", width: "100%", overflowX: "visible", flexWrap: "nowrap", minHeight: 32 }}>
               {/* Undo / Redo */}
               <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
                 <button className="ribbon-btn icon-only" onClick={onUndo} disabled={!canUndo || !allowInteractions} title="Undo (Ctrl+Z)" type="button"><IconUndo size={14} /></button>
@@ -614,35 +838,36 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               <span className="ribbon-divider-v" />
               {/* B / I / U / S / Wrap */}
               <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                {toolbarBtn(<IconBold size={13} />, "", () => onPersistProperty("values", "bold", !settings.values.bold), settings.values.bold, !allowInteractions, "Bold")}
-                {toolbarBtn(<IconItalic size={13} />, "", () => onPersistProperty("values", "italic", !settings.values.italic), settings.values.italic, !allowInteractions, "Italic")}
-                {toolbarBtn(<IconUnderline size={13} />, "", () => onPersistProperty("values", "underline", !settings.values.underline), settings.values.underline, !allowInteractions, "Underline")}
+                {toolbarBtn(<IconBold size={13} />, "", () => handleFormatUpdate({ bold: !effBold }), !!effBold, !allowInteractions, "Bold")}
+                {toolbarBtn(<IconItalic size={13} />, "", () => handleFormatUpdate({ italic: !effItalic }), !!effItalic, !allowInteractions, "Italic")}
+                {toolbarBtn(<IconUnderline size={13} />, "", () => handleFormatUpdate({ underline: !effUnderline }), !!effUnderline, !allowInteractions, "Underline")}
                 {toolbarBtn(<span style={{ fontFamily: "serif", fontSize: 12, textDecoration: "line-through", fontWeight: 700, lineHeight: 1 }}>S</span>, "", () => onPersistProperty("general", "strikethrough", !settings.general.strikethrough), settings.general.strikethrough, !allowInteractions, "Strikethrough")}
                 {toolbarBtn(<span style={{ fontSize: 11, fontWeight: 700 }}>↵</span>, "", () => onPersistProperty("general", "wrapText", !settings.general.wrapText), settings.general.wrapText, !allowInteractions, "Wrap Text")}
               </div>
               <span className="ribbon-divider-v" />
               {/* Colors */}
               <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                {toolbarBtn(<IconFontColor size={13} />, "", () => { const c = prompt("Text color (hex):", settings.values.textColor || "#333333"); if (c) onPersistProperty("values", "textColor", c); }, false, !allowInteractions, "Font Color")}
-                {toolbarBtn(<IconFillColor size={13} />, "", () => { const c = prompt("Background color (hex):", settings.values.backgroundColor || "#ffffff"); if (c) onPersistProperty("values", "backgroundColor", c); }, false, !allowInteractions, "Fill Color")}
+                {toolbarBtn(<IconFontColor size={13} />, "", () => { const c = prompt("Text color (hex):", effTextColor || "#333333"); if (c) handleFormatUpdate({ textColor: c }); }, false, !allowInteractions, "Font Color")}
+                {toolbarBtn(<IconFillColor size={13} />, "", () => { const c = prompt("Background color (hex):", effBgColor || "#ffffff"); if (c) handleFormatUpdate({ backgroundColor: c }); }, false, !allowInteractions, "Fill Color")}
               </div>
               <span className="ribbon-divider-v" />
               {/* Alignment + Borders */}
               <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                {toolbarBtn(<IconAlignLeft size={13} />, "", () => onPersistProperty("values", "alignment", "left"), settings.values.alignment === "left", !allowInteractions, "Align Left")}
-                {toolbarBtn(<IconAlignCenter size={13} />, "", () => onPersistProperty("values", "alignment", "center"), settings.values.alignment === "center", !allowInteractions, "Align Center")}
-                {toolbarBtn(<IconAlignRight size={13} />, "", () => onPersistProperty("values", "alignment", "right"), settings.values.alignment === "right", !allowInteractions, "Align Right")}
+                {toolbarBtn(<IconAlignLeft size={13} />, "", () => handleFormatUpdate({ alignment: "left" }), effAlignment === "left", !allowInteractions, "Align Left")}
+                {toolbarBtn(<IconAlignCenter size={13} />, "", () => handleFormatUpdate({ alignment: "center" }), effAlignment === "center", !allowInteractions, "Align Center")}
+                {toolbarBtn(<IconAlignRight size={13} />, "", () => handleFormatUpdate({ alignment: "right" }), effAlignment === "right", !allowInteractions, "Align Right")}
                 {toolbarBtn(<IconBorders size={13} />, "", () => { const ss = ["none", "all", "horizontal", "vertical", "outline"] as const; const ci = ss.indexOf(settings.values.borderStyle as any); onPersistProperty("values", "borderStyle", ss[(ci + 1) % ss.length]); }, settings.values.borderStyle !== "none", !allowInteractions, "Borders")}
               </div>
               <span className="ribbon-divider-v" />
               {/* Number format */}
               <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                <button className={`ribbon-format-btn ${settings.values.numberFormat === "0.0%" ? "active" : ""}`} disabled={!allowInteractions} title="Percentage" onClick={() => onPersistProperty("values", "numberFormat", settings.values.numberFormat === "0.0%" ? "" : "0.0%")}>%</button>
-                <button className={`ribbon-format-btn ${settings.values.numberFormat === "$#,##0.00" ? "active" : ""}`} disabled={!allowInteractions} title="Currency" onClick={() => onPersistProperty("values", "numberFormat", settings.values.numberFormat === "$#,##0.00" ? "" : "$#,##0.00")}>$</button>
-                <button className={`ribbon-format-btn ${settings.values.numberFormat === "#,##0" ? "active" : ""}`} disabled={!allowInteractions} title="Comma" onClick={() => onPersistProperty("values", "numberFormat", settings.values.numberFormat === "#,##0" ? "" : "#,##0")}>,</button>
-                <button className="ribbon-format-btn" disabled={!allowInteractions} title="Increase Decimal" onClick={() => { const c = settings.values.numberFormat || "#,##0"; const n = c === "#,##0" ? "#,##0.0" : c === "#,##0.0" ? "#,##0.00" : c; if (n !== c) onPersistProperty("values", "numberFormat", n); }}>.0</button>
-                <button className="ribbon-format-btn" disabled={!allowInteractions} title="Decrease Decimal" onClick={() => { const c = settings.values.numberFormat || "#,##0"; const n = c === "#,##0.00" ? "#,##0.0" : c === "#,##0.0" ? "#,##0" : c; if (n !== c) onPersistProperty("values", "numberFormat", n); }}>.00</button>
+                <button className={`ribbon-format-btn ${effNumberFormat === "0.0%" ? "active" : ""}`} disabled={!allowInteractions} title="Percentage" onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "0.0%" ? "" : "0.0%" })}>%</button>
+                <button className={`ribbon-format-btn ${effNumberFormat === "$#,##0.00" ? "active" : ""}`} disabled={!allowInteractions} title="Currency" onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "$#,##0.00" ? "" : "$#,##0.00" })}>$</button>
+                <button className={`ribbon-format-btn ${effNumberFormat === "#,##0" ? "active" : ""}`} disabled={!allowInteractions} title="Comma" onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "#,##0" ? "" : "#,##0" })}>,</button>
+                <button className="ribbon-format-btn" disabled={!allowInteractions} title="Increase Decimal" onClick={() => handleFormatUpdate({ decimals: Math.min(10, effDecimals + 1) })}>.0</button>
+                <button className="ribbon-format-btn" disabled={!allowInteractions} title="Decrease Decimal" onClick={() => handleFormatUpdate({ decimals: Math.max(0, effDecimals - 1) })}>.00</button>
               </div>
+              {quickFormatSelect(132, true)}
               <span className="ribbon-divider-v" />
               {/* Data Analysis */}
               <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
@@ -671,7 +896,10 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               <span className="ribbon-divider-v" />
               {/* Insert */}
               <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                {toolbarBtn(<IconInsertRow size={13} />, "Row", () => onOpenCalcRowPanel?.(), false, !allowInteractions, "Insert Calculated Row")}
+                {toolbarBtn(<IconInsertRow size={13} />, "Calc", () => openRowAction("calculated"), false, !allowInteractions || !hasData, "Insert Calculated Row")}
+                {toolbarBtn(<IconRows size={13} />, "Blank", () => openRowAction("blank"), false, !allowInteractions || !hasData, "Insert Blank Row")}
+                {toolbarBtn(<IconBorders size={13} />, "Divider", () => openRowAction("divider"), false, !allowInteractions || !hasData, "Insert Divider Line")}
+                {toolbarBtn(<IconGroup size={13} />, "Group", () => openRowAction("group"), false, !allowInteractions || !hasData, "Insert Group Header")}
                 {toolbarBtn(<IconFormula size={13} />, "Measure", () => onOpenCalcMeasurePanel?.(), false, !allowInteractions, "Insert Calculated Measure")}
               </div>
               <span className="ribbon-divider-v" />
@@ -692,6 +920,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
                 {toolbarBtn(<IconExcel size={13} />, "XLSX", () => onExportXLSX?.(), false, !allowInteractions || !hasData, "Export to Excel")}
                 {toolbarBtn(<IconPdf size={13} />, "PDF", () => onExportPDF?.(), false, !allowInteractions || !hasData, "Export to PDF")}
+                {toolbarBtn(<IconJson size={13} />, "JSON", () => onExportJSON?.(), false, !allowInteractions || !hasData, "Export to JSON")}
               </div>
               <span className="ribbon-divider-v" />
               {/* Smart Analysis */}
@@ -739,24 +968,25 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                   </div>
                   <span className="ribbon-divider-v" />
                   <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                    {toolbarBtn(<IconBold size={13} />, "", () => onPersistProperty("values", "bold", !settings.values.bold), settings.values.bold, !allowInteractions, "Bold")}
-                    {toolbarBtn(<IconItalic size={13} />, "", () => onPersistProperty("values", "italic", !settings.values.italic), settings.values.italic, !allowInteractions, "Italic")}
-                    {toolbarBtn(<IconUnderline size={13} />, "", () => onPersistProperty("values", "underline", !settings.values.underline), settings.values.underline, !allowInteractions, "Underline")}
-                    {toolbarBtn(<IconFontColor size={13} />, "", () => { const c = prompt("Text color:", settings.values.textColor || "#333333"); if (c) onPersistProperty("values", "textColor", c); }, false, !allowInteractions, "Font Color")}
-                    {toolbarBtn(<IconFillColor size={13} />, "", () => { const c = prompt("Background color:", settings.values.backgroundColor || "#ffffff"); if (c) onPersistProperty("values", "backgroundColor", c); }, false, !allowInteractions, "Fill Color")}
+                    {toolbarBtn(<IconBold size={13} />, "", () => handleFormatUpdate({ bold: !effBold }), !!effBold, !allowInteractions, "Bold")}
+                    {toolbarBtn(<IconItalic size={13} />, "", () => handleFormatUpdate({ italic: !effItalic }), !!effItalic, !allowInteractions, "Italic")}
+                    {toolbarBtn(<IconUnderline size={13} />, "", () => handleFormatUpdate({ underline: !effUnderline }), !!effUnderline, !allowInteractions, "Underline")}
+                    {toolbarBtn(<IconFontColor size={13} />, "", () => { const c = prompt("Text color:", effTextColor || "#333333"); if (c) handleFormatUpdate({ textColor: c }); }, false, !allowInteractions, "Font Color")}
+                    {toolbarBtn(<IconFillColor size={13} />, "", () => { const c = prompt("Background color:", effBgColor || "#ffffff"); if (c) handleFormatUpdate({ backgroundColor: c }); }, false, !allowInteractions, "Fill Color")}
                   </div>
                   <span className="ribbon-divider-v" />
                   <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                    {toolbarBtn(<IconAlignLeft size={13} />, "", () => onPersistProperty("values", "alignment", "left"), settings.values.alignment === "left", !allowInteractions, "Align Left")}
-                    {toolbarBtn(<IconAlignCenter size={13} />, "", () => onPersistProperty("values", "alignment", "center"), settings.values.alignment === "center", !allowInteractions, "Align Center")}
-                    {toolbarBtn(<IconAlignRight size={13} />, "", () => onPersistProperty("values", "alignment", "right"), settings.values.alignment === "right", !allowInteractions, "Align Right")}
+                    {toolbarBtn(<IconAlignLeft size={13} />, "", () => handleFormatUpdate({ alignment: "left" }), effAlignment === "left", !allowInteractions, "Align Left")}
+                    {toolbarBtn(<IconAlignCenter size={13} />, "", () => handleFormatUpdate({ alignment: "center" }), effAlignment === "center", !allowInteractions, "Align Center")}
+                    {toolbarBtn(<IconAlignRight size={13} />, "", () => handleFormatUpdate({ alignment: "right" }), effAlignment === "right", !allowInteractions, "Align Right")}
                   </div>
                   <span className="ribbon-divider-v" />
                   <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                    <button className={`ribbon-format-btn ${settings.values.numberFormat === "0.0%" ? "active" : ""}`} disabled={!allowInteractions} title="Percentage" onClick={() => onPersistProperty("values", "numberFormat", settings.values.numberFormat === "0.0%" ? "" : "0.0%")}>%</button>
-                    <button className={`ribbon-format-btn ${settings.values.numberFormat === "$#,##0.00" ? "active" : ""}`} disabled={!allowInteractions} title="Currency" onClick={() => onPersistProperty("values", "numberFormat", settings.values.numberFormat === "$#,##0.00" ? "" : "$#,##0.00")}>$</button>
-                    <button className={`ribbon-format-btn ${settings.values.numberFormat === "#,##0" ? "active" : ""}`} disabled={!allowInteractions} title="Comma" onClick={() => onPersistProperty("values", "numberFormat", settings.values.numberFormat === "#,##0" ? "" : "#,##0")}>,</button>
+                    <button className={`ribbon-format-btn ${effNumberFormat === "0.0%" ? "active" : ""}`} disabled={!allowInteractions} title="Percentage" onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "0.0%" ? "" : "0.0%" })}>%</button>
+                    <button className={`ribbon-format-btn ${effNumberFormat === "$#,##0.00" ? "active" : ""}`} disabled={!allowInteractions} title="Currency" onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "$#,##0.00" ? "" : "$#,##0.00" })}>$</button>
+                    <button className={`ribbon-format-btn ${effNumberFormat === "#,##0" ? "active" : ""}`} disabled={!allowInteractions} title="Comma" onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "#,##0" ? "" : "#,##0" })}>,</button>
                   </div>
+                  {quickFormatSelect(132, true)}
                   <span className="ribbon-divider-v" />
                   <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
                     {toolbarBtn(<IconCondFormat size={13} />, "CF", () => onOpenCondFormatPanel?.(), settings.conditionalFormatting.enabled, !hasValues, "Conditional Formatting")}
@@ -923,13 +1153,13 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                     {toolbarBtn(
                       <IconBold size={14} />,
                       "",
-                      () => onPersistProperty("headers", "bold", !settings.headers.bold),
-                      settings.headers.bold,
+                      () => handleFormatUpdate({ bold: !effBold }),
+                      !!effBold,
                       !allowInteractions,
-                      "Bold Headers"
+                      "Bold"
                     )}
-                    {toolbarBtn(<IconItalic size={14} />, "", () => onPersistProperty("values", "italic", !settings.values.italic), settings.values.italic, !allowInteractions, "Italic")}
-                    {toolbarBtn(<IconUnderline size={14} />, "", () => onPersistProperty("values", "underline", !settings.values.underline), settings.values.underline, !allowInteractions, "Underline")}
+                    {toolbarBtn(<IconItalic size={14} />, "", () => handleFormatUpdate({ italic: !effItalic }), !!effItalic, !allowInteractions, "Italic")}
+                    {toolbarBtn(<IconUnderline size={14} />, "", () => handleFormatUpdate({ underline: !effUnderline }), !!effUnderline, !allowInteractions, "Underline")}
                     {toolbarBtn(
                       <span style={{ fontFamily: "serif", fontSize: 13, textDecoration: "line-through", fontWeight: 700 }}>S</span>,
                       "",
@@ -950,8 +1180,8 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                       <IconFontColor size={14} />,
                       "",
                       () => {
-                        const color = prompt("Enter text color (hex):", settings.values.textColor || "#333333");
-                        if (color) onPersistProperty("values", "textColor", color);
+                        const color = prompt("Enter text color (hex):", effTextColor || "#333333");
+                        if (color) handleFormatUpdate({ textColor: color });
                       },
                       false,
                       !allowInteractions,
@@ -961,8 +1191,8 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                       <IconFillColor size={14} />,
                       "",
                       () => {
-                        const color = prompt("Enter background color (hex):", settings.values.backgroundColor || "#ffffff");
-                        if (color) onPersistProperty("values", "backgroundColor", color);
+                        const color = prompt("Enter background color (hex):", effBgColor || "#ffffff");
+                        if (color) handleFormatUpdate({ backgroundColor: color });
                       },
                       false,
                       !allowInteractions,
@@ -981,24 +1211,24 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                     {toolbarBtn(
                       <IconAlignLeft size={14} />,
                       "",
-                      () => onPersistProperty("values", "alignment", "left"),
-                      settings.values.alignment === "left",
+                      () => handleFormatUpdate({ alignment: "left" }),
+                      effAlignment === "left",
                       !allowInteractions,
                       "Align Left"
                     )}
                     {toolbarBtn(
                       <IconAlignCenter size={14} />,
                       "",
-                      () => onPersistProperty("values", "alignment", "center"),
-                      settings.values.alignment === "center",
+                      () => handleFormatUpdate({ alignment: "center" }),
+                      effAlignment === "center",
                       !allowInteractions,
                       "Align Center"
                     )}
                     {toolbarBtn(
                       <IconAlignRight size={14} />,
                       "",
-                      () => onPersistProperty("values", "alignment", "right"),
-                      settings.values.alignment === "right",
+                      () => handleFormatUpdate({ alignment: "right" }),
+                      effAlignment === "right",
                       !allowInteractions,
                       "Align Right"
                     )}
@@ -1014,49 +1244,25 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 </div>
               </div>
 
-              {divider()}
-
-              <div className="ribbon-section" aria-label="Number">
+                     <div className="ribbon-section" aria-label="Number">
                 {sectionTitle("Number")}
                 <div className="ribbon-btn-group">
-                  <button
-                    className={`ribbon-format-btn ${settings.values.numberFormat === "0.0%" ? "active" : ""}`}
-                    disabled={!allowInteractions}
-                    title="Percentage"
-                    onClick={() => onPersistProperty("values", "numberFormat", settings.values.numberFormat === "0.0%" ? "" : "0.0%")}
-                  >%</button>
-                  <button
-                    className={`ribbon-format-btn ${settings.values.numberFormat === "$#,##0.00" ? "active" : ""}`}
-                    disabled={!allowInteractions}
-                    title="Currency"
-                    onClick={() => onPersistProperty("values", "numberFormat", settings.values.numberFormat === "$#,##0.00" ? "" : "$#,##0.00")}
-                  >$</button>
-                  <button
-                    className={`ribbon-format-btn ${settings.values.numberFormat === "#,##0" ? "active" : ""}`}
-                    disabled={!allowInteractions}
-                    title="Comma Style"
-                    onClick={() => onPersistProperty("values", "numberFormat", settings.values.numberFormat === "#,##0" ? "" : "#,##0")}
-                  >,</button>
-                  <button
-                    className="ribbon-format-btn"
-                    disabled={!allowInteractions}
-                    title="Increase Decimal"
-                    onClick={() => {
-                      const current = settings.values.numberFormat || "#,##0";
-                      if (current === "#,##0") onPersistProperty("values", "numberFormat", "#,##0.0");
-                      else if (current === "#,##0.0") onPersistProperty("values", "numberFormat", "#,##0.00");
-                    }}
-                  >.0</button>
-                  <button
-                    className="ribbon-format-btn"
-                    disabled={!allowInteractions}
-                    title="Decrease Decimal"
-                    onClick={() => {
-                      const current = settings.values.numberFormat || "#,##0";
-                      if (current === "#,##0.00") onPersistProperty("values", "numberFormat", "#,##0.0");
-                      else if (current === "#,##0.0") onPersistProperty("values", "numberFormat", "#,##0");
-                    }}
-                  >.00</button>
+                  <div className="ribbon-btn-group vertical">
+                    <div className="toolbar-row">
+                      <button className={`ribbon-format-btn sm ${effNumberFormat === "0.0%" ? "active" : ""}`} onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "0.0%" ? "" : "0.0%" })} title="Percentage">%</button>
+                      <button className={`ribbon-format-btn sm ${effNumberFormat === "$#,##0.00" ? "active" : ""}`} onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "$#,##0.00" ? "" : "$#,##0.00" })} title="Currency">$</button>
+                      <button className={`ribbon-format-btn sm ${effNumberFormat === "#,##0" ? "active" : ""}`} onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "#,##0" ? "" : "#,##0" })} title="Comma">,</button>
+                    </div>
+                    <div className="toolbar-row" style={{ marginTop: 2 }}>
+                      <button className="ribbon-format-btn sm" onClick={() => handleFormatUpdate({ decimals: Math.min(10, effDecimals + 1) })} title="Increase decimals">.00</button>
+                      <button className="ribbon-format-btn sm" onClick={() => handleFormatUpdate({ decimals: Math.max(0, effDecimals - 1) })} title="Decrease decimals">.0</button>
+                    </div>
+                  </div>
+                  <span className="ribbon-divider-v" style={{ height: 32 }} />
+                  <div className="ribbon-btn-group vertical" style={{ minWidth: 100 }}>
+                    {sectionTitle("Scaling")}
+                    {quickFormatSelect("100%")}
+                  </div>
                 </div>
               </div>
 
@@ -1214,9 +1420,12 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               <div className="ribbon-section" aria-label="Row">
                 {sectionTitle("Row")}
                 <div className="ribbon-btn-group">
-                  {toolbarBtn(<IconInsertRow size={16} />, "Insert Row", onOpenCalcRowPanel, false, !allowInteractions, "Insert Calculated Row")}
+                  {toolbarBtn(<IconInsertRow size={16} />, "Calc Row", () => openRowAction("calculated"), false, !allowInteractions || !hasData, "Insert Calculated Row")}
+                  {toolbarBtn(<IconRows size={16} />, "Blank Row", () => openRowAction("blank"), false, !allowInteractions || !hasData, "Insert Blank Row")}
+                  {toolbarBtn(<IconBorders size={16} />, "Divider", () => openRowAction("divider"), false, !allowInteractions || !hasData, "Insert Divider Line")}
+                  {toolbarBtn(<IconGroup size={16} />, "Group Header", () => openRowAction("group"), false, !allowInteractions || !hasData, "Insert Group Header")}
                   {toolbarBtn(<IconRows size={16} />, "Invert", () => onPersistProperty("general", "invertRows", !settings.general.invertRows), settings.general.invertRows, !allowInteractions, "Invert Row Order")}
-                  {toolbarBtn(<IconRows size={16} />, "Manage Rows", onOpenCalcRowPanel, false, !allowInteractions || !hasData, "Manage Rows")}
+                  {toolbarBtn(<IconRows size={16} />, "Manage Rows", () => openRowAction("panel"), false, !allowInteractions || !hasData, "Manage Rows")}
                 </div>
               </div>
 
@@ -1355,13 +1564,11 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
           {toolbarMode !== "minimal" && activeTab === "design" && (
             <>
-              <div className="ribbon-section" aria-label="Layout">
+               <div className="ribbon-section" aria-label="Layout">
                 {sectionTitle("Layout")}
                 <div className="ribbon-btn-group">
-                  {toolbarBtn(<IconHeaderFooter size={16} />, "Header & Footer", () => {
-                  }, false, true, "Coming soon")}
-                  {toolbarBtn(<IconTheme size={16} />, "Enterprise Themes", () => {
-                  }, false, true, "Coming soon")}
+                  {toolbarBtn(<IconHeaderFooter size={16} />, "Headers & Title", onOpenHeaderFooter, false, !allowInteractions, "Customize title, row headers and column headers")}
+                  {toolbarBtn(<IconTheme size={16} />, "Enterprise Themes", onOpenThemeGallery, false, !allowInteractions, "Open premium theme gallery")}
                 </div>
               </div>
 
@@ -1451,22 +1658,8 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               <div className="ribbon-section" aria-label="Theme">
                 {sectionTitle("Theme")}
                 <div className="ribbon-btn-group">
-                  <div className="ribbon-btn-group vertical">
-                    <select
-                      className="ribbon-select"
-                      value={settings.theme.preset}
-                      onChange={(e) => onPersistProperty("theme", "preset", e.target.value as ThemePresetId)}
-                      disabled={!allowInteractions}
-                      title="Select theme"
-                      style={{ minWidth: '100px', width: '100px', padding: '2px 4px' }}
-                    >
-                      <option value="modern-light">Canvas Style</option>
-                      <option value="minimal">Column Style</option>
-                      <option value="modern-dark">Modern Dark</option>
-                      <option value="finance-statement">Finance Statement</option>
-                      <option value="tableau-like">Tableau Style</option>
-                      <option value="figma-like">Figma Style</option>
-                    </select>
+                  <div className="ribbon-btn-group">
+                    {toolbarBtn(<IconTheme size={16} />, "Themes", onOpenThemeGallery, false, !allowInteractions, "Open Theme Gallery")}
                   </div>
                   <div className="ribbon-btn-group vertical">
                     <button
@@ -1493,25 +1686,34 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
           {toolbarMode !== "minimal" && activeTab === "export" && (
             <>
-              {/* Export to PDF — Page Setup + matrix export options */}
-              <div className="ribbon-section" aria-label="Export to PDF">
-                {sectionTitle("Export to PDF")}
+              {/* PDF & Presentation */}
+              <div className="ribbon-section" aria-label="PDF & Report">
+                {sectionTitle("PDF & Report")}
                 <div className="ribbon-btn-group">
-                  {toolbarBtn(<IconPageTotal size={16} />, "Page Setup", () => { }, false, true, "Coming soon")}
-                  {toolbarBtn(<IconGrid size={16} />, "Entire Matrix", onExportCSV, false, !allowInteractions || !hasData, "Export entire matrix to CSV")}
-                  {toolbarBtn(<IconColumns size={16} />, "Selected Columns", () => { }, false, true, "Coming soon")}
                   {toolbarBtn(<IconPdf size={16} />, "PDF Report", onExportPDF, false, !allowInteractions || !hasData, "Export to PDF")}
+                  {toolbarBtn(<IconPageTotal size={16} />, "Page Setup", () => { }, false, true, "Coming soon")}
                 </div>
               </div>
 
               {divider()}
 
-              {/* Export to Excel */}
-              <div className="ribbon-section" aria-label="Export to Excel">
-                {sectionTitle("Export to Excel")}
+              {/* Data Export (Excel/CSV/JSON) */}
+              <div className="ribbon-section" aria-label="Data Export">
+                {sectionTitle("Data Export")}
                 <div className="ribbon-btn-group">
-                  {toolbarBtn(<IconExcel size={16} />, "Export Report", onExportXLSX, false, !allowInteractions || !hasData, "Export to Excel")}
-                  {toolbarBtn(<IconGrid size={16} />, "Copy to Clipboard", onCopyToClipboard, false, !allowInteractions || !hasData, "Copy matrix data to clipboard as TSV")}
+                  {toolbarBtn(<IconExcel size={16} />, "Excel (XLSX)", onExportXLSX, false, !allowInteractions || !hasData, "Export to Excel")}
+                  {toolbarBtn(<IconGrid size={16} />, "CSV Data", onExportCSV, false, !allowInteractions || !hasData, "Export to CSV")}
+                  {toolbarBtn(<IconJson size={16} />, "JSON Data", onExportJSON, false, !allowInteractions || !hasData, "Export to JSON")}
+                </div>
+              </div>
+
+              {divider()}
+
+              {/* Tools & Shortcuts */}
+              <div className="ribbon-section" aria-label="Tools">
+                {sectionTitle("Tools")}
+                <div className="ribbon-btn-group">
+                  {toolbarBtn(<IconGrid size={16} />, "TSV Copy", onCopyToClipboard, false, !allowInteractions || !hasData, "Copy to clipboard (TSV)")}
                 </div>
               </div>
 
@@ -1548,6 +1750,35 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 </div>
               </div>
             </>
+          )}
+          </div>
+          {canScrollContentRight && (
+            <button 
+              className="ribbon-scroll-btn right" 
+              onClick={() => scrollContent("right")}
+              style={{ 
+                position: 'absolute', 
+                right: 0, 
+                top: '50%',
+                transform: 'translateY(-50%)',
+                zIndex: 500, 
+                background: 'rgba(255,255,255,0.95)', 
+                border: '1px solid rgba(0,0,0,0.1)', 
+                height: '48px', 
+                width: '24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer', 
+                padding: 0, 
+                boxShadow: '-2px 0 8px rgba(0,0,0,0.15)',
+                borderRight: 'none',
+                borderRadius: '4px 0 0 4px'
+              }}
+              title="Scroll Right"
+            >
+              <IconChevronRight size={16} />
+            </button>
           )}
         </div>
       )}

@@ -337,7 +337,12 @@ function getLeafColumnsWithIndex(node: TreeNode): TreeNode[] {
   return leaves;
 }
 
-function formatValue(value: number | null, format: string): string {
+export function formatValue(
+  value: number | null, 
+  format: string,
+  settings?: any,
+  colFormat?: any
+): string {
   if (value === null || value === undefined || isNaN(value)) {
     return "—";
   }

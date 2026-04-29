@@ -45,6 +45,11 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
   sparklineValues,
   sparklineLabels,
 }) => {
+  const resolvedHeaderBackground =
+    typeof style.backgroundColor === "string" && style.backgroundColor !== "transparent"
+      ? style.backgroundColor
+      : "var(--mx-row-header-bg, var(--mx-surface, #ffffff))";
+
   const indentUnit = settings.layout.mode === "outline"
     ? 12
     : settings.layout.mode === "stepped"
@@ -88,6 +93,7 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
       className={className}
       style={{
         ...style,
+        backgroundColor: resolvedHeaderBackground,
         paddingLeft: 8 + indentPadding,
       }}
       onClick={onClick}
@@ -162,7 +168,16 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
           {row.isExpanded ? "−" : "+"}
         </span>
       )}
-      <span className={`row-label ${isOutlineMode ? "outline-label" : ""}`}>{displayLabel}</span>
+      <span 
+        className={`row-label ${isOutlineMode ? "outline-label" : ""}`}
+        style={{
+          fontWeight: row.isGrandTotal ? "var(--mx-gt-fw)" : (row.isSubtotal ? "var(--mx-st-fw)" : (row.hasChildren ? "var(--mx-row-parent-fw)" : "inherit")),
+          color: row.isGrandTotal ? "var(--mx-gt-fg)" : (row.isSubtotal ? "var(--mx-st-fg)" : (row.hasChildren ? "var(--mx-row-parent-color)" : "var(--mx-row-child-color)")),
+          backgroundColor: row.isGrandTotal ? "var(--mx-gt-bg)" : (row.isSubtotal ? "var(--mx-st-bg)" : "transparent"),
+        }}
+      >
+        {displayLabel}
+      </span>
 
       {settings.sparklines.enabled && sparklineValues && (
         <span className="row-header-sparkline">

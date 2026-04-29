@@ -30,6 +30,21 @@ export interface HeaderSettings {
   bold: boolean;
   backgroundColor: string;
   textColor: string;
+  // Dynamic identity formatting
+  rowHeaderParentBold: boolean;
+  rowHeaderParentColor: string;
+  rowHeaderChildColor: string;
+  colHeaderLevel0Color: string;
+  colHeaderLevel1Color: string;
+  colHeaderLeafColor: string;
+}
+
+export interface UIState {
+  explorerOpen: boolean;
+  toolbarMode: string;
+  toolbarPinned: boolean;
+  zoomLevel: number;
+  activeTab: string;
 }
 
 export interface ValueSettings {
@@ -43,6 +58,8 @@ export interface ValueSettings {
   underline: boolean;
   borderStyle: "none" | "all" | "horizontal" | "vertical" | "outline";
   borderColor: string;
+  quickFormat: string; // "none" | "thousands" | "millions" | "billions"
+  decimals: number;
 }
 
 export interface TotalSettings {
@@ -54,6 +71,13 @@ export interface TotalSettings {
   textColor: string;
   rowSubtotalLevels?: string; // JSON string array of hidden levels
   colSubtotalLevels?: string; // JSON string array of hidden levels
+  // Granular styling
+  grandTotalBold: boolean;
+  grandTotalBackgroundColor: string;
+  grandTotalTextColor: string;
+  subtotalBold: boolean;
+  subtotalBackgroundColor: string;
+  subtotalTextColor: string;
 }
 
 export interface ConditionalFormattingSettings {
@@ -196,11 +220,14 @@ export interface VisualSettings {
   title: TitleSettings;
   calculations: CalculationsSettings;
   manualData: ManualDataSettings;
+  uiState: UIState;
 }
 
 export interface CalculationsSettings {
   measures: string;
   rows: string;
+  timeIntelligence: string;
+  visualColumns: string;
 }
 
 // ─── Inserted-row schema ─────────────────────────────────────────────────────
@@ -456,6 +483,8 @@ export interface ManualDataSettings {
   filterRules: string;
   /** JSON { topN: number; measureIndex: number; direction: "top"|"bottom" } Top N config */
   topNConfig: string;
+  /** JSON string[] of hidden row keys */
+  hiddenRowKeys: string;
   /** JSON number[] of hidden row hierarchy levels */
   hiddenRowLevels: string;
   /** JSON number[] of hidden column hierarchy levels */
@@ -514,6 +543,12 @@ export const defaultSettings: VisualSettings = {
     bold: true,
     backgroundColor: "#f5f5f5",
     textColor: "#333333",
+    rowHeaderParentBold: true,
+    rowHeaderParentColor: "#111827",
+    rowHeaderChildColor: "#4b5563",
+    colHeaderLevel0Color: "#111827",
+    colHeaderLevel1Color: "#374151",
+    colHeaderLeafColor: "#4b5563",
   },
   values: {
     fontSize: 11,
@@ -526,6 +561,8 @@ export const defaultSettings: VisualSettings = {
     underline: false,
     borderStyle: "none",
     borderColor: "#d0d0d0",
+    quickFormat: "none",
+    decimals: 0,
   },
   totals: {
     showRowSubtotals: true,
@@ -536,6 +573,12 @@ export const defaultSettings: VisualSettings = {
     textColor: "#333333",
     rowSubtotalLevels: "[]",
     colSubtotalLevels: "[]",
+    grandTotalBold: true,
+    grandTotalBackgroundColor: "#d1d5db",
+    grandTotalTextColor: "#111827",
+    subtotalBold: true,
+    subtotalBackgroundColor: "#f3f4f6",
+    subtotalTextColor: "#374151",
   },
   conditionalFormatting: {
     enabled: false,
@@ -598,6 +641,8 @@ export const defaultSettings: VisualSettings = {
   calculations: {
     measures: "[]",
     rows: "[]",
+    timeIntelligence: "[]",
+    visualColumns: "[]",
   },
   manualData: {
     notes: "{}",
@@ -614,12 +659,20 @@ export const defaultSettings: VisualSettings = {
     aggregationOverrides: "{}",
     filterRules: "[]",
     topNConfig: "{}",
+    hiddenRowKeys: "[]",
     hiddenRowLevels: "[]",
     hiddenColumnLevels: "[]",
     colFormats: "{}",
     rowFormats: "{}",
     expandedRows: "[]",
     expandedCols: "[]",
+  },
+  uiState: {
+    explorerOpen: false,
+    toolbarMode: "full",
+    toolbarPinned: true,
+    zoomLevel: 100,
+    activeTab: "home",
   },
 };
 
@@ -695,6 +748,12 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       bold: getValue(objects, "headers", "bold", defaultSettings.headers.bold),
       backgroundColor: getColor(objects, "headers", "backgroundColor", defaultSettings.headers.backgroundColor),
       textColor: getColor(objects, "headers", "textColor", defaultSettings.headers.textColor),
+      rowHeaderParentBold: getValue(objects, "headers", "rowHeaderParentBold", defaultSettings.headers.rowHeaderParentBold),
+      rowHeaderParentColor: getColor(objects, "headers", "rowHeaderParentColor", defaultSettings.headers.rowHeaderParentColor),
+      rowHeaderChildColor: getColor(objects, "headers", "rowHeaderChildColor", defaultSettings.headers.rowHeaderChildColor),
+      colHeaderLevel0Color: getColor(objects, "headers", "colHeaderLevel0Color", defaultSettings.headers.colHeaderLevel0Color),
+      colHeaderLevel1Color: getColor(objects, "headers", "colHeaderLevel1Color", defaultSettings.headers.colHeaderLevel1Color),
+      colHeaderLeafColor: getColor(objects, "headers", "colHeaderLeafColor", defaultSettings.headers.colHeaderLeafColor),
     },
     values: {
       fontSize: getValue(objects, "values", "fontSize", defaultSettings.values.fontSize),
@@ -707,6 +766,8 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       underline: getValue(objects, "values", "underline", defaultSettings.values.underline),
       borderStyle: getValue(objects, "values", "borderStyle", defaultSettings.values.borderStyle),
       borderColor: getColor(objects, "values", "borderColor", defaultSettings.values.borderColor),
+      quickFormat: getValue(objects, "values", "quickFormat", defaultSettings.values.quickFormat),
+      decimals: getValue(objects, "values", "decimals", defaultSettings.values.decimals),
     },
     totals: {
       showRowSubtotals: (rowSubtotalsFromApi !== undefined
@@ -725,6 +786,12 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       textColor: getColor(objects, "totals", "textColor", defaultSettings.totals.textColor),
       rowSubtotalLevels: getValue(objects, "totals", "rowSubtotalLevels", defaultSettings.totals.rowSubtotalLevels),
       colSubtotalLevels: getValue(objects, "totals", "colSubtotalLevels", defaultSettings.totals.colSubtotalLevels),
+      grandTotalBold: getValue(objects, "totals", "grandTotalBold", defaultSettings.totals.grandTotalBold),
+      grandTotalBackgroundColor: getColor(objects, "totals", "grandTotalBackgroundColor", defaultSettings.totals.grandTotalBackgroundColor),
+      grandTotalTextColor: getColor(objects, "totals", "grandTotalTextColor", defaultSettings.totals.grandTotalTextColor),
+      subtotalBold: getValue(objects, "totals", "subtotalBold", defaultSettings.totals.subtotalBold),
+      subtotalBackgroundColor: getColor(objects, "totals", "subtotalBackgroundColor", defaultSettings.totals.subtotalBackgroundColor),
+      subtotalTextColor: getColor(objects, "totals", "subtotalTextColor", defaultSettings.totals.subtotalTextColor),
     },
     conditionalFormatting: {
       enabled: getValue(objects, "conditionalFormatting", "enabled", defaultSettings.conditionalFormatting.enabled),
@@ -787,6 +854,8 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
     calculations: {
       measures: getValue(objects, "calculations", "measures", defaultSettings.calculations.measures),
       rows: getValue(objects, "calculations", "rows", defaultSettings.calculations.rows),
+      timeIntelligence: getValue(objects, "calculations", "timeIntelligence", defaultSettings.calculations.timeIntelligence),
+      visualColumns: getValue(objects, "calculations", "visualColumns", defaultSettings.calculations.visualColumns),
     },
     manualData: {
       notes: getValue(objects, "manualData", "notes", defaultSettings.manualData.notes),
@@ -803,12 +872,20 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       aggregationOverrides: getValue(objects, "manualData", "aggregationOverrides", defaultSettings.manualData.aggregationOverrides),
       filterRules: getValue(objects, "manualData", "filterRules", defaultSettings.manualData.filterRules),
       topNConfig: getValue(objects, "manualData", "topNConfig", defaultSettings.manualData.topNConfig),
+      hiddenRowKeys: getValue(objects, "manualData", "hiddenRowKeys", defaultSettings.manualData.hiddenRowKeys),
       hiddenRowLevels: getValue(objects, "manualData", "hiddenRowLevels", defaultSettings.manualData.hiddenRowLevels),
       hiddenColumnLevels: getValue(objects, "manualData", "hiddenColumnLevels", defaultSettings.manualData.hiddenColumnLevels),
       colFormats: getValue(objects, "manualData", "colFormats", defaultSettings.manualData.colFormats),
       rowFormats: getValue(objects, "manualData", "rowFormats", defaultSettings.manualData.rowFormats),
       expandedRows: getValue(objects, "manualData", "expandedRows", defaultSettings.manualData.expandedRows),
       expandedCols: getValue(objects, "manualData", "expandedCols", defaultSettings.manualData.expandedCols),
+    },
+    uiState: {
+      explorerOpen: getValue(objects, "uiState", "explorerOpen", defaultSettings.uiState.explorerOpen),
+      toolbarMode: getValue(objects, "uiState", "toolbarMode", defaultSettings.uiState.toolbarMode),
+      toolbarPinned: getValue(objects, "uiState", "toolbarPinned", defaultSettings.uiState.toolbarPinned),
+      zoomLevel: getValue(objects, "uiState", "zoomLevel", defaultSettings.uiState.zoomLevel),
+      activeTab: getValue(objects, "uiState", "activeTab", defaultSettings.uiState.activeTab),
     },
   };
 }

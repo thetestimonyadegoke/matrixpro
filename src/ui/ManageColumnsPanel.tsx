@@ -5,14 +5,17 @@ import { VisualSettings } from "../settings/settings";
 
 export interface ManageColumnsPanelProps {
   columns: FlattenedNode[];
+  rows: FlattenedNode[];
   measures: MeasureInfo[];
   settings: VisualSettings;
   onClose: () => void;
   onPersistProperty: (objectName: string, propertyName: string, value: any) => void;
   onOpenCalcMeasureWizard?: (id?: string) => void;
+  onDeleteCalcMeasure?: (id: string) => void;
+  onDeleteCalcRow?: (rowKey: string) => void;
 }
 
-type TabId = "measures" | "columns";
+type TabId = "measures" | "columns" | "rows";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -50,49 +53,107 @@ const DragHandle = () => (
   </svg>
 );
 
-// ─── shared styles ────────────────────────────────────────────────────────────
+// ─── shared styles (using design system tokens) ───────────────────────────────
 
 const overlay: React.CSSProperties = {
-  position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-  zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center",
-  background: "rgba(0,0,0,0.35)",
+  position: "fixed", inset: 0, zIndex: 10000,
+  background: "rgba(15, 23, 42, 0.6)",
+  backdropFilter: "blur(4px)",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  fontFamily: "var(--mx-font-family, sans-serif)",
+  animation: "matrix-fade-in 0.3s ease-out",
 };
 
 const modal: React.CSSProperties = {
-  width: 680, height: 540,
-  display: "flex", background: "#fff",
-  borderRadius: 8, boxShadow: "0 4px 24px rgba(0,0,0,0.18)",
-  overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  width: "min(980px, 98vw)", 
+  height: "min(720px, 92vh)",
+  background: "var(--mx-surface, #ffffff)",
+  borderRadius: 16,
+  boxShadow: "0 32px 64px -16px rgba(0,0,0,0.45)",
+  display: "flex", 
+  flexDirection: "row",
+  border: "1px solid var(--mx-border, #e2e8f0)",
+  overflow: "hidden",
+  animation: "matrix-slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
 };
 
 const sidebar: React.CSSProperties = {
-  width: 180, background: "#f8f9fa",
-  borderRight: "1px solid #e0e0e0",
-  display: "flex", flexDirection: "column",
+  width: 260,
+  borderRight: "1px solid var(--mx-border, #e2e8f0)",
+  background: "var(--mx-surface-subtle, #f8fafc)",
+  display: "flex", flexDirection: "column", minHeight: 0,
+  padding: "24px 0",
 };
 
 const content: React.CSSProperties = {
   flex: 1, display: "flex", flexDirection: "column", overflow: "hidden",
+  background: "var(--mx-surface, #ffffff)",
 };
 
-const rowBase: React.CSSProperties = {
-  display: "flex", alignItems: "center",
-  padding: "8px 12px", borderBottom: "1px solid #f0f0f0",
-  gap: 8, transition: "background 0.1s",
-};
+// ─── New Toggle Switch Component ─────────────────────────────────────────────
+
+const Toggle = ({ checked, onChange, title }: { checked: boolean, onChange: () => void, title?: string }) => (
+  <div 
+    onClick={(e) => { e.stopPropagation(); onChange(); }}
+    title={title}
+    style={{
+      width: 38, height: 20, borderRadius: 12,
+      background: checked ? "var(--mx-accent, #2563eb)" : "var(--mx-surface-subtle, #f1f5f9)",
+      position: "relative", cursor: "pointer",
+      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+      display: "flex", alignItems: "center",
+      padding: 3,
+      border: `1px solid ${checked ? "var(--mx-accent, #2563eb)" : "var(--mx-border, #e2e8f0)"}`,
+    }}
+  >
+    <div style={{
+      width: 14, height: 14, borderRadius: "50%",
+      background: "#fff",
+      boxShadow: "0 2px 4px rgba(0,0,0,0.15)",
+      transform: checked ? "translateX(18px)" : "translateX(0)",
+      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+    }} />
+  </div>
+);
+
+// ─── Modern Icons ────────────────────────────────────────────────────────────
+
+const SearchIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6"></polyline>
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+  </svg>
+);
+
+const PlusIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="12" y1="5" x2="12" y2="19"></line>
+    <line x1="5" y1="12" x2="19" y2="12"></line>
+  </svg>
+);
 
 // ─── component ───────────────────────────────────────────────────────────────
 
 export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
   columns,
+  rows,
   measures,
   settings,
   onClose,
   onPersistProperty,
   onOpenCalcMeasureWizard,
+  onDeleteCalcMeasure,
+  onDeleteCalcRow,
 }) => {
   const [activeTab, setActiveTab] = useState<TabId>("measures");
   const [search, setSearch] = useState("");
+  const [showHiddenOnly, setShowHiddenOnly] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [editingWidth, setEditingWidth] = useState<string | null>(null);
@@ -107,6 +168,11 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
   const hiddenCols = useMemo(
     () => new Set(parseJSON<string[]>(settings.manualData.hiddenCols, [])),
     [settings.manualData.hiddenCols]
+  );
+
+  const hiddenRowKeys = useMemo(
+    () => new Set(parseJSON<string[]>(settings.manualData.hiddenRowKeys, [])),
+    [settings.manualData.hiddenRowKeys]
   );
 
   const colWidths = useMemo(
@@ -154,18 +220,58 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
     );
   }, [columns, colOrder, search]);
 
-  const items = activeTab === "measures" ? measureItems : columnItems;
+  const rowItems = useMemo(() => {
+    const seen = new Set<string>();
+    return rows
+      .filter(r => !r.isGrandTotal && !r.key.startsWith("__group__"))
+      .filter((r) => {
+        if (seen.has(r.key)) return false;
+        seen.add(r.key);
+        return !search || r.label.toLowerCase().includes(search.toLowerCase());
+      })
+      .map((r) => ({
+        id: r.key,
+        label: r.label || "(Empty)",
+        sub: r.key.startsWith("__calcrow__")
+          ? "Calculated row"
+          : r.isSubtotal
+            ? `Subtotal • Level ${r.level + 1}`
+            : `Level ${r.level + 1}`,
+        row: r,
+      }));
+  }, [rows, search]);
+
+  const baseItems = activeTab === "measures"
+    ? measureItems
+    : activeTab === "columns"
+      ? columnItems
+      : rowItems;
+
+  const items = useMemo(
+    () => (showHiddenOnly
+      ? baseItems.filter(item => (activeTab === "rows" ? hiddenRowKeys.has(item.id) : hiddenCols.has(item.id)))
+      : baseItems),
+    [activeTab, baseItems, hiddenCols, hiddenRowKeys, showHiddenOnly]
+  );
 
   // ── helpers ───────────────────────────────────────────────────────────────
   const persistOrder = useCallback((next: string[]) => {
     onPersistProperty("manualData", "colOrder", JSON.stringify(next));
   }, [onPersistProperty]);
 
-  const toggleVisibility = useCallback((id: string) => {
-    const next = new Set(hiddenCols);
-    if (next.has(id)) next.delete(id); else next.add(id);
+  const persistHiddenState = useCallback((next: Set<string>) => {
+    if (activeTab === "rows") {
+      onPersistProperty("manualData", "hiddenRowKeys", JSON.stringify([...next]));
+      return;
+    }
     onPersistProperty("manualData", "hiddenCols", JSON.stringify([...next]));
-  }, [hiddenCols, onPersistProperty]);
+  }, [activeTab, onPersistProperty]);
+
+  const toggleVisibility = useCallback((id: string) => {
+    const next = new Set(activeTab === "rows" ? hiddenRowKeys : hiddenCols);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    persistHiddenState(next);
+  }, [activeTab, hiddenCols, hiddenRowKeys, persistHiddenState]);
 
   const saveWidth = useCallback((id: string, val: string) => {
     const n = parseInt(val, 10);
@@ -189,17 +295,20 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
   }, [colOrder, allKeys]);
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
+    if (activeTab === "rows") return;
     setDraggedId(id);
     e.dataTransfer.setData("text/plain", id);
     e.dataTransfer.effectAllowed = "move";
   };
 
   const handleDragOver = (e: React.DragEvent, id: string) => {
+    if (activeTab === "rows") return;
     e.preventDefault();
     if (id !== draggedId) setDragOverId(id);
   };
 
   const handleDrop = (e: React.DragEvent, targetId: string) => {
+    if (activeTab === "rows") return;
     e.preventDefault();
     if (!draggedId || draggedId === targetId) return;
     const order = buildOrder();
@@ -217,44 +326,98 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
   const handleDragEnd = () => { setDraggedId(null); setDragOverId(null); };
 
   // ── show-all / hide-all ───────────────────────────────────────────────────
-  const allHidden = items.every(i => hiddenCols.has(i.id));
+  const allHidden = items.length > 0 && items.every(i => activeTab === "rows" ? hiddenRowKeys.has(i.id) : hiddenCols.has(i.id));
   const toggleAll = () => {
-    const next = new Set(hiddenCols);
+    const next = new Set(activeTab === "rows" ? hiddenRowKeys : hiddenCols);
     if (allHidden) items.forEach(i => next.delete(i.id));
     else items.forEach(i => next.add(i.id));
-    onPersistProperty("manualData", "hiddenCols", JSON.stringify([...next]));
+    persistHiddenState(next);
   };
 
+  const handleDeleteItem = useCallback((item: any) => {
+    if (item.measure?.id && onDeleteCalcMeasure) {
+      onDeleteCalcMeasure(item.measure.id);
+      return;
+    }
+    if (item.row?.key?.startsWith("__calcrow__") && onDeleteCalcRow) {
+      onDeleteCalcRow(item.row.key);
+    }
+  }, [onDeleteCalcMeasure, onDeleteCalcRow]);
+
   // ── tab button ────────────────────────────────────────────────────────────
-  const TabBtn = ({ id, label }: { id: TabId; label: string }) => (
-    <div
-      onClick={() => { setActiveTab(id); setSearch(""); }}
-      style={{
-        padding: "10px 16px", cursor: "pointer", fontSize: 13,
-        background: activeTab === id ? "#e6f2ff" : "transparent",
-        borderLeft: activeTab === id ? "3px solid #0071e3" : "3px solid transparent",
-        color: activeTab === id ? "#0071e3" : "#333",
-        fontWeight: activeTab === id ? 600 : 400,
-      }}
-    >
-      {label}
-    </div>
-  );
+  const TabBtn = ({ id, label }: { id: TabId; label: string }) => {
+    const active = activeTab === id;
+    return (
+      <div
+        onClick={() => { setActiveTab(id); setSearch(""); setShowHiddenOnly(false); setEditingWidth(null); }}
+        style={{
+          margin: "4px 12px",
+          padding: "10px 16px", 
+          cursor: "pointer", 
+          fontSize: 14,
+          borderRadius: 10,
+          background: active ? "var(--mx-accent, #2563eb)" : "transparent",
+          color: active ? "white" : "var(--mx-text-secondary, #475569)",
+          fontWeight: active ? 600 : 500,
+          display: "flex", alignItems: "center", gap: 12,
+          transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+          boxShadow: active ? "0 4px 12px rgba(37, 99, 235, 0.25)" : "none",
+        }}
+        onMouseEnter={e => {
+          if (!active) {
+            e.currentTarget.style.background = "var(--mx-hover-bg, #f1f5f9)";
+            e.currentTarget.style.color = "var(--mx-text, #0f172a)";
+          }
+        }}
+        onMouseLeave={e => {
+          if (!active) {
+            e.currentTarget.style.background = "transparent";
+            e.currentTarget.style.color = "var(--mx-text-secondary, #475569)";
+          }
+        }}
+      >
+        <div style={{
+          width: 8, height: 8, borderRadius: "50%",
+          background: active ? "white" : "var(--mx-border, #e2e8f0)",
+          transition: "background 0.2s",
+        }} />
+        <span style={{ flex: 1 }}>{label}</span>
+      </div>
+    );
+  };
 
   return (
-    <div style={overlay}>
-      <div style={modal}>
+    <div style={overlay} onClick={onClose}>
+      <div style={modal} onClick={e => e.stopPropagation()}>
 
         {/* ── Sidebar ─────────────────────────────────────────── */}
         <div style={sidebar}>
-          <div style={{ padding: "14px 16px", borderBottom: "1px solid #e0e0e0", fontWeight: 700, fontSize: 14 }}>
-            Manage
+          <div style={{ 
+            padding: "0 24px 16px 24px", 
+            fontWeight: 800, 
+            fontSize: 18,
+            color: "var(--mx-text, #0f172a)",
+            letterSpacing: "-0.01em",
+          }}>
+            Studio Layout
           </div>
-          <TabBtn id="measures" label="Measures" />
-          <TabBtn id="columns" label="Columns" />
+          <div style={{ padding: "8px 0" }}>
+            <TabBtn id="measures" label="Measures" />
+            <TabBtn id="columns" label="Data Columns" />
+            <TabBtn id="rows" label="Rows" />
+          </div>
           <div style={{ flex: 1 }} />
-          <div style={{ padding: "12px 16px", fontSize: 11, color: "#999", borderTop: "1px solid #e0e0e0" }}>
-            Drag rows to reorder · click eye to show/hide
+          <div style={{ 
+            padding: "20px", 
+            fontSize: 11, 
+            color: "var(--mx-text-muted, #94a3b8)", 
+            borderTop: "1px solid var(--mx-border, #e2e8f0)",
+            lineHeight: 1.5
+          }}>
+            <strong>Pro Tip:</strong><br />
+            {activeTab === "rows"
+              ? "Rows hidden from the matrix stay here so you can show them again whenever you need."
+              : "Drag items to reorder them in the matrix. Use Hidden Only to quickly review anything you hid."}
           </div>
         </div>
 
@@ -262,157 +425,411 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
         <div style={content}>
 
           {/* Header */}
-          <div style={{ padding: "14px 20px", borderBottom: "1px solid #e0e0e0", display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ flex: 1, fontWeight: 700, fontSize: 15 }}>
-              {activeTab === "measures" ? "Measures" : "Columns"}
-              <span style={{ fontSize: 12, fontWeight: 400, color: "#888", marginLeft: 8 }}>
-                ({items.length} item{items.length !== 1 ? "s" : ""})
-              </span>
+          <div style={{ 
+            padding: "20px 24px", 
+            borderBottom: "1px solid var(--mx-border, #e2e8f0)", 
+            display: "flex", 
+            alignItems: "center", 
+            gap: 12,
+            background: "var(--mx-surface, #ffffff)"
+          }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, fontSize: 24, color: "var(--mx-text, #0f172a)", letterSpacing: "-0.02em" }}>
+                {activeTab === "measures" ? "Matrix Measures" : activeTab === "columns" ? "Structure & Groups" : "Matrix Rows"}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--mx-text-secondary, #475569)", marginTop: 4, fontWeight: 500 }}>
+                {baseItems.length} elements in this collection
+              </div>
             </div>
+            
             {activeTab === "measures" && onOpenCalcMeasureWizard && (
               <button
                 onClick={() => { onClose(); onOpenCalcMeasureWizard!(); }}
-                style={{ padding: "5px 12px", background: "#0071e3", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}
+                style={{ 
+                  padding: "10px 20px", 
+                  background: "var(--mx-accent, #2563eb)", 
+                  color: "var(--mx-text-inverse, #ffffff)", 
+                  border: "none", 
+                  borderRadius: 12, 
+                  cursor: "pointer", 
+                  fontSize: 14,
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  boxShadow: "0 8px 16px -4px rgba(37, 99, 235, 0.35)",
+                  transition: "all 0.2s"
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.transform = "translateY(-1px) scale(1.02)";
+                  e.currentTarget.style.boxShadow = "0 12px 20px -4px rgba(37, 99, 235, 0.45)";
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.transform = "translateY(0) scale(1)";
+                  e.currentTarget.style.boxShadow = "0 8px 16px -4px rgba(37, 99, 235, 0.35)";
+                }}
               >
-                + Add Measure
+                <PlusIcon />
+                New Measure
               </button>
             )}
-            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "#666", lineHeight: 1 }}>×</button>
+            <button 
+              onClick={onClose} 
+              style={{ 
+                background: "var(--mx-surface-subtle, #f8fafc)", 
+                border: "none", 
+                cursor: "pointer", 
+                width: 32, height: 32,
+                borderRadius: "50%",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: "var(--mx-text-secondary, #475569)",
+                transition: "background 0.2s"
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "var(--mx-surface-elevated, #f1f5f9)"}
+              onMouseLeave={e => e.currentTarget.style.background = "var(--mx-surface-subtle, #f8fafc)"}
+            >
+              ×
+            </button>
           </div>
 
           {/* Toolbar row: search + show/hide all */}
-          <div style={{ padding: "8px 20px", borderBottom: "1px solid #f0f0f0", display: "flex", gap: 8, alignItems: "center" }}>
-            <input
-              type="text"
-              placeholder="Search…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              style={{ flex: 1, padding: "5px 8px", border: "1px solid #ddd", borderRadius: 4, fontSize: 12, outline: "none" }}
-            />
+          <div style={{ 
+            padding: "12px 24px", 
+            background: "var(--mx-surface-subtle, #f8fafc)",
+            borderBottom: "1px solid var(--mx-border, #e2e8f0)", 
+            display: "flex", 
+            alignItems: "center", 
+            gap: 12,
+            flexWrap: "wrap"
+          }}>
+            <div style={{ position: "relative", flex: 1 }}>
+              <input
+                type="text"
+                placeholder={activeTab === "measures" ? "Find measures..." : activeTab === "columns" ? "Find columns..." : "Find rows..."}
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{ 
+                  width: "100%",
+                  padding: "12px 14px 12px 42px", 
+                  border: "1px solid var(--mx-border, #e2e8f0)", 
+                  borderRadius: 12, 
+                  fontSize: 14, 
+                  outline: "none",
+                  background: "var(--mx-surface, #ffffff)",
+                  color: "var(--mx-text, #0f172a)",
+                  transition: "all 0.2s ease",
+                  boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)",
+                }}
+                onFocus={e => {
+                  e.currentTarget.style.borderColor = "var(--mx-accent, #2563eb)";
+                  e.currentTarget.style.boxShadow = "var(--mx-shadow-focus)";
+                }}
+                onBlur={e => {
+                  e.currentTarget.style.borderColor = "var(--mx-border, #e2e8f0)";
+                  e.currentTarget.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)";
+                }}
+              />
+              <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "var(--matrix-text-muted)", display: "flex" }}>
+                <SearchIcon />
+              </div>
+              {search && (
+                <button 
+                  onClick={() => setSearch("")}
+                  style={{
+                    position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+                    background: "var(--matrix-bg-tertiary)", border: "none", borderRadius: "50%",
+                    width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center",
+                    cursor: "pointer", color: "var(--matrix-text-secondary)"
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => setShowHiddenOnly(v => !v)}
+              style={{
+                padding: "8px 16px",
+                border: "1px solid var(--mx-border, #e2e8f0)",
+                borderRadius: 8,
+                cursor: "pointer",
+                background: showHiddenOnly ? "var(--mx-selection-bg, #dbeafe)" : "var(--mx-surface, #ffffff)",
+                fontSize: 13,
+                color: showHiddenOnly ? "var(--mx-accent, #2563eb)" : "var(--mx-text, #0f172a)",
+                fontWeight: 600,
+              }}
+            >
+              {showHiddenOnly ? "Showing hidden only" : "Show hidden only"}
+            </button>
             <button
               onClick={toggleAll}
-              title={allHidden ? "Show all" : "Hide all"}
-              style={{ padding: "4px 10px", border: "1px solid #ddd", borderRadius: 4, cursor: "pointer", background: "#fff", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}
+              style={{ 
+                padding: "8px 16px", 
+                border: "1px solid var(--mx-border, #e2e8f0)", 
+                borderRadius: 8, 
+                cursor: "pointer", 
+                background: "var(--mx-surface, #ffffff)", 
+                fontSize: 13, 
+                display: "flex", 
+                alignItems: "center", 
+                gap: 8,
+                color: "var(--mx-text, #0f172a)",
+                fontWeight: 500,
+                transition: "background 0.2s"
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "var(--mx-hover-bg, #f1f5f9)"}
+              onMouseLeave={e => e.currentTarget.style.background = "var(--mx-surface, #ffffff)"}
             >
               {allHidden ? <EyeOpen /> : <EyeOff />}
               <span>{allHidden ? "Show all" : "Hide all"}</span>
             </button>
           </div>
 
-          {/* Column header row */}
-          <div style={{ display: "flex", padding: "4px 12px 4px 40px", borderBottom: "1px solid #eee", fontSize: 11, color: "#888", gap: 8 }}>
-            <span style={{ flex: 1 }}>Name</span>
-            {activeTab === "measures" && <span style={{ width: 90, textAlign: "left" }}>Aggregation</span>}
-            <span style={{ width: 80, textAlign: "right" }}>Width (px)</span>
-            <span style={{ width: 32 }} />
-          </div>
-
-          {/* Item list */}
-          <div style={{ flex: 1, overflowY: "auto" }}>
+          {/* List content area */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "12px 24px" }} className="matrix-scrollbar">
             {items.length === 0 && (
-              <div style={{ padding: 24, textAlign: "center", color: "#aaa", fontSize: 13 }}>
-                {search ? "No items match your search." : "No items available."}
+              <div style={{ padding: 48, textAlign: "center", color: "var(--mx-text-muted, #94a3b8)", fontSize: 14 }}>
+                {showHiddenOnly
+                  ? "No hidden items match this filter."
+                  : search
+                    ? "No items match your search."
+                    : "No items available in this category."}
               </div>
             )}
+            
             {items.map(item => {
-              const hidden = hiddenCols.has(item.id);
+              const hidden = activeTab === "rows" ? hiddenRowKeys.has(item.id) : hiddenCols.has(item.id);
               const isDragOver = dragOverId === item.id;
               const customWidth = colWidths[item.id];
               const displayLabel = labelOverrides[item.id] ?? item.label;
+              const canDelete = Boolean(
+                ("measure" in item && item.measure?.id && onDeleteCalcMeasure) ||
+                ("row" in item && item.row?.key?.startsWith("__calcrow__") && onDeleteCalcRow)
+              );
 
               return (
                 <div
                   key={item.id}
-                  draggable
+                  draggable={activeTab !== "rows"}
                   onDragStart={e => handleDragStart(e, item.id)}
                   onDragOver={e => handleDragOver(e, item.id)}
                   onDrop={e => handleDrop(e, item.id)}
                   onDragEnd={handleDragEnd}
                   style={{
-                    ...rowBase,
-                    background: isDragOver ? "#e8f4ff" : hidden ? "#fafafa" : "#fff",
-                    borderLeft: isDragOver ? "2px solid #0071e3" : "2px solid transparent",
-                    opacity: hidden ? 0.55 : 1,
-                    cursor: "grab",
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "12px 16px",
+                    background: isDragOver ? "var(--mx-selection-bg, #dbeafe)" : "var(--mx-surface, #ffffff)",
+                    borderRadius: 12,
+                    marginBottom: 8,
+                    gap: 16,
+                    border: isDragOver ? "2px solid var(--mx-accent, #2563eb)" : "1px solid var(--mx-border, #e2e8f0)",
+                    opacity: hidden ? 0.5 : 1,
+                    cursor: activeTab === "rows" ? "default" : "grab",
+                    transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                    boxShadow: isDragOver ? "var(--mx-shadow-elevated)" : "0 2px 4px rgba(0,0,0,0.02)",
+                    position: "relative",
+                  }}
+                  onMouseEnter={e => {
+                    if (!isDragOver) {
+                      e.currentTarget.style.background = "var(--mx-hover-bg, #f8fafc)";
+                      e.currentTarget.style.borderColor = "var(--mx-accent-secondary, #3b82f6)";
+                      e.currentTarget.style.boxShadow = "var(--mx-shadow-subtle)";
+                      e.currentTarget.style.transform = "translateX(4px)";
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (!isDragOver) {
+                      e.currentTarget.style.background = "var(--mx-surface, #ffffff)";
+                      e.currentTarget.style.borderColor = "var(--mx-border, #e2e8f0)";
+                      e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.02)";
+                      e.currentTarget.style.transform = "translateX(0)";
+                    }
                   }}
                 >
-                  <DragHandle />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 500, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {displayLabel}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#888" }}>{item.sub}</div>
+                  <div style={{ display: "flex", alignItems: "center", cursor: activeTab === "rows" ? "default" : "move", color: "var(--mx-text-muted, #94a3b8)", opacity: activeTab === "rows" ? 0.35 : 1 }}>
+                    <DragHandle />
                   </div>
 
-                  {/* Aggregation select for measures */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: "var(--mx-text, #0f172a)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {displayLabel}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--mx-text-muted, #94a3b8)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.02em", marginTop: 2 }}>
+                      {item.sub}
+                    </div>
+                  </div>
+
+                  {/* Aggregation */}
                   {activeTab === "measures" && "measure" in item ? (
-                    <select
-                      value={aggregationOverrides[item.measure.index] || "sum"}
-                      onChange={e => saveAggregation(item.measure.index, e.target.value)}
-                      style={{ width: 90, padding: "2px 4px", fontSize: 11, borderRadius: 3, border: "1px solid #ddd" }}
-                    >
-                      <option value="sum">Sum</option>
-                      <option value="avg">Average</option>
-                      <option value="min">Min</option>
-                      <option value="max">Max</option>
-                      <option value="count">Count</option>
-                      <option value="none">None</option>
-                    </select>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                       <span style={{ fontSize: 9, fontWeight: 800, color: "var(--mx-text-muted, #94a3b8)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Function</span>
+                       <select
+                        value={aggregationOverrides[item.measure.index] || "sum"}
+                        onChange={e => saveAggregation(item.measure.index, e.target.value)}
+                        style={{ 
+                          padding: "6px 12px", 
+                          fontSize: 12, 
+                          borderRadius: 8, 
+                          border: "1px solid var(--mx-border, #e2e8f0)", 
+                          outline: "none", 
+                          background: "var(--mx-surface, #ffffff)", 
+                          color: "var(--mx-text, #0f172a)",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          transition: "border-color 0.2s"
+                        }}
+                        onFocus={e => e.currentTarget.style.borderColor = "var(--mx-accent, #2563eb)"}
+                        onBlur={e => e.currentTarget.style.borderColor = "var(--mx-border, #e2e8f0)"}
+                       >
+                        <option value="sum">Sum</option>
+                        <option value="avg">Average</option>
+                        <option value="min">Minimum</option>
+                        <option value="max">Maximum</option>
+                        <option value="count">Count</option>
+                       </select>
+                    </div>
                   ) : null}
 
-                  {/* Custom width input */}
-                  {editingWidth === item.id ? (
-                    <input
-                      autoFocus
-                      type="number"
-                      value={widthInput}
-                      onChange={e => setWidthInput(e.target.value)}
-                      onBlur={() => saveWidth(item.id, widthInput)}
-                      onKeyDown={e => {
-                        if (e.key === "Enter") saveWidth(item.id, widthInput);
-                        if (e.key === "Escape") setEditingWidth(null);
-                      }}
-                      style={{ width: 64, padding: "2px 4px", border: "1px solid #0071e3", borderRadius: 3, fontSize: 12 }}
+                  {/* Width */}
+                  {activeTab === "columns" ? (
+                    <div style={{ width: 100, display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+                      <span style={{ fontSize: 9, fontWeight: 800, color: "var(--mx-text-muted, #94a3b8)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Width</span>
+                      {editingWidth === item.id ? (
+                        <input
+                          autoFocus
+                          type="number"
+                          value={widthInput}
+                          onChange={e => setWidthInput(e.target.value)}
+                          onBlur={() => saveWidth(item.id, widthInput)}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") saveWidth(item.id, widthInput);
+                            if (e.key === "Escape") setEditingWidth(null);
+                          }}
+                          style={{ 
+                            width: "100%", 
+                            padding: "6px 10px", 
+                            border: "2px solid var(--mx-accent, #2563eb)", 
+                            borderRadius: 8, 
+                            fontSize: 12, 
+                            outline: "none",
+                            fontWeight: 700,
+                            textAlign: "right"
+                          }}
+                        />
+                      ) : (
+                        <div 
+                          onClick={() => { setEditingWidth(item.id); setWidthInput(String(customWidth ?? settings.general.defaultColumnWidth)); }}
+                          style={{ 
+                            fontSize: 13, 
+                            color: customWidth ? "var(--mx-accent, #2563eb)" : "var(--mx-text-secondary, #475569)", 
+                            fontWeight: 700,
+                            padding: "6px 12px",
+                            borderRadius: 8,
+                            background: customWidth ? "var(--mx-selection-bg, #dbeafe)" : "var(--mx-surface-subtle, #f1f5f9)",
+                            cursor: "pointer",
+                            transition: "all 0.2s",
+                            minWidth: 60,
+                            textAlign: "center",
+                            border: "1px solid transparent",
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.borderColor = "var(--mx-accent, #2563eb)";
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.borderColor = "transparent";
+                          }}
+                        >
+                          {customWidth ? `${customWidth}px` : "Auto"}
+                        </div>
+                      )}
+                    </div>
+                  ) : activeTab === "rows" ? (
+                    <div style={{ minWidth: 100, textAlign: "right", color: "var(--mx-text-secondary, #475569)", fontSize: 12, fontWeight: 700 }}>
+                      {"row" in item && item.row?.indent ? `Indent ${item.row.indent}` : "Top level"}
+                    </div>
+                  ) : null}
+
+                  {/* Actions */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
+                    {activeTab === "measures" && "measure" in item && item.measure.id && onOpenCalcMeasureWizard && (
+                      <button
+                        title="Configure Logic"
+                        onClick={() => { onClose(); onOpenCalcMeasureWizard!(item.measure.id ?? ""); }}
+                        style={{ 
+                          background: "var(--mx-surface-subtle, #f1f5f9)", 
+                          border: "1px solid var(--mx-border, #e2e8f0)", 
+                          cursor: "pointer", 
+                          color: "var(--mx-text-secondary, #475569)", 
+                          width: 32, height: 32, 
+                          borderRadius: 8, 
+                          display: "flex", 
+                          alignItems: "center", 
+                          justifyContent: "center",
+                          transition: "all 0.2s"
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.background = "var(--mx-hover-bg, #f1f5f9)";
+                          e.currentTarget.style.color = "var(--mx-accent, #2563eb)";
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.background = "var(--mx-surface-subtle, #f1f5f9)";
+                          e.currentTarget.style.color = "var(--mx-text-secondary, #475569)";
+                        }}
+                      >
+                        <div style={{ margin: "0 auto", display: "flex" }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                        </div>
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        title={activeTab === "rows" ? "Delete calculated row" : "Delete calculated measure"}
+                        onClick={() => handleDeleteItem(item)}
+                        style={{
+                          background: "#fef2f2",
+                          border: "1px solid #fecaca",
+                          cursor: "pointer",
+                          color: "#b91c1c",
+                          width: 32,
+                          height: 32,
+                          borderRadius: 8,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          transition: "all 0.2s"
+                        }}
+                      >
+                        <TrashIcon />
+                      </button>
+                    )}
+                    <Toggle 
+                      checked={!hidden} 
+                      onChange={() => toggleVisibility(item.id)} 
+                      title={hidden ? "Hidden - Toggle to show" : "Visible - Toggle to hide"} 
                     />
-                  ) : (
-                    <button
-                      title="Set column width"
-                      onClick={() => { setEditingWidth(item.id); setWidthInput(String(customWidth ?? settings.general.defaultColumnWidth)); }}
-                      style={{ width: 64, padding: "3px 6px", border: "1px solid #e0e0e0", borderRadius: 3, background: customWidth ? "#e8f4ff" : "#fafafa", cursor: "pointer", fontSize: 12, color: customWidth ? "#0071e3" : "#555", textAlign: "right" }}
-                    >
-                      {customWidth ? `${customWidth}px` : "default"}
-                    </button>
-                  )}
-
-                  {/* Edit button for calculated measures */}
-                  {activeTab === "measures" && "measure" in item && item.measure.id && onOpenCalcMeasureWizard && (
-                    <button
-                      title="Edit calculated measure"
-                      onClick={() => { onClose(); onOpenCalcMeasureWizard!(item.measure.id); }}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", padding: "2px 4px" }}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                    </button>
-                  )}
-
-                  {/* Visibility toggle */}
-                  <button
-                    title={hidden ? "Show" : "Hide"}
-                    onClick={() => toggleVisibility(item.id)}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: hidden ? "#aaa" : "#0071e3", display: "flex", alignItems: "center", padding: "2px 4px", borderRadius: 3 }}
-                  >
-                    {hidden ? <EyeOff /> : <EyeOpen />}
-                  </button>
+                  </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Footer */}
-          <div style={{ padding: "10px 20px", borderTop: "1px solid #e0e0e0", display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <div style={{ 
+            padding: "24px 32px", 
+            borderTop: "1px solid var(--mx-border, #e2e8f0)", 
+            display: "flex", 
+            justifyContent: "flex-end", 
+            gap: 16, 
+            background: "var(--mx-surface-elevated, #f8fafc)" 
+          }}>
             <button
               onClick={() => {
-                // Reset order and widths for current tab
+                if (activeTab === "rows") {
+                  const nextHiddenRows = new Set(hiddenRowKeys);
+                  rowItems.forEach(i => nextHiddenRows.delete(i.id));
+                  onPersistProperty("manualData", "hiddenRowKeys", JSON.stringify([...nextHiddenRows]));
+                  return;
+                }
                 const keys = (activeTab === "measures" ? measureItems : columnItems).map(i => i.id);
                 const nextOrder = colOrder.filter(k => !keys.includes(k));
                 onPersistProperty("manualData", "colOrder", JSON.stringify(nextOrder));
@@ -423,13 +840,44 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
                 keys.forEach(k => nextHidden.delete(k));
                 onPersistProperty("manualData", "hiddenCols", JSON.stringify([...nextHidden]));
               }}
-              style={{ padding: "7px 14px", border: "1px solid #ddd", borderRadius: 4, cursor: "pointer", background: "#fff", fontSize: 12, color: "#555" }}
+              style={{ 
+                padding: "10px 20px", 
+                background: "transparent", 
+                border: "1px solid var(--mx-border, #e2e8f0)", 
+                color: "var(--mx-text-secondary, #475569)", 
+                borderRadius: 12, 
+                cursor: "pointer", 
+                fontSize: 14, 
+                fontWeight: 600,
+                transition: "all 0.2s"
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "var(--mx-hover-bg, #f1f5f9)"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
             >
-              Reset tab
+              Reset Tab
             </button>
             <button
               onClick={onClose}
-              style={{ padding: "7px 18px", background: "#0071e3", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}
+              style={{ 
+                padding: "10px 32px", 
+                background: "var(--mx-accent, #2563eb)", 
+                color: "var(--mx-text-inverse, #ffffff)", 
+                border: "none", 
+                borderRadius: 12, 
+                cursor: "pointer", 
+                fontSize: 14, 
+                fontWeight: 700, 
+                boxShadow: "0 8px 16px -4px rgba(37, 99, 235, 0.35)",
+                transition: "all 0.2s"
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = "translateY(-1px) scale(1.02)";
+                e.currentTarget.style.boxShadow = "0 12px 20px -4px rgba(37, 99, 235, 0.45)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = "translateY(0) scale(1)";
+                e.currentTarget.style.boxShadow = "0 8px 16px -4px rgba(37, 99, 235, 0.35)";
+              }}
             >
               Done
             </button>

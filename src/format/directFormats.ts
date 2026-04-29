@@ -62,6 +62,36 @@ export function parseColFormats(json: string | undefined): Record<string, Column
   }
 }
 
+/**
+ * Resolve column format with logical identity fallback.
+ * Checks:
+ * 1. Specific key (e.g. "Year 2023::m0")
+ * 2. Measure global (e.g. "m:0")
+ * 3. Column type global (e.g. "c:Year 2023")
+ */
+export function resolveColumnFormat(
+  colFormats: Record<string, ColumnFormat>,
+  colKey: string,
+  measureIndex: number
+): ColumnFormat | undefined {
+  const specificKey = `${colKey}::m${measureIndex}`;
+  const measureKey = `m:${measureIndex}`;
+  const dimensionKey = `c:${colKey}`;
+
+  // Merge them with priority: specific > measure global > dimension global
+  const f1 = colFormats[dimensionKey];
+  const f2 = colFormats[measureKey];
+  const f3 = colFormats[specificKey];
+
+  if (!f1 && !f2 && !f3) return undefined;
+
+  return {
+    ...f1,
+    ...f2,
+    ...f3,
+  };
+}
+
 export function parseRowFormats(json: string | undefined): Record<string, RowFormat> {
   if (!json) return {};
   try {
@@ -146,7 +176,9 @@ export function composeCellStyle(
   settings: VisualSettings,
   cellStyle: CellStyle,
   colFormat: ColumnFormat | undefined,
-  rowFormat: RowFormat | undefined
+  rowFormat: RowFormat | undefined,
+  isSubtotal: boolean = false,
+  isGrandTotal: boolean = false
 ): React.CSSProperties {
   // Start with global defaults (bold was previously ignored — fixed here).
   const values = settings.values;
@@ -161,6 +193,20 @@ export function composeCellStyle(
     values.backgroundColor && values.backgroundColor !== "transparent" && values.backgroundColor !== defaultSettings.values.backgroundColor
       ? values.backgroundColor
       : undefined;
+
+  // 1b. Structural styling for totals (wins over values, can be overridden by manual/CF)
+  if (isGrandTotal) {
+    if (settings.totals.grandTotalBold) fontWeight = 700;
+    if (settings.totals.grandTotalTextColor !== defaultSettings.totals.textColor) color = settings.totals.grandTotalTextColor;
+    if (settings.totals.grandTotalBackgroundColor !== defaultSettings.totals.backgroundColor) backgroundColor = settings.totals.grandTotalBackgroundColor;
+  } else if (isSubtotal) {
+    if (settings.totals.subtotalBold) fontWeight = 700;
+    if (settings.totals.subtotalTextColor !== defaultSettings.totals.textColor) color = settings.totals.subtotalTextColor;
+    if (settings.totals.subtotalBackgroundColor !== defaultSettings.totals.backgroundColor) backgroundColor = settings.totals.subtotalBackgroundColor;
+  }
+
+  // Manual Row Background (banding/hover is handled in CSS, but explicit manual data wins)
+  if (rowFormat?.backgroundColor) backgroundColor = rowFormat.backgroundColor;
 
   // Column format layer.
   if (colFormat) {
@@ -177,7 +223,7 @@ export function composeCellStyle(
     if (rowFormat.italic !== undefined) fontStyle = rowFormat.italic ? "italic" : "normal";
     if (rowFormat.underline !== undefined) textDecoration = rowFormat.underline ? "underline" : "none";
     if (rowFormat.textColor) color = rowFormat.textColor;
-    if (rowFormat.backgroundColor) backgroundColor = rowFormat.backgroundColor;
+    // backgroundColor already handled above
   }
 
   // CF cellStyle layer — strongest for color/bg/fontWeight (rule-engine intent).

@@ -8,6 +8,9 @@ import { FlattenedNode } from "../model/tree";
 import { CellValue, MeasureInfo } from "../model/pivot";
 import { generateCellKey } from "../model/keys";
 import { FormulaEngine } from "./FormulaEngine";
+import { formatValue } from "../model/pivot";
+import { ColumnFormat, resolveColumnFormat } from "../format/directFormats";
+import { VisualSettings } from "../settings/settings";
 
 export type RowFormulaType = "sum" | "subtract" | "custom";
 
@@ -177,7 +180,10 @@ function computeCalculatedRowValues(
   rows: FlattenedNode[],
   columns: FlattenedNode[],
   measures: MeasureInfo[],
-  rowHierarchyLevels: string[] = []
+  rowHierarchyLevels: string[] = [],
+  allModelRows?: FlattenedNode[],
+  settings?: VisualSettings,
+  colFormats?: Record<string, ColumnFormat>
 ): Map<string, CellValue> {
   const result = new Map<string, CellValue>();
   const virtualRowKey = `__calcrow__${def.id}`;
@@ -185,7 +191,7 @@ function computeCalculatedRowValues(
     currentRowKey: virtualRowKey,
     currentColKey: "",
     currentMeasureIndex: 0,
-    rows,
+    rows: allModelRows || rows,
     columns,
     measures,
     cellMap,
@@ -211,6 +217,8 @@ function computeCalculatedRowValues(
         if (referencedRows.length >= 1) {
           const firstCellKey = generateCellKey(referencedRows[0].key, col.key, measure.index);
           const firstCell = cellMap.get(firstCellKey);
+          
+          let hasAnyValue = (firstCell?.value !== null && firstCell?.value !== undefined);
           value = firstCell?.value ?? 0;
 
           for (let i = 1; i < referencedRows.length; i++) {
@@ -218,8 +226,10 @@ function computeCalculatedRowValues(
             const cell = cellMap.get(cellKey);
             if (cell?.value !== null && cell?.value !== undefined) {
               value -= cell.value;
+              hasAnyValue = true;
             }
           }
+          if (!hasAnyValue) value = null;
         }
       } else if (def.formulaType === "custom") {
         const formula = def.customFormula.trim();
@@ -228,7 +238,7 @@ function computeCalculatedRowValues(
             currentRowKey: virtualRowKey,
             currentColKey: col.key,
             currentMeasureIndex: measure.index,
-            rows,
+            rows: allModelRows || rows,
             cellMap,
           });
           const evaluation = engine.evaluate(formula.startsWith("=") ? formula.slice(1) : formula);
@@ -237,9 +247,16 @@ function computeCalculatedRowValues(
       }
 
       const cellKey = generateCellKey(virtualRowKey, col.key, measure.index);
+      const colFmt = colFormats ? resolveColumnFormat(colFormats, col.key, measure.index) : undefined;
+      
       result.set(cellKey, {
         value,
-        formattedValue: value !== null ? value.toLocaleString() : "—",
+        formattedValue: formatValue(
+          value, 
+          colFmt?.numberFormat || measure.format || "", 
+          settings,
+          colFmt
+        ),
         measureIndex: measure.index,
         rowKey: virtualRowKey,
         colKey: col.key,
@@ -265,7 +282,14 @@ export function applyCalculatedRows(
    * instead of the merged one. When omitted, all rows use the merged map
    * (preserving historical behavior for callers that haven't been updated).
    */
-  baseCellMap?: Map<string, CellValue>
+  baseCellMap?: Map<string, CellValue>,
+  /**
+   * Complete catalog of all rows (ignoring expansion/filter state)
+   * used for resolving row references in formulas.
+   */
+  allModelRows?: FlattenedNode[],
+  settings?: VisualSettings,
+  colFormats?: Record<string, ColumnFormat>
 ): {
   rows: FlattenedNode[];
   cellMap: Map<string, CellValue>;
@@ -285,9 +309,17 @@ export function applyCalculatedRows(
 
   // Build row key map for reference lookup
   const rowKeyMap = new Map<string, FlattenedNode>();
-  for (const row of flattenedRows) {
+  const catalogForLookup = allModelRows || flattenedRows;
+
+  for (const row of catalogForLookup) {
     rowKeyMap.set(row.key, row);
     rowKeyMap.set(row.label.toLowerCase(), row);
+    
+    // Also index paths for faster lookup if possible
+    const pathStr = row.path.join(" - ").toLowerCase();
+    if (pathStr !== row.label.toLowerCase()) {
+      rowKeyMap.set(pathStr, row);
+    }
   }
 
   // Merge cell map
@@ -365,7 +397,10 @@ export function applyCalculatedRows(
         resultRows,
         columns,
         measures,
-        []
+        [],
+        allModelRows,
+        settings,
+        colFormats
       );
 
       // Merge computed values
@@ -395,9 +430,16 @@ export function applyCalculatedRows(
               }
             }
             const cellKey = generateCellKey(groupVirtualKey, col.key, measure.index);
+            const colFmt = colFormats ? resolveColumnFormat(colFormats, col.key, measure.index) : undefined;
+            
             mergedCellMap.set(cellKey, {
               value: hasAny ? total : null,
-              formattedValue: hasAny ? total.toLocaleString() : "—",
+              formattedValue: formatValue(
+                hasAny ? total : null,
+                colFmt?.numberFormat || measure.format || "",
+                settings,
+                colFmt
+              ),
               measureIndex: measure.index,
               rowKey: groupVirtualKey,
               colKey: col.key,
@@ -438,7 +480,17 @@ export function applyCalculatedRows(
       insertIndex = 0;
     } else if (targetRowKey) {
       const normalizedTargetKey = calcRowKeyById.get(targetRowKey) ?? targetRowKey;
-      const targetRow = rowKeyMap.get(normalizedTargetKey);
+      let targetRow = rowKeyMap.get(normalizedTargetKey);
+      
+      // If not found by key, try matching by label as a fallback
+      if (!targetRow && typeof targetRowKey === "string") {
+        const targetLower = targetRowKey.toLowerCase();
+        targetRow = resultRows.find(r => 
+          r.key.toLowerCase() === targetLower || 
+          r.label.toLowerCase() === targetLower
+        );
+      }
+
       if (targetRow) {
         if (placement === "before") {
           const idx = resultRows.findIndex(r => r.key === targetRow.key);

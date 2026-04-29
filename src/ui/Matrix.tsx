@@ -5,18 +5,27 @@ import { CellValue, MeasureInfo, getCellValue, computeGlobalStats } from "../mod
 import { VisualSettings } from "../settings/settings";
 import { SortConfig } from "../model/sorting";
 import { SelectionState, SelectionManagerWrapper } from "../powerbi/selection";
-import { ViewportRange, computeVisibleRange, ViewportConfig } from "../virtualization/viewport";
+import {
+  ViewportRange,
+  ViewportConfig,
+  createColumnWidthMap,
+  setColumnWidth,
+  getTotalWidthWithVariableWidths,
+  computeVisibleRangeWithVariableWidths,
+} from "../virtualization/viewport";
 import { ScrollManager } from "../virtualization/scroll";
 import { Row } from "./Row";
 import { RowHeader } from "./RowHeader";
-import { MergedColumnHeaders } from "./MergedColumnHeaders";
+import { MergedColumnHeaders, ColumnArrangement } from "./MergedColumnHeaders";
 import { CellStyle, evaluateCellStyle, EvaluationContext } from "../format/conditional";
+import { parseColFormats } from "../format/directFormats";
 import { getRowStyle } from "../format/styles";
 import { TooltipServiceWrapper } from "../powerbi/tooltip";
 import { ContextMenu, ContextMenuItem, buildCellMenuItems, buildRowHeaderMenuItems, buildColumnHeaderMenuItems } from "./ContextMenu";
 import { FormulaBar, FormulaBarRef } from "./FormulaBar";
 import { BulkOperationsPanel, BulkOperationType } from "./BulkOperationsPanel";
 import { generateCellLabel, formatCellReferenceForFormula } from "../utils/cellNaming";
+import { IntelliSenseContext } from "../intellisense/FormulaIntelliSense";
 
 export interface MatrixProps {
   rows: FlattenedNode[];
@@ -44,16 +53,15 @@ export interface MatrixProps {
   onOpenCalcRowWizard?: (targetRowKey?: string) => void;
   onAddQuickVariance?: (columnKey: string, measureIndex: number) => void;
   onOpenBulkOperations?: () => void;
-  intelliSenseContext?: {
-    calculatedMeasures: { name: string; formula: string }[];
-    rowHierarchyLevels: string[];
-    columnHierarchyLevels: string[];
-  };
+  intelliSenseContext?: IntelliSenseContext;
   selectedColumnKeys?: string[];
   selectedRowKeysForFormat?: string[];
   onRowSelectionForFormatChange?: (keys: string[]) => void;
   onToggleGroupCollapsed?: (rowDefId: string) => void;
   onColumnSelectionChange?: (keys: string[]) => void;
+  onHideRow?: (rowKey: string) => void;
+  onEditCalcRow?: (rowKey: string) => void;
+  onDeleteCalcRow?: (rowKey: string) => void;
 }
 
 const ROW_BUFFER = 10;
@@ -89,8 +97,11 @@ export const Matrix: React.FC<MatrixProps> = ({
   selectedColumnKeys: selectedColumnKeysArr,
   selectedRowKeysForFormat: selectedRowKeysForFormatArr,
   onRowSelectionForFormatChange,
-  onToggleGroupCollapsed,
+  onToggleGroupCollapsed: _onToggleGroupCollapsed,
   onColumnSelectionChange,
+  onHideRow,
+  onEditCalcRow,
+  onDeleteCalcRow,
 }) => {
   type GridColumn = {
     key: string;
@@ -99,10 +110,42 @@ export const Matrix: React.FC<MatrixProps> = ({
     measureIndex: number;
   };
 
+  type VisualColumnFrequency = "all" | "yearly" | "quarterly" | "specific";
+  type VisualColumnPosition = "normal" | "beginning" | "end" | "specific";
+  type VisualColumnDefinition = {
+    id: string;
+    enabled?: boolean;
+    sourceMeasureId?: string;
+    sourceMeasureName?: string;
+    sourceMeasureIndex?: number;
+    frequency?: VisualColumnFrequency;
+    position?: VisualColumnPosition;
+    positionIndex?: number;
+    specificColumnKeys?: string[];
+    hierarchyLevel?: number;
+  };
+
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const horizontalScrollRef = useRef<HTMLDivElement>(null);
   const rowHeadersRef = useRef<HTMLDivElement>(null);
-  const colHeadersRef = useRef<HTMLDivElement>(null);
+
   const formulaBarRef = useRef<FormulaBarRef>(null);
+
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState(84);
+
+  useEffect(() => {
+    if (!contentRef.current) return () => {};
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        // Measure the natural height of the content
+        const height = Math.max(56, entry.contentRect.height);
+        setMeasuredHeaderHeight(height);
+      }
+    });
+    observer.observe(contentRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   const [scrollTop, setScrollTop] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -163,7 +206,7 @@ export const Matrix: React.FC<MatrixProps> = ({
   const [dropPosition, setDropPosition] = useState<"before" | "after" | "child" | null>(null);
 
   // Range Selection State for bulk operations
-  const [selectedRange, setSelectedRange] = useState<{
+  const [selectedRange] = useState<{
     cells: { rowKey: string; colKey: string; measureIndex: number }[];
     anchorCell: { rowKey: string; colKey: string; measureIndex: number } | null;
   }>({ cells: [], anchorCell: null });
@@ -309,6 +352,20 @@ export const Matrix: React.FC<MatrixProps> = ({
     e.preventDefault();
     if (rowKey === draggedRowKey) return;
 
+    // Auto-scroll when dragging near edges
+    if (scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const rect = container.getBoundingClientRect();
+      const scrollSpeed = 15;
+      const threshold = 50;
+
+      if (e.clientY < rect.top + threshold) {
+        container.scrollTop -= scrollSpeed;
+      } else if (e.clientY > rect.bottom - threshold) {
+        container.scrollTop += scrollSpeed;
+      }
+    }
+
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const relY = e.clientY - rect.top;
 
@@ -423,22 +480,26 @@ export const Matrix: React.FC<MatrixProps> = ({
     setColumnWidthPx(settings.general.defaultColumnWidth);
   }, [settings.general.defaultColumnWidth]);
 
-  // Row header width is fully configurable from settings, with sane bounds
-  const rowHeaderWidth = useMemo(() => {
-    const raw = settings.general.rowHeaderWidth || 0;
-    const min = 120;
-    const max = 480;
-    return Math.max(min, Math.min(max, Math.round(raw)));
+  const [rowHeaderWidth, setRowHeaderWidth] = useState(() => {
+    const raw = settings.general.rowHeaderWidth || 180;
+    return Math.max(120, Math.min(800, Math.round(raw)));
+  });
+  const rowHeaderWidthRef = useRef<number>(rowHeaderWidth);
+  useEffect(() => {
+    rowHeaderWidthRef.current = rowHeaderWidth;
+  }, [rowHeaderWidth]);
+
+  useEffect(() => {
+    setRowHeaderWidth(settings.general.rowHeaderWidth || 180);
   }, [settings.general.rowHeaderWidth]);
 
   // Column header height based on merged header rows (hierarchy levels + measure row)
-  const columnHeaderHeight = useMemo(() => {
-    if (measures.length === 0) return 0;
-    if (columns.length === 0) return 28;
-    const maxLevel = Math.max(...columns.map(c => c.level), 0);
-    const headerRowCount = maxLevel + 2; // hierarchy levels + measure row
-    return headerRowCount * 28;
-  }, [columns, measures.length]);
+  // Column header height based on measured content height
+  const columnHeaderHeight = measuredHeaderHeight;
+
+  const FORMULA_BAR_HEIGHT = 40;
+  const HORIZONTAL_SCROLLBAR_HEIGHT = 24;
+  const formulaBarHeight = FORMULA_BAR_HEIGHT;
 
   const minRowHeightPx = useMemo(() => {
     const headerFontPx = Math.max(8, Math.round(settings.headers.fontSize || 0));
@@ -450,6 +511,17 @@ export const Matrix: React.FC<MatrixProps> = ({
 
   const safeRowHeightPx = Math.max(minRowHeightPx, Math.round(rowHeightPx || 0));
   const safeColumnWidthPx = Math.max(60, Math.round(columnWidthPx || 0));
+
+  const visualColumnRules = useMemo(() => {
+    try {
+      const parsed = JSON.parse(settings.calculations.visualColumns || "[]");
+      return Array.isArray(parsed)
+        ? parsed.filter((rule: VisualColumnDefinition) => rule && rule.enabled !== false)
+        : [];
+    } catch {
+      return [] as VisualColumnDefinition[];
+    }
+  }, [settings.calculations.visualColumns]);
 
   const gridColumns: GridColumn[] = useMemo(() => {
     if (columns.length === 0 || measures.length === 0) return [];
@@ -478,9 +550,66 @@ export const Matrix: React.FC<MatrixProps> = ({
       }
     }
 
-    const baseResult: GridColumn[] = [];
-    for (const col of visualLeafs) {
+    const firstLeafKey = visualLeafs[0]?.key;
+    const lastLeafKey = visualLeafs[visualLeafs.length - 1]?.key;
+    const yearKey = (col: FlattenedNode) => String(col.path?.[0] ?? col.label ?? "");
+    const quarterKey = (col: FlattenedNode) => {
+      const label = col.path?.map(String).join(" ") || col.label;
+      const explicit = label.match(/q([1-4])/i);
+      if (explicit) return `${yearKey(col)}::Q${explicit[1]}`;
+      const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+      const month = monthNames.findIndex(monthName => String(col.path?.[col.path.length - 1] ?? col.label).toLowerCase().startsWith(monthName));
+      return `${yearKey(col)}::Q${month >= 0 ? Math.floor(month / 3) + 1 : 1}`;
+    };
+    const isYearEnd = (col: FlattenedNode, index: number) => {
+      if (col.isSubtotal || col.isGrandTotal) return true;
+      const next = visualLeafs[index + 1];
+      return !next || yearKey(next) !== yearKey(col);
+    };
+    const isQuarterEnd = (col: FlattenedNode, index: number) => {
+      if (col.isSubtotal || col.isGrandTotal) return true;
+      const next = visualLeafs[index + 1];
+      return !next || quarterKey(next) !== quarterKey(col);
+    };
+    const ruleForMeasure = (measure: MeasureInfo, measureIndex: number) => {
+      return visualColumnRules.find(rule => {
+        if (rule.sourceMeasureIndex === measureIndex) return true;
+        if (rule.sourceMeasureId && rule.sourceMeasureId === measure.id) return true;
+        if (rule.sourceMeasureName && rule.sourceMeasureName.toLowerCase() === measure.name.toLowerCase()) return true;
+        return false;
+      });
+    };
+    const shouldShowMeasureAtColumn = (
+      measure: MeasureInfo,
+      measureIndex: number,
+      col: FlattenedNode,
+      colIndex: number
+    ) => {
+      const rule = ruleForMeasure(measure, measureIndex);
+      if (!rule) return true;
+      if (rule.hierarchyLevel !== undefined && col.level !== rule.hierarchyLevel) return false;
+      if (rule.position === "beginning" && col.key !== firstLeafKey) return false;
+      if (rule.position === "end" && col.key !== lastLeafKey) return false;
+      if (rule.position === "specific" && rule.positionIndex !== undefined && colIndex !== rule.positionIndex) return false;
+
+      switch (rule.frequency || "all") {
+        case "yearly":
+          return isYearEnd(col, colIndex);
+        case "quarterly":
+          return isQuarterEnd(col, colIndex);
+        case "specific":
+          return !!rule.specificColumnKeys?.includes(col.key);
+        case "all":
+        default:
+          return true;
+      }
+    };
+
+    let baseResult: GridColumn[] = [];
+    for (let colIndex = 0; colIndex < visualLeafs.length; colIndex++) {
+      const col = visualLeafs[colIndex];
       for (let m = 0; m < measures.length; m++) {
+        if (!shouldShowMeasureAtColumn(measures[m], m, col, colIndex)) continue;
         baseResult.push({
           key: `${col.key}::m${m}`,
           col,
@@ -526,7 +655,7 @@ export const Matrix: React.FC<MatrixProps> = ({
           sorted.push(col);
         }
       }
-      return sorted;
+      baseResult = sorted;
     }
 
     // Apply hidden columns filter
@@ -545,20 +674,54 @@ export const Matrix: React.FC<MatrixProps> = ({
     }
 
     return finalResult;
-  }, [columns, measures, settings.manualData.colOrder, settings.manualData.hiddenCols]);
+  }, [columns, measures, settings.manualData.colOrder, settings.manualData.hiddenCols, visualColumnRules]);
+
+  const colWidths = useMemo(() => {
+    try {
+      return JSON.parse(settings.manualData.colWidths || "{}") as Record<string, number>;
+    } catch {
+      return {} as Record<string, number>;
+    }
+  }, [settings.manualData.colWidths]);
+
+  const columnWidthMap = useMemo(() => {
+    let map = createColumnWidthMap(safeColumnWidthPx);
+    gridColumns.forEach((gc, idx) => {
+      const custom = colWidths[gc.col.key];
+      if (custom) {
+        map = setColumnWidth(map, idx, custom);
+      }
+    });
+    return map;
+  }, [gridColumns, colWidths, safeColumnWidthPx]);
+
+  const totalContentWidth = useMemo(() => {
+    return getTotalWidthWithVariableWidths(columnWidthMap, gridColumns.length);
+  }, [columnWidthMap, gridColumns.length]);
+
+  const viewportWidth = Math.max(0, width - rowHeaderWidth);
+  const hasHorizontalOverflow = totalContentWidth > viewportWidth;
+  const rawViewportHeight = Math.max(
+    0,
+    height - columnHeaderHeight - formulaBarHeight
+  );
+  const viewportHeight = Math.max(
+    0,
+    rawViewportHeight - HORIZONTAL_SCROLLBAR_HEIGHT
+  );
 
   const viewportConfig: ViewportConfig = useMemo(() => ({
     rowHeight: safeRowHeightPx,
-    columnWidth: safeColumnWidthPx,
+    columnWidth: safeColumnWidthPx, // default
     rowBuffer: ROW_BUFFER,
     columnBuffer: COL_BUFFER,
-    viewportWidth: width - rowHeaderWidth,
-    viewportHeight: height - columnHeaderHeight,
+    viewportWidth,
+    viewportHeight,
     totalRows: rows.length,
     totalColumns: gridColumns.length,
     rowHeaderWidth,
     columnHeaderHeight,
-  }), [safeRowHeightPx, safeColumnWidthPx, width, height, rows.length, gridColumns.length, rowHeaderWidth, columnHeaderHeight]);
+  }), [safeRowHeightPx, safeColumnWidthPx, viewportWidth, viewportHeight, rows.length, gridColumns.length, rowHeaderWidth, columnHeaderHeight]);
 
   const selectedColumnKeysSet = useMemo(() => new Set(selectedColumnKeysArr || []), [selectedColumnKeysArr]);
   const selectedRowKeysForFormatSet = useMemo(() => new Set(selectedRowKeysForFormatArr || []), [selectedRowKeysForFormatArr]);
@@ -644,10 +807,7 @@ export const Matrix: React.FC<MatrixProps> = ({
           }
         },
         onOpenCalcMeasureWizard || (() => { }),
-        () => {
-          // Quick Variance: Measure comparing current with previous column
-          console.log("Quick Variance requested for", colKey);
-        },
+        () => onAddQuickVariance?.(colKey, measureIndex),
         () => console.log("Export triggered"),
         () => {
           const edits = JSON.parse(settings.manualData.edits || "{}");
@@ -681,6 +841,10 @@ export const Matrix: React.FC<MatrixProps> = ({
           onPersistProperty("manualData", "locks", JSON.stringify(newLocks));
         },
         JSON.parse(settings.manualData.locks || "[]").includes(row.key),
+        !!row.isCalculatedRow,
+        () => onHideRow?.(row.key),
+        () => onEditCalcRow?.(row.key),
+        () => onDeleteCalcRow?.(row.key),
         (selectionManager && row.selectionId)
           ? () => selectionManager.showContextMenu(row.selectionId!, { x, y })
           : undefined
@@ -724,16 +888,19 @@ export const Matrix: React.FC<MatrixProps> = ({
   }, [allowInteractions, cellMap, onToggleRowExpand, onOpenCalcMeasureWizard, onOpenCalcRowWizard, onSort, onPersistProperty, settings.manualData, settings.general, gridColumns, onAddQuickVariance, selectionManager, onExpandAllUnder, onCollapseAllUnder]);
 
   const visibleRange: ViewportRange = useMemo(() => {
-    return computeVisibleRange(scrollTop, scrollLeft, viewportConfig);
-  }, [scrollTop, scrollLeft, viewportConfig]);
+    return computeVisibleRangeWithVariableWidths(scrollTop, scrollLeft, viewportConfig, columnWidthMap);
+  }, [scrollTop, scrollLeft, viewportConfig, columnWidthMap]);
 
   const visibleRows = useMemo(() => {
     return rows.slice(visibleRange.startRow, visibleRange.endRow);
   }, [rows, visibleRange.startRow, visibleRange.endRow]);
 
-  const visibleGridColumns = useMemo(() => {
-    return gridColumns.slice(visibleRange.startCol, visibleRange.endCol);
-  }, [gridColumns, visibleRange.startCol, visibleRange.endCol]);
+  const renderedGridColumns = gridColumns;
+  const renderedColumnRange: ViewportRange = useMemo(() => ({
+    ...visibleRange,
+    startCol: 0,
+    endCol: gridColumns.length,
+  }), [visibleRange, gridColumns.length]);
 
   const globalStats = useMemo(() => {
     const stats = new Map<number, { min: number; max: number }>();
@@ -848,8 +1015,116 @@ export const Matrix: React.FC<MatrixProps> = ({
     // Update state immediately for perfect alignment during virtualization
     setScrollTop(scrollTop);
     setScrollLeft(scrollLeft);
+    if (horizontalScrollRef.current && horizontalScrollRef.current.scrollLeft !== scrollLeft) {
+      horizontalScrollRef.current.scrollLeft = scrollLeft;
+    }
 
     scrollManagerRef.current?.handleScroll(scrollTop, scrollLeft);
+  }, []);
+
+  const handleHorizontalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const nextScrollLeft = e.currentTarget.scrollLeft;
+    const container = scrollContainerRef.current;
+    if (container && container.scrollLeft !== nextScrollLeft) {
+      container.scrollLeft = nextScrollLeft;
+    }
+    setScrollLeft(nextScrollLeft);
+  }, []);
+
+  const setSyncedScrollLeft = useCallback((nextScrollLeft: number) => {
+    const maxScrollLeft = Math.max(0, totalContentWidth - viewportWidth);
+    const clamped = Math.max(0, Math.min(maxScrollLeft, nextScrollLeft));
+    const container = scrollContainerRef.current;
+    if (container && container.scrollLeft !== clamped) {
+      container.scrollLeft = clamped;
+    }
+    if (horizontalScrollRef.current && horizontalScrollRef.current.scrollLeft !== clamped) {
+      horizontalScrollRef.current.scrollLeft = clamped;
+    }
+    setScrollLeft(clamped);
+  }, [totalContentWidth, viewportWidth]);
+
+  const handleMatrixWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (!hasHorizontalOverflow) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const horizontalDelta = e.deltaX !== 0 ? e.deltaX : (e.shiftKey ? e.deltaY : 0);
+    if (horizontalDelta === 0) return;
+
+    container.scrollLeft += horizontalDelta;
+    setSyncedScrollLeft(container.scrollLeft);
+    e.preventDefault();
+  }, [hasHorizontalOverflow, setSyncedScrollLeft]);
+
+  const handleMatrixKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const target = e.target as HTMLElement | null;
+    if (
+      target &&
+      target !== container &&
+      target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]')
+    ) {
+      return;
+    }
+
+    const pageHeight = Math.max(safeRowHeightPx, container.clientHeight - safeRowHeightPx);
+
+    switch (e.key) {
+      case "ArrowLeft":
+        container.scrollBy({ left: -safeColumnWidthPx });
+        break;
+      case "ArrowRight":
+        container.scrollBy({ left: safeColumnWidthPx });
+        break;
+      case "ArrowUp":
+        container.scrollBy({ top: -safeRowHeightPx });
+        break;
+      case "ArrowDown":
+        container.scrollBy({ top: safeRowHeightPx });
+        break;
+      case "PageUp":
+        container.scrollBy({ top: -pageHeight });
+        break;
+      case "PageDown":
+        container.scrollBy({ top: pageHeight });
+        break;
+      case "Home":
+        if (e.ctrlKey || e.metaKey) {
+          container.scrollTo({ top: 0, left: 0 });
+        } else {
+          container.scrollTo({ left: 0, top: container.scrollTop });
+        }
+        break;
+      case "End":
+        if (e.ctrlKey || e.metaKey) {
+          container.scrollTo({
+            top: container.scrollHeight,
+            left: container.scrollWidth,
+          });
+        } else {
+          container.scrollTo({
+            left: container.scrollWidth,
+            top: container.scrollTop,
+          });
+        }
+        break;
+      default:
+        return;
+    }
+
+    e.preventDefault();
+  }, [safeColumnWidthPx, safeRowHeightPx]);
+
+  const handleMatrixPointerDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]')) {
+      return;
+    }
+
+    scrollContainerRef.current?.focus();
   }, []);
 
   const handleRowClick = useCallback((
@@ -857,6 +1132,7 @@ export const Matrix: React.FC<MatrixProps> = ({
     row: FlattenedNode
   ) => {
     if (!allowInteractions) return;
+    if (!row.selectionId || row.isCalculatedRow || row.isSubtotal || row.isGrandTotal) return;
     const multiSelect = e.ctrlKey || e.metaKey;
     onRowSelect(row.key, row.selectionId, multiSelect);
   }, [onRowSelect, allowInteractions]);
@@ -868,15 +1144,15 @@ export const Matrix: React.FC<MatrixProps> = ({
     }
   }, [onClearSelection, allowInteractions]);
 
-  const totalContentWidth = gridColumns.length * safeColumnWidthPx;
-  const totalContentHeight = rows.length * safeRowHeightPx;
+  const SCROLL_BUFFER_BOTTOM = 40; // Extra room to scroll past the last row
+  const totalContentHeight = (rows.length * safeRowHeightPx) + SCROLL_BUFFER_BOTTOM;
+  const hasVScroll = totalContentHeight > viewportHeight;
+  const hasHScroll = totalContentWidth > viewportWidth;
 
   const canUndo = editHistoryIndex > 0;
   const canRedo = editHistoryIndex >= 0 && editHistoryIndex < editHistory.length - 1;
 
   useEffect(() => {
-    const viewportHeight = Math.max(0, height - columnHeaderHeight);
-    const viewportWidth = Math.max(0, width - rowHeaderWidth);
     const maxScrollTop = Math.max(0, totalContentHeight - viewportHeight);
     const maxScrollLeft = Math.max(0, totalContentWidth - viewportWidth);
 
@@ -885,10 +1161,13 @@ export const Matrix: React.FC<MatrixProps> = ({
       if (el.scrollTop > maxScrollTop) el.scrollTop = maxScrollTop;
       if (el.scrollLeft > maxScrollLeft) el.scrollLeft = maxScrollLeft;
     }
+    if (horizontalScrollRef.current && horizontalScrollRef.current.scrollLeft > maxScrollLeft) {
+      horizontalScrollRef.current.scrollLeft = maxScrollLeft;
+    }
 
     setScrollTop((prev) => Math.min(prev, maxScrollTop));
     setScrollLeft((prev) => Math.min(prev, maxScrollLeft));
-  }, [totalContentHeight, totalContentWidth, height, width, rowHeaderWidth, columnHeaderHeight]);
+  }, [totalContentHeight, totalContentWidth, viewportHeight, viewportWidth, hasHorizontalOverflow]);
 
   const startRowResize = useCallback((clientY: number) => {
     if (!allowInteractions) return;
@@ -912,6 +1191,46 @@ export const Matrix: React.FC<MatrixProps> = ({
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   }, [allowInteractions, safeRowHeightPx, minRowHeightPx, onPersistProperty]);
+
+  const startColumnResize = useCallback((clientX: number) => {
+    if (!allowInteractions) return;
+    const startX = clientX;
+    const startW = safeColumnWidthPx;
+
+    const onMove = (e: MouseEvent) => {
+      const next = Math.max(40, Math.min(1200, Math.round(startW + (e.clientX - startX))));
+      setColumnWidthPx(next);
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      onPersistProperty("general", "defaultColumnWidth", columnWidthRef.current);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [allowInteractions, safeColumnWidthPx, onPersistProperty]);
+
+  const startRowHeaderWidthResize = useCallback((clientX: number) => {
+    if (!allowInteractions) return;
+    const startX = clientX;
+    const startW = rowHeaderWidth;
+
+    const onMove = (e: MouseEvent) => {
+      const next = Math.max(120, Math.min(1000, Math.round(startW + (e.clientX - startX))));
+      setRowHeaderWidth(next);
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      onPersistProperty("general", "rowHeaderWidth", rowHeaderWidthRef.current);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [allowInteractions, rowHeaderWidth, onPersistProperty]);
 
   const getDataBarRange = useCallback((rowKey: string, colKey: string, measureIndex: number): { min: number; max: number } => {
     const mode = settings.dataBars.normalizeBy;
@@ -1057,41 +1376,52 @@ export const Matrix: React.FC<MatrixProps> = ({
 
   return (
     <div className={`matrix-container ${formulaBarEditMode ? "formula-edit-mode" : ""}`} style={{ height }} onClick={handleBackgroundClick}>
-      <FormulaBar
-        ref={formulaBarRef}
-        value={activeCell?.value || ""}
-        activeCellLabel={activeCell?.label || ""}
-        onCommit={handleCommitEdit}
-        onCancel={handleCancelEdit}
-        context={intelliSenseContextObj}
-        onEditModeChange={setFormulaBarEditMode}
-        onInsertReference={() => { }}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        canUndo={canUndo}
-        canRedo={canRedo}
-      />
+      <div
+        className="matrix-formula-shell"
+        style={{ minHeight: FORMULA_BAR_HEIGHT, height: FORMULA_BAR_HEIGHT }}
+      >
+        <FormulaBar
+          ref={formulaBarRef}
+          value={activeCell?.value || ""}
+          activeCellLabel={activeCell?.label || ""}
+          onCommit={handleCommitEdit}
+          onCancel={handleCancelEdit}
+          context={intelliSenseContextObj}
+          onEditModeChange={setFormulaBarEditMode}
+          onInsertReference={() => { }}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          canUndo={canUndo}
+          canRedo={canRedo}
+        />
+      </div>
       <div className="matrix-header-area" style={{ height: columnHeaderHeight }}>
         <div
           className="matrix-col-headers"
-          ref={colHeadersRef}
-          style={{ width }}
+          style={{ height: columnHeaderHeight }}
         >
-          <MergedColumnHeaders
-            columns={columns}
-            measures={measures}
-            arrangement="time-then-measure"
-            sortConfig={sortConfig}
-            onSort={onSort}
-            allowInteractions={allowInteractions}
-            rowHeaderWidth={rowHeaderWidth}
-            columnWidth={safeColumnWidthPx}
-            scrollLeft={scrollLeft}
-            totalContentWidth={totalContentWidth}
-            selectedColumnKeys={selectedColumnKeysSet}
-            onColumnHeaderClick={handleColumnHeaderClick}
-            onContextMenu={(e, c, m) => handleContextMenu(e, undefined, c, m)}
-          />
+          <div ref={contentRef}> {/* Observed content wrapper */}
+            <MergedColumnHeaders
+        columns={columns}
+        measures={measures}
+        arrangement={((settings.general as any).columnArrangement ?? "time-then-measure") as ColumnArrangement}
+        sortConfig={sortConfig}
+        onSort={onSort}
+        onContextMenu={(e, c, m) => handleContextMenu(e, undefined, c, m)}
+        allowInteractions={allowInteractions}
+        rowHeaderWidth={rowHeaderWidth}
+        columnWidth={safeColumnWidthPx}
+        scrollLeft={scrollLeft}
+        totalContentWidth={totalContentWidth}
+        selectedColumnKeys={selectedColumnKeysSet}
+        onColumnHeaderClick={handleColumnHeaderClick}
+        onStartResize={startColumnResize}
+        onStartRowHeaderResize={startRowHeaderWidthResize}
+        colFormats={parseColFormats(settings.manualData.colFormats)}
+        colWidths={colWidths}
+        gridColumns={visualColumnRules.length > 0 ? gridColumns : undefined}
+      />
+          </div>
         </div>
       </div>
 
@@ -1106,19 +1436,31 @@ export const Matrix: React.FC<MatrixProps> = ({
       )}
 
       <div
-        className="matrix-body-area"
-        style={{ height: height - columnHeaderHeight }}
+        className={`matrix-body-area ${hasVScroll ? 'has-v-scroll' : ''} ${hasHScroll ? 'has-h-scroll' : ''}`}
+        style={{ height: viewportHeight }}
         onScroll={handleScroll}
+        onWheel={handleMatrixWheel}
+        onKeyDown={handleMatrixKeyDown}
+        onMouseDownCapture={handleMatrixPointerDown}
         ref={scrollContainerRef}
+        tabIndex={0}
+        role="region"
+        aria-label="Matrix data grid"
       >
         <div
           className="matrix-row-headers"
           ref={rowHeadersRef}
-          style={{ width: rowHeaderWidth }}
+          style={{
+            width: rowHeaderWidth,
+            height: viewportHeight,
+            zIndex: 80,
+            opacity: 1,
+            backgroundColor: "var(--mx-row-header-bg, var(--mx-surface, #ffffff))",
+          }}
         >
           <div
             className="matrix-row-headers-inner"
-            style={{ height: totalContentHeight }}
+            style={{ height: viewportHeight }}
           >
             {visibleRows.map((row, idx) => {
               const actualIndex = visibleRange.startRow + idx;
@@ -1155,7 +1497,7 @@ export const Matrix: React.FC<MatrixProps> = ({
                   style={{
                     ...getRowStyle(settings, actualIndex, row.isSubtotal, row.isGrandTotal, isSelected),
                     position: "absolute",
-                    top: actualIndex * safeRowHeightPx,
+                    top: (actualIndex * safeRowHeightPx) - scrollTop,
                     height: safeRowHeightPx,
                     width: rowHeaderWidth,
                   }}
@@ -1188,7 +1530,7 @@ export const Matrix: React.FC<MatrixProps> = ({
 
         <div
           className="matrix-cells"
-          style={{ width: totalContentWidth }}
+          style={{ width: totalContentWidth, minWidth: totalContentWidth }}
         >
           <div
             className="matrix-cells-inner"
@@ -1209,8 +1551,8 @@ export const Matrix: React.FC<MatrixProps> = ({
                   row={row}
                   rowIndex={actualIndex}
                   prevRowKey={prevRowKey}
-                  visibleColumns={visibleGridColumns}
-                  visibleRange={visibleRange}
+                  visibleColumns={renderedGridColumns}
+                  visibleRange={renderedColumnRange}
                   cellMap={cellMap}
                   measures={measures}
                   settings={settings}
@@ -1226,10 +1568,34 @@ export const Matrix: React.FC<MatrixProps> = ({
                   onContextMenu={(e, r, c, m) => handleContextMenu(e, r, c, m)}
                   onCellClick={(c, m, ci) => handleCellSelect(row, c, m, actualIndex, ci)}
                   activeCell={activeCell}
+                  selectedColumnKeys={selectedColumnKeysSet}
+                  columnWidthMap={columnWidthMap}
                 />
               );
             })}
           </div>
+        </div>
+      </div>
+
+      <div
+        className={`matrix-horizontal-scrollbar-shell ${hasHScroll ? "is-active" : "is-idle"}`}
+        style={{ height: HORIZONTAL_SCROLLBAR_HEIGHT }}
+        aria-hidden="true"
+      >
+        <div
+          className="matrix-horizontal-scrollbar-spacer"
+          style={{ width: rowHeaderWidth }}
+        />
+        <div
+          ref={horizontalScrollRef}
+          className="matrix-horizontal-scrollbar"
+          style={{ width: viewportWidth, height: 18 }}
+          onScroll={handleHorizontalScroll}
+        >
+          <div
+            className="matrix-horizontal-scrollbar-content"
+            style={{ width: Math.max(totalContentWidth, viewportWidth), height: 1 }}
+          />
         </div>
       </div>
 

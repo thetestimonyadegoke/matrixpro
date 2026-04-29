@@ -1,6 +1,9 @@
 import React, { useState, useCallback, useMemo } from "react";
-import { MeasureInfo } from "../model/pivot";
-import { parseFormula, validateFormula, ParseError } from "../calculations/formulaParser";
+import { MeasureInfo, CellValue } from "../model/pivot";
+import { validateFormula, ParseError } from "../calculations/formulaParser";
+import { FormulaEngine } from "../calculations/FormulaEngine";
+import { FlattenedNode } from "../model/tree";
+import { FormulaEditor } from "./IntelliSenseDropdown";
 
 export interface CalcMeasureWizardProps {
   measures: MeasureInfo[];
@@ -13,6 +16,9 @@ export interface CalcMeasureWizardProps {
     id?: string;
   }) => void;
   onClose: () => void;
+  rows: FlattenedNode[];
+  columns: FlattenedNode[];
+  cellMap: Map<string, CellValue>;
   initialMeasure?: {
     id: string;
     name: string;
@@ -45,6 +51,9 @@ const QUICK_FUNCTIONS = [
 ];
 
 export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
+  rows,
+  columns,
+  cellMap,
   measures,
   onSave,
   onClose,
@@ -101,20 +110,35 @@ export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
   }, []);
 
   const previewValues = useMemo(() => {
-    if (!formula.trim()) return [];
+    if (!formula.trim() || rows.length === 0 || columns.length === 0) return [];
     try {
-      const parsed = parseFormula(formula);
-      if (!parsed) return [];
-      // Return sample preview (would need actual data context for real values)
-      return [
-        { row: "Sample Row 1", value: "—" },
-        { row: "Sample Row 2", value: "—" },
-        { row: "Sample Row 3", value: "—" },
-      ];
+      const engine = new FormulaEngine({
+        currentRowKey: rows[0].key,
+        currentColKey: columns[0].key,
+        currentMeasureIndex: 0,
+        rows,
+        columns,
+        measures,
+        cellMap,
+        rowHierarchyLevels: [],
+        calculatedMeasures: new Map<string, string>(),
+        calculatedRows: new Map<string, string>(),
+      });
+
+      const results = [];
+      for (let i = 0; i < Math.min(3, rows.length); i++) {
+        engine.updateContext({ currentRowKey: rows[i].key });
+        const evalResult = engine.evaluate(formula.startsWith("=") ? formula.slice(1) : formula);
+        results.push({
+          row: rows[i].label,
+          value: evalResult.value !== null ? evalResult.value.toLocaleString() : "—"
+        });
+      }
+      return results;
     } catch {
       return [];
     }
-  }, [formula]);
+  }, [formula, rows, columns, measures, cellMap]);
 
   return (
     <div className="calc-wizard-overlay" onClick={onClose}>
@@ -157,15 +181,21 @@ export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
               Formula <span className="required">*</span>
             </label>
             <div className="calc-wizard-formula-area">
-              <textarea
-                className="calc-wizard-textarea"
+              <FormulaEditor
                 value={formula}
-                onChange={e => {
-                  setFormula(e.target.value);
+                onChange={val => {
+                  setFormula(val);
                   setError(null);
                 }}
+                context={{
+                  measures: measures,
+                  calculatedMeasures: measures.map(m => ({ name: m.name, formula: "" })),
+                  columns: columns,
+                  rows: rows,
+                  rowHierarchyLevels: [],
+                  columnHierarchyLevels: [],
+                }}
                 placeholder="e.g., ([Revenue] - [Cost]) / [Revenue]"
-                rows={3}
               />
               <div className="calc-wizard-quick-btns">
                 {QUICK_FUNCTIONS.map(fn => (

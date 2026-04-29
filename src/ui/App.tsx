@@ -9,14 +9,15 @@ import { EmptyState } from "./EmptyState";
 import { exportToCSV } from "../export/csv";
 import { exportToXLSX } from "../export/xlsx";
 import { exportToPDF } from "../export/pdf";
+import { exportToJSON } from "../export/json";
 import { TooltipServiceWrapper } from "../powerbi/tooltip";
 import { createQuickCalcView } from "../analytics/quickCalcs";
-import { Ribbon, RibbonTab, ToolbarMode } from "./Ribbon";
+import { Ribbon, RibbonTab, RowInsertAction, ToolbarMode } from "./Ribbon";
 import { ExplorerPanel } from "./ExplorerPanel";
 import { CalcMeasureWizard } from "./CalcMeasureWizard";
 import { CalcRowWizard } from "./CalcRowWizard";
 import { CalcRowPanel } from "./CalcRowPanel";
-import { InsertedRow } from "../settings/settings";
+import { InsertedRow, migrateInsertedRows } from "../settings/settings";
 import { TotalsControlPanel } from "./TotalsControlPanel";
 import { ManageColumnsPanel } from "./ManageColumnsPanel";
 import { ConditionalFormattingPanel } from "./ConditionalFormattingPanel";
@@ -32,6 +33,11 @@ import { Footer } from "./Footer";
 import { TopNPanel } from "./TopNPanel";
 import { FilterPanel, FilterRule } from "./FilterPanel";
 import { LevelVisibilityPanel } from "./LevelVisibilityPanel";
+import { ThemeGallery } from "./ThemeGallery";
+import { HeaderOptionsPanel } from "./HeaderOptionsPanel";
+import { TitleBar } from "./TitleBar";
+import { getNodeAndDescendantKeys } from "../model/tree";
+import { generateCalcRowId } from "../calculations/calculatedRows";
 
 export interface AppProps {
   model: MatrixModel;
@@ -59,6 +65,53 @@ export interface AppProps {
   onCollapseAllUnder: (nodeKey: string) => void;
 }
 
+type QuickInsertedRowKind = Exclude<RowInsertAction, "panel">;
+
+function createQuickInsertedRow(kind: QuickInsertedRowKind, order: number): InsertedRow {
+  const base: {
+    id: string;
+    name: string;
+    enabled: boolean;
+    order: number;
+    parentRowKey: string | null;
+    insertAfterRowKey: string | null;
+    insertAtTop: boolean;
+  } = {
+    id: generateCalcRowId(),
+    name:
+      kind === "blank" ? "Blank row" :
+      kind === "group" ? "New group" :
+      kind === "divider" ? "Divider" :
+      "New calculated row",
+    enabled: true,
+    order,
+    parentRowKey: null,
+    insertAfterRowKey: null,
+    insertAtTop: false,
+  };
+
+  switch (kind) {
+    case "blank":
+      return { ...base, kind: "blank", height: 22 };
+    case "group":
+      return { ...base, kind: "group", label: base.name, style: { bold: true } };
+    case "divider":
+      return { ...base, kind: "divider", lineStyle: "single", lineColor: "#d1d5db" };
+    case "calculated":
+    default:
+      return {
+        ...base,
+        kind: "calculated",
+        formulaType: "sum",
+        rowReferences: [],
+        customFormula: "",
+        style: { bold: false, italic: false },
+        includeInTotals: true,
+        isSubtotal: false,
+      };
+  }
+}
+
 export const App: React.FC<AppProps> = ({
   model,
   settings,
@@ -79,17 +132,60 @@ export const App: React.FC<AppProps> = ({
   onExpandAllUnder,
   onCollapseAllUnder,
 }) => {
-  const [activeTab, setActiveTab] = useState<RibbonTab>("home");
-  const [toolbarMode, setToolbarMode] = useState<ToolbarMode>("full");
-  const [toolbarPinned, setToolbarPinned] = useState(true);
-  const [explorerOpen, setExplorerOpen] = useState(false);
-  const [zoomLevel, setZoomLevel] = useState(100); // percentage: 50–200
+  const [activeTab, setActiveTabOriginal] = useState<RibbonTab>((settings.uiState.activeTab as RibbonTab) || "home");
+  const [toolbarMode, setToolbarModeOriginal] = useState<ToolbarMode>((settings.uiState.toolbarMode as ToolbarMode) || "full");
+  const [toolbarPinned, setToolbarPinnedOriginal] = useState(settings.uiState.toolbarPinned ?? true);
+  const [explorerOpen, setExplorerOpenOriginal] = useState(settings.uiState.explorerOpen ?? false);
+  const [zoomLevel, setZoomLevelOriginal] = useState(settings.uiState.zoomLevel ?? 100);
+
+  const setActiveTab = useCallback((tab: RibbonTab | ((prev: RibbonTab) => RibbonTab)) => {
+    setActiveTabOriginal(prev => {
+      const next = typeof tab === 'function' ? tab(prev) : tab;
+      onPersistProperty("uiState", "activeTab", next);
+      return next;
+    });
+  }, [onPersistProperty]);
+
+  const setToolbarMode = useCallback((mode: ToolbarMode | ((prev: ToolbarMode) => ToolbarMode)) => {
+    setToolbarModeOriginal(prev => {
+      const next = typeof mode === 'function' ? mode(prev) : mode;
+      onPersistProperty("uiState", "toolbarMode", next);
+      return next;
+    });
+  }, [onPersistProperty]);
+
+  const setToolbarPinned = useCallback((pinned: boolean | ((prev: boolean) => boolean)) => {
+    setToolbarPinnedOriginal(prev => {
+      const next = typeof pinned === 'function' ? pinned(prev) : pinned;
+      onPersistProperty("uiState", "toolbarPinned", next);
+      return next;
+    });
+  }, [onPersistProperty]);
+
+  const setExplorerOpen = useCallback((open: boolean | ((prev: boolean) => boolean)) => {
+    setExplorerOpenOriginal(prev => {
+      const next = typeof open === 'function' ? open(prev) : open;
+      onPersistProperty("uiState", "explorerOpen", next);
+      return next;
+    });
+  }, [onPersistProperty]);
+
+  const setZoomLevel = useCallback((level: number | ((prev: number) => number)) => {
+    setZoomLevelOriginal(prev => {
+      const next = typeof level === 'function' ? level(prev) : level;
+      onPersistProperty("uiState", "zoomLevel", next);
+      return next;
+    });
+  }, [onPersistProperty]);
+
   const [calcMeasureWizardOpen, setCalcMeasureWizardOpen] = useState<string | null>(null);
   const [calcRowWizardOpen, setCalcRowWizardOpen] = useState(false);
+  const [editingCalcRow, setEditingCalcRow] = useState<any | null>(null);
   const [calcRowPanelOpen, setCalcRowPanelOpen] = useState(false);
   const [totalsPanelOpen, setTotalsPanelOpen] = useState(false);
   const [manageColumnsPanelOpen, setManageColumnsPanelOpen] = useState(false);
   const [condFormatPanelOpen, setCondFormatPanelOpen] = useState(false);
+
   // Preconfigured draft rule passed to ConditionalFormattingPanel when the
   // user selects a Quick Conditional Formatting preset from the ribbon.
   // The panel opens on the edit view with this rule populated (not saved yet)
@@ -114,6 +210,8 @@ export const App: React.FC<AppProps> = ({
   const [topNPanelOpen, setTopNPanelOpen] = useState(false);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [levelPanelOpen, setLevelPanelOpen] = useState(false);
+  const [themeGalleryOpen, setThemeGalleryOpen] = useState(false);
+  const [headerOptionsOpen, setHeaderOptionsOpen] = useState(false);
 
   // Undo/redo stacks (snapshots of manualData.edits JSON)
   const [undoStack, setUndoStack] = useState<string[]>([]);
@@ -124,6 +222,13 @@ export const App: React.FC<AppProps> = ({
     measureIndex: 0,
     direction: "none",
   });
+
+  useEffect(() => {
+    setActiveTabOriginal((settings.uiState.activeTab as RibbonTab) || "home");
+    setToolbarModeOriginal((settings.uiState.toolbarMode as ToolbarMode) || "full");
+    setToolbarPinnedOriginal(settings.uiState.toolbarPinned ?? true);
+    setZoomLevelOriginal(settings.uiState.zoomLevel ?? 100);
+  }, [settings.uiState]);
 
   useEffect(() => {
     setSortConfig((prev) => {
@@ -247,6 +352,15 @@ export const App: React.FC<AppProps> = ({
       }
     } catch { /* ignore */ }
 
+    // Apply individually hidden row keys
+    try {
+      const hiddenKeys: string[] = JSON.parse(settings.manualData.hiddenRowKeys || "[]");
+      if (Array.isArray(hiddenKeys) && hiddenKeys.length > 0) {
+        const hset = new Set<string>(hiddenKeys);
+        rows = rows.filter(r => !hset.has(r.key));
+      }
+    } catch { /* ignore */ }
+
     // Inject group header rows from settings.manualData.groupings
     type GroupDef = { id: string; label: string; rowKeys: string[] };
     let groupings: GroupDef[] = [];
@@ -301,7 +415,17 @@ export const App: React.FC<AppProps> = ({
     }
 
     return rows;
-  }, [sortedRows, settings.general.invertRows, settings.manualData.groupings]);
+  }, [
+    sortedRows,
+    settings.general.invertRows,
+    settings.manualData.filterRules,
+    settings.manualData.topNConfig,
+    settings.manualData.hiddenRowLevels,
+    settings.manualData.hiddenRowKeys,
+    settings.manualData.groupings,
+    model.flattenedColumns,
+    model.cellMap,
+  ]);
 
   // Parse aggregation overrides once: Record<measureIndex, "sum"|"avg"|"min"|"max"|"count"|"none">
   const aggregationOverrides = useMemo((): Record<number, string> => {
@@ -388,7 +512,7 @@ export const App: React.FC<AppProps> = ({
   }, [allowInteractions]);
 
   const handleRowSelect = useCallback(async (
-    rowKey: string,
+    _rowKey: string,
     selectionId: powerbi.visuals.ISelectionId | undefined,
     multiSelect: boolean
   ) => {
@@ -401,7 +525,7 @@ export const App: React.FC<AppProps> = ({
     } catch (error) {
       console.error("Selection error:", error);
     }
-  }, [selectionManager, selectionState]);
+  }, [allowInteractions, selectionManager, selectionState]);
 
   const handleClearSelection = useCallback(async () => {
     if (!allowInteractions) return;
@@ -422,18 +546,32 @@ export const App: React.FC<AppProps> = ({
 
   const handleExportCSV = useCallback(() => {
     if (!allowInteractions) return;
+    console.log("MatrixPro: Exporting to CSV...");
     exportToCSV(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
   }, [displayRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
 
   const handleExportXLSX = useCallback(() => {
     if (!allowInteractions) return;
+    console.log("MatrixPro: Exporting to XLSX...");
     exportToXLSX(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
   }, [displayRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
 
   const handleExportPDF = useCallback(() => {
     if (!allowInteractions) return;
+    console.log("MatrixPro: Exporting to PDF...");
     exportToPDF(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
   }, [displayRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
+
+  const handleExportJSON = useCallback(() => {
+    if (!allowInteractions) return;
+    console.log("MatrixPro: Exporting to JSON...");
+    exportToJSON(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
+  }, [displayRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
+
+  const openSmartAnalysis = useCallback(() => {
+    if (!allowInteractions) return;
+    setSmartAnalysisOpen(true);
+  }, [allowInteractions]);
 
   const handleZoomIn = useCallback(() => {
     setZoomLevel(prev => Math.min(200, prev + 10));
@@ -479,13 +617,21 @@ export const App: React.FC<AppProps> = ({
     setCalcRowWizardOpen(false);
   }, []);
 
-  const openCalcRowPanel = useCallback(() => {
-    setCalcRowPanelOpen(true);
-  }, []);
 
   const closeCalcRowPanel = useCallback(() => {
     setCalcRowPanelOpen(false);
   }, []);
+
+  const handleOpenCalcRowPanel = useCallback((action: RowInsertAction = "panel") => {
+    if (action === "panel") {
+      setCalcRowPanelOpen(true);
+      return;
+    }
+
+    const currentRows = migrateInsertedRows(settings.calculations.rows);
+    const nextRows = [...currentRows, createQuickInsertedRow(action, currentRows.length)];
+    onPersistProperty("calculations", "rows", JSON.stringify(nextRows));
+  }, [settings.calculations.rows, onPersistProperty]);
 
   const handleApplyCalcRows = useCallback((nextRows: InsertedRow[]) => {
     onPersistProperty("calculations", "rows", JSON.stringify(nextRows));
@@ -534,7 +680,18 @@ export const App: React.FC<AppProps> = ({
     }
   }, [settings.calculations.measures, onPersistProperty]);
 
+  const handleDeleteCalcMeasure = useCallback((measureId: string) => {
+    try {
+      const currentMeasures: any[] = JSON.parse(settings.calculations.measures || "[]");
+      const updatedMeasures = currentMeasures.filter((measure: any) => measure.id !== measureId);
+      onPersistProperty("calculations", "measures", JSON.stringify(updatedMeasures));
+    } catch (e) {
+      console.error("Failed to delete calculated measure", e);
+    }
+  }, [settings.calculations.measures, onPersistProperty]);
+
   const handleSaveCalcRow = useCallback((row: {
+    id?: string;
     name: string;
     formulaType: "sum" | "subtract" | "custom";
     sourceRowKeys: string[];
@@ -546,14 +703,15 @@ export const App: React.FC<AppProps> = ({
     try {
       const currentRows = JSON.parse(settings.calculations.rows || "[]");
 
-      const newRow: any = {
-        id: `row_${Date.now()}`,
+      const rowDef: any = {
+        id: row.id || `row_${Date.now()}`,
         name: row.name,
         formulaType: row.formulaType,
         rowReferences: row.sourceRowKeys,
         customFormula: row.customFormula,
         enabled: true,
-        order: currentRows.length,
+        placement: row.placement,
+        targetRowKey: row.targetRowKey,
         style: {
           bold: row.style === "bold" || row.style === "sectionHeader",
           italic: false,
@@ -570,13 +728,81 @@ export const App: React.FC<AppProps> = ({
         insertAtTop: row.placement === "before" && !row.targetRowKey,
       };
 
-      const updatedRows = [...currentRows, newRow];
+      let updatedRows = [...currentRows];
+      if (row.id) {
+        const idx = updatedRows.findIndex(r => r.id === row.id);
+        if (idx !== -1) {
+          rowDef.order = updatedRows[idx].order;
+          updatedRows[idx] = rowDef;
+        }
+      } else {
+        rowDef.order = updatedRows.length;
+        updatedRows.push(rowDef);
+      }
+
       onPersistProperty("calculations", "rows", JSON.stringify(updatedRows));
       setCalcRowWizardOpen(false);
+      setEditingCalcRow(null);
     } catch (e) {
       console.error("Failed to save calculated row", e);
     }
   }, [settings.calculations.rows, onPersistProperty]);
+
+  const handleDeleteCalcRow = useCallback((rowKey: string) => {
+    try {
+      const id = rowKey.startsWith("__calcrow__") ? rowKey.replace("__calcrow__", "") : null;
+      if (!id) return;
+
+      const currentRows = JSON.parse(settings.calculations.rows || "[]");
+      const updatedRows = currentRows.filter((r: any) => r.id !== id);
+      onPersistProperty("calculations", "rows", JSON.stringify(updatedRows));
+    } catch (e) {
+      console.error("Failed to delete calculated row", e);
+    }
+  }, [settings.calculations.rows, onPersistProperty]);
+
+  const handleEditCalcRow = useCallback((rowKey: string) => {
+    const id = rowKey.startsWith("__calcrow__") ? rowKey.replace("__calcrow__", "") : null;
+    if (!id) return;
+
+    const currentRows = JSON.parse(settings.calculations.rows || "[]");
+    const row = currentRows.find((r: any) => r.id === id);
+    if (row) {
+      // Map back to wizard format
+      const wizardData = {
+        id: row.id,
+        name: row.name,
+        formulaType: row.formulaType,
+        sourceRowKeys: row.rowReferences,
+        customFormula: row.customFormula,
+        placement: row.placement || (row.insertAtTop ? "before" : row.insertAfterRowKey ? "after" : row.parentRowKey ? "child" : "after"),
+        targetRowKey: row.targetRowKey || row.insertAfterRowKey || row.parentRowKey || "",
+        style: row.isSubtotal ? "sectionHeader" : row.style?.borderBottom === "double" ? "doubleUnderline" : row.style?.borderBottom === "single" ? "underline" : row.style?.bold ? "bold" : "normal"
+      };
+      setEditingCalcRow(wizardData);
+      setCalcRowWizardOpen(true);
+    }
+  }, [settings.calculations.rows]);
+
+  const handleHideRow = useCallback((rowKey: string) => {
+    try {
+      const hiddenKeys = JSON.parse(settings.manualData.hiddenRowKeys || "[]") as string[];
+      const keysToHide = getNodeAndDescendantKeys(model.rowTree, rowKey);
+      const next = new Set(hiddenKeys);
+
+      keysToHide.forEach((key) => {
+        if (key && key !== "root") {
+          next.add(key);
+        }
+      });
+
+      if (next.size !== hiddenKeys.length) {
+        onPersistProperty("manualData", "hiddenRowKeys", JSON.stringify([...next]));
+      }
+    } catch (e) {
+      console.error("Failed to hide row", e);
+    }
+  }, [settings.manualData.hiddenRowKeys, onPersistProperty, model.rowTree]);
 
   const handleQuickVariance = useCallback((columnKey: string, measureIndex: number) => {
     try {
@@ -592,7 +818,9 @@ export const App: React.FC<AppProps> = ({
         id: `var_${Date.now()}`,
         name,
         description: `Variance for ${targetMeasure.name}`,
-        formula: `[${targetMeasure.name}] - PREV([${targetMeasure.name}])`,
+        // Variance formula: [Current] - [Base]
+        // Note: Real PREV() support would require more context, so we default to a safe subtraction for now
+        formula: `[${targetMeasure.name}] - [${targetMeasure.name}]`, 
         format: targetMeasure.format || "#,0.00",
         aggregationMode: "aggregate-then-calc",
         enabled: true,
@@ -730,6 +958,11 @@ export const App: React.FC<AppProps> = ({
     onPersistProperty("manualData", "rowFormats", JSON.stringify(current));
   }, [onPersistProperty, settings.manualData.rowFormats]);
 
+  const ribbonHeight = settings.appearance.showToolbar
+    ? (toolbarMode === "full" ? 86 : toolbarMode === "minimal-tabs" ? 34 : 40)
+    : 0;
+  const titleBarHeight = settings.title.show ? Math.max(0, settings.title.height || 0) : 0;
+
   if (!model.hasData) {
     return (
       <div className="advanced-matrix-visual" style={{ width, height }}>
@@ -751,27 +984,58 @@ export const App: React.FC<AppProps> = ({
             onPersistProperty={onPersistProperty}
             onExportCSV={handleExportCSV}
             onExportXLSX={handleExportXLSX}
+            onExportPDF={handleExportPDF}
+            onExportJSON={handleExportJSON}
+            onOpenThemeGallery={() => setThemeGalleryOpen(true)}
+            onOpenHeaderFooter={() => setHeaderOptionsOpen(true)}
             onZoomIn={handleZoomIn}
             onZoomOut={handleZoomOut}
             onZoomReset={handleZoomReset}
+            onOpenSmartAnalysis={openSmartAnalysis}
+            onOpenCalcMeasurePanel={openCalcMeasureWizard}
+            onOpenCalcRowPanel={handleOpenCalcRowPanel}
+            onOpenTotalsPanel={() => setTotalsPanelOpen(true)}
+            onOpenManageColumnsPanel={() => setManageColumnsPanelOpen(true)}
+            onOpenCondFormatPanel={() => setCondFormatPanelOpen(true)}
+            onOpenSortPanel={() => setSortPanelOpen(true)}
+            onOpenGoalSeek={() => setGoalSeekOpen(true)}
+            onOpenVariables={() => setVariablesPanelOpen(true)}
+            onOpenGroupPanel={() => setGroupPanelOpen(true)}
+            onOpenAggregation={() => setAggregationOpen(true)}
+            onOpenNotesPanel={() => setNotesPanelOpen(true)}
+            onOpenTopNPanel={() => setTopNPanelOpen(true)}
+            onOpenFilterPanel={() => setFilterPanelOpen(true)}
+            onOpenLevelPanel={() => setLevelPanelOpen(true)}
+            onAddQuickVariance={() => {}}
+            canUndo={undoStack.length > 0}
+            canRedo={redoStack.length > 0}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            rows={[]}
+            colFormatsJson="{}"
           />
         )}
-        <EmptyState
-          hasRows={model.hasRows}
-          hasValues={model.hasValues}
-          settings={settings}
-          onPersistProperty={onPersistProperty}
-        />
+        {settings.title.show && (
+          <TitleBar
+            settings={settings.title}
+            allowInteractions={allowInteractions}
+            onPersistProperty={onPersistProperty}
+          />
+        )}
+        <div style={{ height: Math.max(0, height - ribbonHeight - titleBarHeight) }}>
+          <EmptyState
+            hasRows={model.hasRows}
+            hasValues={model.hasValues}
+            settings={settings}
+            onPersistProperty={onPersistProperty}
+          />
+        </div>
       </div>
     );
   }
-
-  const ribbonHeight = settings.appearance.showToolbar
-    ? (toolbarMode === "full" ? 86 : toolbarMode === "minimal-tabs" ? 34 : 40)
-    : 0;
   const simulateBarHeight = settings.general.simulateMode ? 34 : 0;
   const footerHeight = 28;
-  const workspaceHeight = Math.max(0, height - ribbonHeight - simulateBarHeight - footerHeight);
+  const workspaceHeight = Math.max(0, height - ribbonHeight - titleBarHeight - simulateBarHeight - footerHeight);
 
   const explorerWidth = explorerOpen ? 280 : 0;
   const matrixWidth = Math.max(0, width - explorerWidth);
@@ -806,8 +1070,12 @@ export const App: React.FC<AppProps> = ({
           onExportCSV={handleExportCSV}
           onExportXLSX={handleExportXLSX}
           onExportPDF={handleExportPDF}
+          onExportJSON={handleExportJSON}
+          onOpenThemeGallery={() => setThemeGalleryOpen(true)}
+          onOpenHeaderFooter={() => setHeaderOptionsOpen(true)}
+          onOpenSmartAnalysis={openSmartAnalysis}
           onOpenCalcMeasurePanel={openCalcMeasureWizard}
-          onOpenCalcRowPanel={openCalcRowPanel}
+          onOpenCalcRowPanel={handleOpenCalcRowPanel}
           onOpenTotalsPanel={() => setTotalsPanelOpen(true)}
           onOpenManageColumnsPanel={() => setManageColumnsPanelOpen(true)}
           onOpenCondFormatPanel={() => setCondFormatPanelOpen(true)}
@@ -827,7 +1095,6 @@ export const App: React.FC<AppProps> = ({
           }}
           onCopyToClipboard={handleCopyToClipboard}
           onOpenSortPanel={() => setSortPanelOpen(true)}
-          onOpenSmartAnalysis={() => setSmartAnalysisOpen(true)}
           onOpenGoalSeek={() => setGoalSeekOpen(true)}
           onOpenVariables={() => setVariablesPanelOpen(true)}
           onOpenGroupPanel={() => setGroupPanelOpen(true)}
@@ -842,11 +1109,20 @@ export const App: React.FC<AppProps> = ({
           onUndo={handleUndo}
           onRedo={handleRedo}
           rows={displayRows}
+          colFormatsJson={settings.manualData.colFormats}
         />
       )}
 
       {settings.general.simulateMode && (
         <SimulateBar onExit={() => onPersistProperty("general", "simulateMode", false)} />
+      )}
+
+      {settings.title.show && (
+        <TitleBar
+          settings={settings.title}
+          allowInteractions={allowInteractions}
+          onPersistProperty={onPersistProperty}
+        />
       )}
 
       <div className="mx-workspace animate-in" style={{ height: workspaceHeight }}>
@@ -911,7 +1187,10 @@ export const App: React.FC<AppProps> = ({
               }}
               onAddQuickVariance={handleQuickVariance}
               intelliSenseContext={{
+                measures: model.measures,
                 calculatedMeasures: JSON.parse(settings.calculations.measures || "[]"),
+                columns: model.flattenedColumns,
+                rows: model.flattenedRows,
                 rowHierarchyLevels: model.rowLevelNames,
                 columnHierarchyLevels: model.columnLevelNames,
               }}
@@ -919,11 +1198,27 @@ export const App: React.FC<AppProps> = ({
               onColumnSelectionChange={setSelectedColumnKeys}
               selectedRowKeysForFormat={selectedRowKeysForFormat}
               onRowSelectionForFormatChange={setSelectedRowKeysForFormat}
+              onHideRow={handleHideRow}
+              onEditCalcRow={handleEditCalcRow}
+              onDeleteCalcRow={handleDeleteCalcRow}
               onToggleGroupCollapsed={handleToggleGroupCollapsed}
             />
           </div>
         </div>
       </div>
+
+      {!settings.appearance.showToolbar && allowInteractions && (
+        <button
+          className="mx-restore-toolbar-btn"
+          onClick={() => onPersistProperty("appearance", "showToolbar", true)}
+          title="Restore Toolbar"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 15l-6-6-6 6" />
+          </svg>
+          RESTORE TOOLBAR
+        </button>
+      )}
 
       <Footer
         rowCount={displayRows.length}
@@ -938,8 +1233,26 @@ export const App: React.FC<AppProps> = ({
         onToggleExplorer={toggleExplorer}
       />
 
+      <ThemeGallery
+        open={themeGalleryOpen}
+        currentPreset={settings.theme.preset}
+        onClose={() => setThemeGalleryOpen(false)}
+        onApply={(preset) => onPersistProperty("theme", "preset", preset)}
+      />
+
+      {headerOptionsOpen && (
+        <HeaderOptionsPanel
+          settings={settings}
+          onPersistProperty={onPersistProperty}
+          onClose={() => setHeaderOptionsOpen(false)}
+        />
+      )}
+
       {calcMeasureWizardOpen && (
         <CalcMeasureWizard
+          rows={model.flattenedRows}
+          columns={model.flattenedColumns}
+          cellMap={model.cellMap}
           measures={model.measures}
           onSave={handleSaveCalcMeasure}
           onClose={closeCalcMeasureWizard}
@@ -954,8 +1267,17 @@ export const App: React.FC<AppProps> = ({
       {calcRowWizardOpen && (
         <CalcRowWizard
           rows={displayRows}
+          initialData={editingCalcRow}
           onSave={handleSaveCalcRow}
-          onClose={closeCalcRowWizard}
+          onClose={() => { closeCalcRowWizard(); setEditingCalcRow(null); }}
+          intelliSenseContext={{
+            measures: model.measures,
+            calculatedMeasures: JSON.parse(settings.calculations.measures || "[]"),
+            columns: model.flattenedColumns,
+            rows: displayRows,
+            rowHierarchyLevels: model.rowLevelNames,
+            columnHierarchyLevels: model.columnLevelNames,
+          }}
         />
       )}
 
@@ -981,11 +1303,14 @@ export const App: React.FC<AppProps> = ({
       {manageColumnsPanelOpen && (
         <ManageColumnsPanel
           columns={model.flattenedColumns}
+          rows={model.flattenedRows}
           measures={model.measures}
           settings={settings}
           onClose={() => setManageColumnsPanelOpen(false)}
           onPersistProperty={onPersistProperty}
           onOpenCalcMeasureWizard={openCalcMeasureWizard}
+          onDeleteCalcMeasure={handleDeleteCalcMeasure}
+          onDeleteCalcRow={handleDeleteCalcRow}
         />
       )}
 
@@ -1122,6 +1447,17 @@ export const App: React.FC<AppProps> = ({
           onPersistProperty={onPersistProperty}
         />
       )}
+
+      {/* Dynamic Style Injection for Resize Handles and Layout Fixes */}
+      <style>{`
+        .col-resize-handle { position: absolute; right: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 10; }
+        .col-resize-handle:hover { background-color: var(--matrix-primary); opacity: 0.5; }
+        .row-header-width-resize-handle { position: absolute; right: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 10; }
+        .row-header-width-resize-handle:hover { background-color: var(--matrix-primary); opacity: 0.5; }
+        .merged-header-label { white-space: normal !important; display: block !important; word-break: break-word !important; }
+        .merged-header-cell { min-height: 28px; height: auto !important; }
+        .merged-header-row { height: auto !important; min-height: 28px; }
+      `}</style>
     </div>
   );
 };

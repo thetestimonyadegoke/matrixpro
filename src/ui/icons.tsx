@@ -105,6 +105,18 @@ export const IconChevronDown: React.FC<IconProps> = (props) => (
   </Svg>
 );
 
+export const IconChevronLeft: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M10 4.5l-4 4 4 4" />
+  </Svg>
+);
+
+export const IconChevronRight: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M6 4.5l4 4-4 4" />
+  </Svg>
+);
+
 export const IconBold: React.FC<IconProps> = (props) => (
   <Svg {...props}>
     <path {...stroke} d="M4 3h5a2.5 2.5 0 010 5H4V3z" />
@@ -495,6 +507,14 @@ export const IconExcel: React.FC<IconProps> = (props) => (
     <path {...stroke} d="M4 2.5h5l3.5 3.5v8H4V2.5z" />
     <path {...stroke} d="M9 3v3h3" />
     <text x="5" y="12" fontSize="4" fill="currentColor">XLS</text>
+  </Svg>
+);
+
+export const IconJson: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M4 2.5h5l3.5 3.5v8H4V2.5z" />
+    <path {...stroke} d="M9 3v3h3" />
+    <text x="5" y="12" fontSize="4" fill="currentColor">JS</text>
   </Svg>
 );
 

@@ -1,13 +1,13 @@
 import React, { memo, useMemo } from "react";
 import { FlattenedNode } from "../model/tree";
-import { CellValue, MeasureInfo, getCellValue } from "../model/pivot";
+import { CellValue, MeasureInfo, getCellValue, formatValue } from "../model/pivot";
 import {
   VisualSettings,
   RowQuickFormat,
   RowScalingFactor,
   migrateInsertedRows,
 } from "../settings/settings";
-import { ViewportRange } from "../virtualization/viewport";
+import { ViewportRange, ColumnWidthMap, getColumnWidth } from "../virtualization/viewport";
 import { CellStyle } from "../format/conditional";
 import { Cell } from "./Cell";
 import { getRowStyle } from "../format/styles";
@@ -17,7 +17,9 @@ import {
   formatQuickNumber,
   composeCellStyle,
   resolveAlignment,
+  resolveColumnFormat,
   QuickNumberFormat,
+  quickFormatDivisor,
 } from "../format/directFormats";
 
 /**
@@ -84,6 +86,7 @@ export interface RowProps {
   onCellClick: (colKey: string, measureIndex: number, colIndex: number, modifiers: { ctrl: boolean; shift: boolean }) => void;
   activeCell: { rowKey: string; colKey: string; measureIndex: number } | null;
   selectedColumnKeys?: Set<string>;
+  columnWidthMap: ColumnWidthMap;
 }
 
 export const Row: React.FC<RowProps> = memo(({
@@ -106,6 +109,7 @@ export const Row: React.FC<RowProps> = memo(({
   onCellClick,
   activeCell,
   selectedColumnKeys,
+  columnWidthMap,
 }) => {
   const rowStyle = getRowStyle(settings, rowIndex, row.isSubtotal, row.isGrandTotal, isSelected);
 
@@ -262,8 +266,20 @@ export const Row: React.FC<RowProps> = memo(({
       {visibleRange.startCol > 0 && (
         <div
           style={{
-            width: visibleRange.startCol * columnWidth,
-            minWidth: visibleRange.startCol * columnWidth,
+            width: (() => {
+              let w = 0;
+              for (let i = 0; i < visibleRange.startCol; i++) {
+                w += getColumnWidth(columnWidthMap, i);
+              }
+              return w;
+            })(),
+            minWidth: (() => {
+              let w = 0;
+              for (let i = 0; i < visibleRange.startCol; i++) {
+                w += getColumnWidth(columnWidthMap, i);
+              }
+              return w;
+            })(),
             flexShrink: 0,
           }}
         />
@@ -309,42 +325,69 @@ export const Row: React.FC<RowProps> = memo(({
         const isColSelected = !!selectedColumnKeys?.has(`${colKey}::m${mIdx}`);
 
         // Apply per-column direct formatting (bold/italic/bg/color/align/quickFormat).
-        const compositeColKey = `${colKey}::m${mIdx}`;
-        const thisColFormat = colFormats[compositeColKey];
+        // Apply logical identity column formatting (Measure Global -> Dimension Global -> Specific).
+        const thisColFormat = resolveColumnFormat(colFormats, colKey, mIdx);
 
         // Quick-format scales the displayed numeric value and re-renders it
         // with the chosen precision. Non-numeric / null cells are untouched.
-        if (thisColFormat?.quickFormat && thisColFormat.quickFormat !== "none" && displayValue !== null && !Number.isNaN(displayValue)) {
-          displayFormatted = formatQuickNumber(displayValue, thisColFormat.quickFormat, thisColFormat.decimals);
+        const globalQuickFormat = (settings.values as any).quickFormat || "none";
+        const currentQF = thisColFormat?.quickFormat || globalQuickFormat;
+        const currentNF = thisColFormat?.numberFormat || settings.values.numberFormat || "";
+        const currentDecimals = thisColFormat?.decimals ?? settings.values.decimals;
+
+        if (displayValue !== null && !Number.isNaN(displayValue)) {
+          if (currentQF && currentQF !== "none") {
+            // If we have a Quick Format (scaling), we scale it first.
+            const scaledValue = displayValue / quickFormatDivisor(currentQF, displayValue);
+            const decimals = currentDecimals ?? 1;
+            
+            if (currentNF) {
+              // If there's ALSO a number format (e.g. %), apply it to the scaled value.
+              displayFormatted = formatValue(scaledValue, currentNF);
+            } else {
+              // Otherwise use standard quick format display.
+              displayFormatted = formatQuickNumber(displayValue, currentQF, decimals);
+            }
+          } else if (currentNF) {
+            // Number format only (%, $, comma). Apply with decimals if set.
+            if (currentNF.includes("%")) {
+              const dec = currentDecimals ?? 1;
+              displayFormatted = displayValue.toLocaleString(undefined, {
+                style: "percent",
+                minimumFractionDigits: dec,
+                maximumFractionDigits: dec,
+              });
+            } else if (currentNF.includes("$")) {
+              const dec = currentDecimals ?? 2;
+              displayFormatted = displayValue.toLocaleString(undefined, {
+                style: "currency",
+                currency: "USD",
+                minimumFractionDigits: dec,
+                maximumFractionDigits: dec,
+              });
+            } else {
+              displayFormatted = formatValue(displayValue, currentNF);
+            }
+          } else if (currentDecimals !== undefined && currentDecimals !== null) {
+            // Decimals-only adjustment (no special format, no scaling).
+            displayFormatted = displayValue.toLocaleString(undefined, {
+              minimumFractionDigits: currentDecimals,
+              maximumFractionDigits: currentDecimals,
+            });
+          }
         }
 
-        // Row-level scaling + quick-format (for calculated rows). Runs AFTER
-        // the column-level quick format so a row-level override wins for
-        // its own row. We apply the row scaling divisor first, then wrap
-        // the result in the row-level quick format (number/currency/pct).
+        // Row-level scaling + quick-format (for calculated rows). 
         if (calcRowFormat && displayValue !== null && !Number.isNaN(displayValue)) {
           const scaled = (() => {
             const qf = scalingToQuick(calcRowFormat.sf);
             if (!qf) return displayValue;
-            // `formatQuickNumber` also formats — we only want the scaled
-            // number. Mirror its divisor selection.
-            if (qf === "thousands") return displayValue / 1e3;
-            if (qf === "millions") return displayValue / 1e6;
-            if (qf === "billions") return displayValue / 1e9;
-            if (qf === "trillions") return displayValue / 1e12;
-            // auto
-            const abs = Math.abs(displayValue);
-            if (abs >= 1e12) return displayValue / 1e12;
-            if (abs >= 1e9) return displayValue / 1e9;
-            if (abs >= 1e6) return displayValue / 1e6;
-            if (abs >= 1e3) return displayValue / 1e3;
-            return displayValue;
+            return displayValue / quickFormatDivisor(qf, displayValue);
           })();
 
           if (calcRowFormat.qf !== "none") {
             displayFormatted = applyRowQuickFormat(scaled, calcRowFormat.qf);
           } else if (calcRowFormat.sf !== "none") {
-            // Scaling only, no format override — format as plain number.
             displayFormatted = formatQuickNumber(
               displayValue,
               scalingToQuick(calcRowFormat.sf),
@@ -353,7 +396,7 @@ export const Row: React.FC<RowProps> = memo(({
           }
         }
 
-        const composedStyle = composeCellStyle(settings, cellStyle, thisColFormat, thisRowFormat);
+        const composedStyle = composeCellStyle(settings, cellStyle, thisColFormat, thisRowFormat, row.isSubtotal, row.isGrandTotal);
         const composedAlign = resolveAlignment(settings, thisColFormat, thisRowFormat);
 
         return (
@@ -363,7 +406,7 @@ export const Row: React.FC<RowProps> = memo(({
             formattedValue={displayFormatted}
             columnIndex={actualColIndex}
             measureIndex={mIdx}
-            columnWidth={columnWidth}
+            columnWidth={getColumnWidth(columnWidthMap, actualColIndex)}
             settings={settings}
             cellStyle={cellStyle}
             isSubtotal={row.isSubtotal}
