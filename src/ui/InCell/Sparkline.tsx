@@ -41,6 +41,7 @@ export const Sparkline: React.FC<SparklineProps> = memo(({
   const [hoverData, setHoverData] = useState<SparklineTooltipData | null>(null);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (values.length === 0) return;
     const svg = e.currentTarget;
     const rect = svg.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -49,6 +50,7 @@ export const Sparkline: React.FC<SparklineProps> = memo(({
     if (pointIndex >= 0 && pointIndex < values.length) {
       const value = values[pointIndex];
       const numericValues = values.filter((v): v is number => v !== null);
+      if (numericValues.length === 0) return;
       const minVal = Math.min(...numericValues);
       const maxVal = Math.max(...numericValues);
       
@@ -164,6 +166,24 @@ export const Sparkline: React.FC<SparklineProps> = memo(({
         onClick={handleClick}
         style={{ cursor: onInspect ? "pointer" : "default" }}
       >
+        <defs>
+          <linearGradient id={`sparkline-fill-${width}-${height}`} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={lineColor} stopOpacity="0.18" />
+            <stop offset="100%" stopColor={lineColor} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {pathSegments.map((d, i) => (
+          <path
+            key={`glow-${i}`}
+            d={d}
+            stroke={lineColor}
+            fill="none"
+            strokeWidth={4}
+            opacity={0.14}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
         {pathSegments.map((d, i) => (
           <path
             key={i}
@@ -172,6 +192,8 @@ export const Sparkline: React.FC<SparklineProps> = memo(({
             stroke={lineColor}
             fill="none"
             strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
         ))}
         {showMinMaxMarkers && minIndex >= 0 && !points[minIndex].isNull && (

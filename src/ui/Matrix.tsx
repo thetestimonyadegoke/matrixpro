@@ -18,7 +18,7 @@ import { Row } from "./Row";
 import { RowHeader } from "./RowHeader";
 import { MergedColumnHeaders, ColumnArrangement } from "./MergedColumnHeaders";
 import { CellStyle, evaluateCellStyle, EvaluationContext } from "../format/conditional";
-import { parseColFormats } from "../format/directFormats";
+import { parseColFormats, parseRowFormats } from "../format/directFormats";
 import { getRowStyle } from "../format/styles";
 import { TooltipServiceWrapper } from "../powerbi/tooltip";
 import { ContextMenu, ContextMenuItem, buildCellMenuItems, buildRowHeaderMenuItems, buildColumnHeaderMenuItems } from "./ContextMenu";
@@ -26,6 +26,7 @@ import { FormulaBar, FormulaBarRef } from "./FormulaBar";
 import { BulkOperationsPanel, BulkOperationType } from "./BulkOperationsPanel";
 import { generateCellLabel, formatCellReferenceForFormula } from "../utils/cellNaming";
 import { IntelliSenseContext } from "../intellisense/FormulaIntelliSense";
+import { generateRowKey } from "../model/keys";
 
 export interface MatrixProps {
   rows: FlattenedNode[];
@@ -60,6 +61,8 @@ export interface MatrixProps {
   onToggleGroupCollapsed?: (rowDefId: string) => void;
   onColumnSelectionChange?: (keys: string[]) => void;
   onHideRow?: (rowKey: string) => void;
+  onHideColumns?: (keys: string[]) => void;
+  onSetSortDirection?: (columnKey: string, measureIndex: number, direction: "asc" | "desc" | "none") => void;
   onEditCalcRow?: (rowKey: string) => void;
   onDeleteCalcRow?: (rowKey: string) => void;
 }
@@ -100,9 +103,43 @@ export const Matrix: React.FC<MatrixProps> = ({
   onToggleGroupCollapsed: _onToggleGroupCollapsed,
   onColumnSelectionChange,
   onHideRow,
+  onHideColumns,
+  onSetSortDirection,
   onEditCalcRow,
   onDeleteCalcRow,
 }) => {
+  const toAlphaColor = useCallback((color: string | undefined, alpha: number, fallback: string) => {
+    const value = (color || "").trim();
+    if (!value) return fallback;
+    if (value.startsWith("#")) {
+      const hex = value.slice(1);
+      const normalized = hex.length === 3
+        ? hex.split("").map(ch => ch + ch).join("")
+        : hex.length === 6
+          ? hex
+          : "";
+      if (normalized.length === 6) {
+        const r = parseInt(normalized.slice(0, 2), 16);
+        const g = parseInt(normalized.slice(2, 4), 16);
+        const b = parseInt(normalized.slice(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      }
+    }
+    if (value.startsWith("rgb(")) {
+      return value.replace("rgb(", "rgba(").replace(")", `, ${alpha})`);
+    }
+    if (value.startsWith("rgba(")) return value;
+    return value;
+  }, []);
+
+  const labelOverrides = useMemo(() => {
+    try {
+      return JSON.parse(settings.manualData.labelOverrides || "{}") as Record<string, string>;
+    } catch {
+      return {} as Record<string, string>;
+    }
+  }, [settings.manualData.labelOverrides]);
+
   type GridColumn = {
     key: string;
     col: FlattenedNode;
@@ -128,6 +165,7 @@ export const Matrix: React.FC<MatrixProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const horizontalScrollRef = useRef<HTMLDivElement>(null);
   const rowHeadersRef = useRef<HTMLDivElement>(null);
+  const rowHeadersInnerRef = useRef<HTMLDivElement>(null);
 
   const formulaBarRef = useRef<FormulaBarRef>(null);
 
@@ -394,6 +432,17 @@ export const Matrix: React.FC<MatrixProps> = ({
       if (draggedRowObj) {
         const draggedLevel = draggedRowObj.level;
         const startIdx = rows.findIndex(r => r.key === draggedRowKey);
+        const subtotalKey = generateRowKey([...(draggedRowObj.path || []), "__subtotal"] as (string | number)[]);
+        const grandTotalKey = generateRowKey([...(draggedRowObj.path && draggedRowObj.path.length > 0 ? draggedRowObj.path : ["root"]), "__grand_total"] as (string | number)[]);
+        draggedKeysToMove.push(subtotalKey, grandTotalKey);
+        for (const r of rows) {
+          const isAttachedTotal = (r.isSubtotal || r.isGrandTotal) &&
+            r.path.length >= draggedRowObj.path.length &&
+            draggedRowObj.path.every((part, index) => r.path[index] === part);
+          if (isAttachedTotal) {
+            draggedKeysToMove.push(r.key);
+          }
+        }
         if (startIdx > -1) {
           for (let i = startIdx + 1; i < rows.length; i++) {
             const r = rows[i];
@@ -406,15 +455,23 @@ export const Matrix: React.FC<MatrixProps> = ({
         }
       }
 
+      const draggedKeySet = new Set(draggedKeysToMove);
+      const normalizedDraggedKeys = currentOrder.filter((key: string) => draggedKeySet.has(key));
+      for (const key of draggedKeysToMove) {
+        if (!normalizedDraggedKeys.includes(key)) {
+          normalizedDraggedKeys.push(key);
+        }
+      }
+
       // Remove dragged row and all its descendants from current order
-      currentOrder = currentOrder.filter((k: string) => !draggedKeysToMove.includes(k));
+      currentOrder = currentOrder.filter((k: string) => !draggedKeySet.has(k));
 
       // Find target position in current order
       const targetIdx = currentOrder.indexOf(dragOverRowKey);
 
       if (targetIdx === -1) {
         // Target not in order, append dragged rows
-        currentOrder.push(...draggedKeysToMove);
+        currentOrder.push(...normalizedDraggedKeys);
       } else {
         // Insert at appropriate position
         let insertIdx: number;
@@ -439,7 +496,7 @@ export const Matrix: React.FC<MatrixProps> = ({
           // "child" - insert right after the target (making it the first child)
           insertIdx = targetIdx + 1;
         }
-        currentOrder.splice(insertIdx, 0, ...draggedKeysToMove);
+        currentOrder.splice(insertIdx, 0, ...normalizedDraggedKeys);
       }
 
       onPersistProperty("manualData", "rowOrder", JSON.stringify(currentOrder));
@@ -497,7 +554,7 @@ export const Matrix: React.FC<MatrixProps> = ({
   // Column header height based on measured content height
   const columnHeaderHeight = measuredHeaderHeight;
 
-  const FORMULA_BAR_HEIGHT = 40;
+  const FORMULA_BAR_HEIGHT = 52;
   const HORIZONTAL_SCROLLBAR_HEIGHT = 24;
   const formulaBarHeight = FORMULA_BAR_HEIGHT;
 
@@ -528,6 +585,22 @@ export const Matrix: React.FC<MatrixProps> = ({
 
     // Filter columns to only include those that should have a corresponding data cell in the grid.
     // These are truly leaf columns OR nodes that are collapsed (acting as leaves) OR subtotal nodes.
+    const hiddenSet = new Set(
+      (() => { try { return JSON.parse(settings.manualData.hiddenCols || "[]") as string[]; } catch { return []; } })()
+    );
+    const hiddenColumnPaths = columns
+      .filter(col => hiddenSet.has(col.key))
+      .map(col => (col.path || []).map(value => String(value ?? "")))
+      .filter(path => path.length > 0);
+    const isHiddenColumn = (col: FlattenedNode) => {
+      if (hiddenSet.has(col.key)) return true;
+      const colPath = (col.path || []).map(value => String(value ?? ""));
+      return hiddenColumnPaths.some(hiddenPath =>
+        hiddenPath.length <= colPath.length &&
+        hiddenPath.every((part, index) => colPath[index] === part)
+      );
+    };
+
     const visualLeafs: FlattenedNode[] = [];
     const seenKeys = new Set<string>(); // Track keys to prevent duplicates
 
@@ -535,6 +608,7 @@ export const Matrix: React.FC<MatrixProps> = ({
       const col = columns[i];
       const nextCol = columns[i + 1];
       const isLast = i === columns.length - 1;
+      if (isHiddenColumn(col)) continue;
 
       // It's a leaf for rendering purposes if:
       // 1. It's a true leaf node (isLeaf=true)
@@ -658,17 +732,18 @@ export const Matrix: React.FC<MatrixProps> = ({
       baseResult = sorted;
     }
 
-    // Apply hidden columns filter
     let finalResult = baseResult;
-    const hiddenSet = new Set(
-      (() => { try { return JSON.parse(settings.manualData.hiddenCols || "[]") as string[]; } catch { return []; } })()
-    );
     if (hiddenSet.size > 0) {
       finalResult = finalResult.filter(gc => {
-        // hide by measure key ("m_N")
+        const stableMeasureIndex = gc.measure.index ?? gc.measureIndex;
+        // hide by measure key ("m_N"). Check both visible index and stable measure index.
         if (hiddenSet.has(`m_${gc.measureIndex}`)) return false;
-        // hide by column key
-        if (hiddenSet.has(gc.col.key)) return false;
+        if (hiddenSet.has(`m_${stableMeasureIndex}`)) return false;
+        if (hiddenSet.has(`m:${gc.measureIndex}`)) return false;
+        if (hiddenSet.has(`m:${stableMeasureIndex}`)) return false;
+        if (hiddenSet.has(gc.key)) return false;
+        // hide by exact column key or any hidden parent path.
+        if (isHiddenColumn(gc.col)) return false;
         return true;
       });
     }
@@ -725,28 +800,33 @@ export const Matrix: React.FC<MatrixProps> = ({
 
   const selectedColumnKeysSet = useMemo(() => new Set(selectedColumnKeysArr || []), [selectedColumnKeysArr]);
   const selectedRowKeysForFormatSet = useMemo(() => new Set(selectedRowKeysForFormatArr || []), [selectedRowKeysForFormatArr]);
+  const rowFormats = useMemo(() => parseRowFormats(settings.manualData.rowFormats), [settings.manualData.rowFormats]);
 
   const handleColumnHeaderClick = useCallback((
     columnKey: string,
     measureIndex: number,
-    modifiers: { ctrl: boolean; shift: boolean }
+    modifiers: { ctrl: boolean; shift: boolean },
+    selectionKeys?: string[]
   ) => {
     if (!allowInteractions) return;
-    const key = `${columnKey}::m${measureIndex}`;
+    const keys = selectionKeys?.length ? selectionKeys : [`${columnKey}::m${measureIndex}`];
+    const current = selectedColumnKeysArr || [];
+    const currentSet = new Set(current);
+    const allSelected = keys.every(key => currentSet.has(key));
     let next: string[];
     
     if (modifiers.ctrl || modifiers.shift) {
-      if (selectedColumnKeysArr?.includes(key)) {
-        next = selectedColumnKeysArr.filter(k => k !== key);
+      if (allSelected) {
+        next = current.filter(key => !keys.includes(key));
       } else {
-        next = [...(selectedColumnKeysArr || []), key];
+        next = Array.from(new Set([...current, ...keys]));
       }
     } else {
-      // Toggle if already selected, or select single
-      if (selectedColumnKeysArr?.length === 1 && selectedColumnKeysArr[0] === key) {
+      // Toggle if the exact group is already selected, or select the whole header group.
+      if (current.length === keys.length && keys.every(key => currentSet.has(key))) {
         next = [];
       } else {
-        next = [key];
+        next = keys;
       }
     }
     
@@ -758,25 +838,34 @@ export const Matrix: React.FC<MatrixProps> = ({
     modifiers: { ctrl: boolean; shift: boolean }
   ) => {
     if (!allowInteractions) return;
-    const key = row.key;
+    const keys = rows
+      .filter(candidate => {
+        if (row.path.length === 0) return candidate.key === row.key;
+        return candidate.path.length >= row.path.length
+          && row.path.every((part, index) => candidate.path[index] === part);
+      })
+      .map(candidate => candidate.key);
+    const current = selectedRowKeysForFormatArr || [];
+    const currentSet = new Set(current);
+    const allSelected = keys.every(key => currentSet.has(key));
     let next: string[];
 
     if (modifiers.ctrl || modifiers.shift) {
-      if (selectedRowKeysForFormatArr?.includes(key)) {
-        next = selectedRowKeysForFormatArr.filter(k => k !== key);
+      if (allSelected) {
+        next = current.filter(key => !keys.includes(key));
       } else {
-        next = [...(selectedRowKeysForFormatArr || []), key];
+        next = Array.from(new Set([...current, ...keys]));
       }
     } else {
-      if (selectedRowKeysForFormatArr?.length === 1 && selectedRowKeysForFormatArr[0] === key) {
+      if (current.length === keys.length && keys.every(key => currentSet.has(key))) {
         next = [];
       } else {
-        next = [key];
+        next = keys;
       }
     }
     
     onRowSelectionForFormatChange?.(next);
-  }, [allowInteractions, selectedRowKeysForFormatArr, onRowSelectionForFormatChange]);
+  }, [allowInteractions, rows, selectedRowKeysForFormatArr, onRowSelectionForFormatChange]);
 
   const handleContextMenu = useCallback((
     e: React.MouseEvent,
@@ -808,7 +897,15 @@ export const Matrix: React.FC<MatrixProps> = ({
         },
         onOpenCalcMeasureWizard || (() => { }),
         () => onAddQuickVariance?.(colKey, measureIndex),
-        () => console.log("Export triggered"),
+        () => {
+          const payload = {
+            row: row.label,
+            column: columns.find(c => c.key === colKey)?.label || colKey,
+            measure: measures[measureIndex]?.name || `Measure ${measureIndex + 1}`,
+            value: cell?.formattedValue || "",
+          };
+          navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+        },
         () => {
           const edits = JSON.parse(settings.manualData.edits || "{}");
           delete edits[`${row.key}|${colKey}|${measureIndex}`];
@@ -827,14 +924,63 @@ export const Matrix: React.FC<MatrixProps> = ({
         () => onCollapseAllUnder?.(row.key),
         () => onOpenCalcRowWizard?.(row.key),
         () => {
-          const newLabel = prompt("Enter new label:", row.label);
+          const existingLabelOverrides = JSON.parse(settings.manualData.labelOverrides || "{}");
+          const existingLabel = existingLabelOverrides[row.key] || row.label;
+          const newLabel = prompt("Enter new label:", existingLabel);
           if (newLabel !== null) {
-            const labels = JSON.parse(settings.manualData.labelOverrides || "{}");
+            const labels = { ...existingLabelOverrides };
             labels[row.key] = newLabel;
             onPersistProperty("manualData", "labelOverrides", JSON.stringify(labels));
           }
         },
-        () => console.log("Move to Group triggered"),
+        () => {
+          const groupName = prompt("Move selected row or hierarchy to group:", "");
+          if (!groupName) return;
+          const trimmedGroupName = groupName.trim();
+          if (!trimmedGroupName) return;
+
+          const existingGroups = (() => {
+            try {
+              const parsed = JSON.parse(settings.manualData.groupings || "[]");
+              return Array.isArray(parsed) ? parsed : [];
+            } catch {
+              return [];
+            }
+          })();
+
+          const rowKeys = rows
+            .filter(candidate => {
+              if (row.path.length === 0) return candidate.key === row.key;
+              return candidate.path.length >= row.path.length
+                && row.path.every((part, index) => candidate.path[index] === part);
+            })
+            .map(candidate => candidate.key);
+
+          const normalizedGroups = existingGroups
+            .map((group: any) => ({
+              ...group,
+              rowKeys: Array.isArray(group.rowKeys)
+                ? group.rowKeys.filter((key: string) => !rowKeys.includes(key))
+                : [],
+            }))
+            .filter((group: any) => group.rowKeys.length > 0 || group.label === trimmedGroupName);
+
+          const targetIndex = normalizedGroups.findIndex((group: any) => group.label === trimmedGroupName);
+          if (targetIndex >= 0) {
+            normalizedGroups[targetIndex] = {
+              ...normalizedGroups[targetIndex],
+              rowKeys: Array.from(new Set([...(normalizedGroups[targetIndex].rowKeys || []), ...rowKeys])),
+            };
+          } else {
+            normalizedGroups.push({
+              id: `group_${Date.now()}`,
+              label: trimmedGroupName,
+              rowKeys,
+            });
+          }
+
+          onPersistProperty("manualData", "groupings", JSON.stringify(normalizedGroups));
+        },
         () => {
           const locks = JSON.parse(settings.manualData.locks || "[]");
           const newLocks = locks.includes(row.key) ? locks.filter((l: string) => l !== row.key) : [...locks, row.key];
@@ -852,40 +998,67 @@ export const Matrix: React.FC<MatrixProps> = ({
       setContextMenu({ x, y, type: "rowHeader", items });
     } else if (colKey !== undefined && measureIndex !== undefined) {
       // Column Header Context Menu
+      const clickedColumnKey = `${colKey}::m${measureIndex}`;
+      const selectedStructuralKeys = (selectedColumnKeysArr || []).filter(
+        key => !key.startsWith("m:") && !key.startsWith("m_")
+      );
+      const effectiveColumnKeys = selectedStructuralKeys.length > 0
+        ? selectedStructuralKeys
+        : [clickedColumnKey];
       const items = buildColumnHeaderMenuItems(
-        () => onSort(colKey, measureIndex),
-        () => onSort(colKey, measureIndex),
+        () => onSetSortDirection?.(colKey, measureIndex, "asc") ?? onSort(colKey, measureIndex),
+        () => onSetSortDirection?.(colKey, measureIndex, "desc") ?? onSort(colKey, measureIndex),
+        () => {
+          const labelOverrides = JSON.parse(settings.manualData.labelOverrides || "{}");
+          const measureOverrideKey = `m_${measureIndex}`;
+          const existingLabel = labelOverrides[colKey]
+            || labelOverrides[measureOverrideKey]
+            || columns.find(c => c.key === colKey)?.label
+            || measures[measureIndex]?.name
+            || "Header";
+          const newLabel = prompt("Enter new column header label:", existingLabel);
+          if (newLabel === null) return;
+
+          const next = { ...labelOverrides };
+          if (effectiveColumnKeys.length === 1 && (effectiveColumnKeys[0].startsWith("m:") || effectiveColumnKeys[0].startsWith("m_"))) {
+            next[measureOverrideKey] = newLabel;
+          } else {
+            next[colKey] = newLabel;
+          }
+          onPersistProperty("manualData", "labelOverrides", JSON.stringify(next));
+        },
         () => {
           // Move Left
           let colOrder = JSON.parse(settings.manualData.colOrder || "[]");
-          const idx = gridColumns.findIndex(c => c.key === `${colKey}::m${measureIndex}`);
+          const idx = gridColumns.findIndex(c => c.key === clickedColumnKey);
           if (idx > 0) {
             const target = gridColumns[idx - 1].key;
-            colOrder = colOrder.filter((k: string) => k !== `${colKey}::m${measureIndex}`);
+            colOrder = colOrder.filter((k: string) => k !== clickedColumnKey);
             const targetIdx = colOrder.indexOf(target);
-            colOrder.splice(targetIdx === -1 ? 0 : targetIdx, 0, `${colKey}::m${measureIndex}`);
+            colOrder.splice(targetIdx === -1 ? 0 : targetIdx, 0, clickedColumnKey);
             onPersistProperty("manualData", "colOrder", JSON.stringify(colOrder));
           }
         },
         () => {
           // Move Right
           let colOrder = JSON.parse(settings.manualData.colOrder || "[]");
-          const idx = gridColumns.findIndex(c => c.key === `${colKey}::m${measureIndex}`);
+          const idx = gridColumns.findIndex(c => c.key === clickedColumnKey);
           if (idx < gridColumns.length - 1) {
             const target = gridColumns[idx + 1].key;
-            colOrder = colOrder.filter((k: string) => k !== `${colKey}::m${measureIndex}`);
+            colOrder = colOrder.filter((k: string) => k !== clickedColumnKey);
             const targetIdx = colOrder.indexOf(target);
-            colOrder.splice(targetIdx === -1 ? colOrder.length : targetIdx + 1, 0, `${colKey}::m${measureIndex}`);
+            colOrder.splice(targetIdx === -1 ? colOrder.length : targetIdx + 1, 0, clickedColumnKey);
             onPersistProperty("manualData", "colOrder", JSON.stringify(colOrder));
           }
         },
         () => onPersistProperty("general", "freezeFirstColumn", !settings.general.freezeFirstColumn),
         () => onAddQuickVariance?.(colKey, measureIndex),
-        settings.general.freezeFirstColumn
+        settings.general.freezeFirstColumn,
+        () => onHideColumns?.(effectiveColumnKeys)
       );
       setContextMenu({ x, y, type: "columnHeader", items });
     }
-  }, [allowInteractions, cellMap, onToggleRowExpand, onOpenCalcMeasureWizard, onOpenCalcRowWizard, onSort, onPersistProperty, settings.manualData, settings.general, gridColumns, onAddQuickVariance, selectionManager, onExpandAllUnder, onCollapseAllUnder]);
+  }, [allowInteractions, cellMap, columns, measures, onToggleRowExpand, onOpenCalcMeasureWizard, onOpenCalcRowWizard, onSort, onPersistProperty, settings.manualData, settings.general, gridColumns, onAddQuickVariance, selectionManager, onExpandAllUnder, onCollapseAllUnder, rows, selectedColumnKeysArr, onHideColumns, onSetSortDirection]);
 
   const visibleRange: ViewportRange = useMemo(() => {
     return computeVisibleRangeWithVariableWidths(scrollTop, scrollLeft, viewportConfig, columnWidthMap);
@@ -901,6 +1074,39 @@ export const Matrix: React.FC<MatrixProps> = ({
     startCol: 0,
     endCol: gridColumns.length,
   }), [visibleRange, gridColumns.length]);
+
+  const sparklineColumns = useMemo(() => {
+    return columns.filter((col, index) => {
+      if (col.isSubtotal || col.isGrandTotal) return false;
+      const next = columns[index + 1];
+      return col.isLeaf || !next || next.level <= col.level;
+    });
+  }, [columns]);
+
+  const sparklineScale = useMemo(() => {
+    if (!settings.sparklines.enabled || settings.sparklines.normalizePerRow || measures.length === 0) {
+      return { min: undefined as number | undefined, max: undefined as number | undefined };
+    }
+
+    const measureIndex = Math.max(0, Math.min(measures.length - 1, sparklineMeasureIndex));
+    let min = Infinity;
+    let max = -Infinity;
+
+    for (const row of rows) {
+      if (row.isSubtotal || row.isGrandTotal) continue;
+      for (const col of sparklineColumns) {
+        const value = getCellValue(cellMap, row.key, col.key, measureIndex)?.value;
+        if (typeof value === "number" && Number.isFinite(value)) {
+          min = Math.min(min, value);
+          max = Math.max(max, value);
+        }
+      }
+    }
+
+    return Number.isFinite(min) && Number.isFinite(max)
+      ? { min, max }
+      : { min: undefined as number | undefined, max: undefined as number | undefined };
+  }, [cellMap, measures.length, rows, settings.sparklines.enabled, settings.sparklines.normalizePerRow, sparklineColumns, sparklineMeasureIndex]);
 
   const globalStats = useMemo(() => {
     const stats = new Map<number, { min: number; max: number }>();
@@ -1015,6 +1221,9 @@ export const Matrix: React.FC<MatrixProps> = ({
     // Update state immediately for perfect alignment during virtualization
     setScrollTop(scrollTop);
     setScrollLeft(scrollLeft);
+    if (rowHeadersInnerRef.current) {
+      rowHeadersInnerRef.current.style.transform = `translateY(-${scrollTop}px)`;
+    }
     if (horizontalScrollRef.current && horizontalScrollRef.current.scrollLeft !== scrollLeft) {
       horizontalScrollRef.current.scrollLeft = scrollLeft;
     }
@@ -1374,11 +1583,69 @@ export const Matrix: React.FC<MatrixProps> = ({
     columnHierarchyLevels: intelliSenseContext?.columnHierarchyLevels || [],
   }), [measures, columns, rows, intelliSenseContext]);
 
+  const designStyles = useMemo((): React.CSSProperties => {
+    const effect = settings.appearance.backgroundEffect || "none";
+    const gradientStart = settings.appearance.gradientStart || "#f8fbff";
+    const gradientEnd = settings.appearance.gradientEnd || "#e8f1ff";
+    const gradientAngle = settings.appearance.gradientAngle ?? 135;
+    const backgroundImage = settings.appearance.backgroundImage?.trim();
+    const gradientLayer = `linear-gradient(${gradientAngle}deg, ${gradientStart} 0%, ${gradientEnd} 100%)`;
+    const imageLayer = backgroundImage ? `url(${backgroundImage})` : "";
+
+    const backgroundImageValue =
+      effect === "gradient" ? gradientLayer :
+      effect === "image" ? (imageLayer || "none") :
+      effect === "hybrid" ? [gradientLayer, imageLayer].filter(Boolean).join(", ") :
+      imageLayer || "none";
+
+    const layoutStyle = settings.appearance.layoutStyle || "standard";
+    return {
+      backgroundImage: backgroundImageValue,
+      backgroundSize: effect === "image" ? "cover" : effect === "hybrid" ? "cover, cover" : "cover",
+      backgroundPosition: "center",
+      borderRadius: settings.appearance.cornerRadius,
+      overflow: "hidden",
+      position: "relative",
+      backgroundColor: settings.appearance.surfaceColor,
+      boxShadow:
+        layoutStyle === "floating" ? "0 24px 70px rgba(15, 23, 42, 0.18)" :
+        layoutStyle === "framed" ? "inset 0 0 0 1px rgba(255,255,255,0.14), 0 18px 48px rgba(15, 23, 42, 0.14)" :
+        layoutStyle === "spotlight" ? "0 0 0 1px rgba(148,163,184,0.14), 0 32px 80px rgba(2, 132, 199, 0.18)" :
+        undefined,
+      transform: layoutStyle === "floating" ? "translateY(4px)" : undefined,
+    };
+  }, [settings.appearance]);
+
+  const glassEffect = useMemo((): React.CSSProperties => {
+    const overlayOpacity = Math.max(0, Math.min(1, (settings.appearance.overlayOpacity ?? 0) / 100));
+    return {
+      background: settings.appearance.glassmorphism
+        ? `linear-gradient(180deg, rgba(255,255,255,0.24), rgba(255,255,255,0.1)), ${toAlphaColor(settings.appearance.overlayColor, Math.max(overlayOpacity, 0.24), "rgba(15,23,42,0.24)")}`
+        : settings.appearance.overlayColor
+          ? toAlphaColor(settings.appearance.overlayColor, overlayOpacity, "transparent")
+          : "transparent",
+      opacity: settings.appearance.glassmorphism ? Math.max(0.2, overlayOpacity || 0.28) : overlayOpacity,
+      backdropFilter: `blur(${settings.appearance.backgroundBlur || 0}px) saturate(${settings.appearance.glassmorphism ? 1.2 : 1})`,
+      WebkitBackdropFilter: `blur(${settings.appearance.backgroundBlur || 0}px) saturate(${settings.appearance.glassmorphism ? 1.2 : 1})`,
+      border: settings.appearance.glassmorphism ? "1px solid rgba(255, 255, 255, 0.14)" : undefined,
+      boxShadow: settings.appearance.glassmorphism ? "inset 0 1px 0 rgba(255,255,255,0.18)" : undefined,
+    };
+  }, [settings.appearance, toAlphaColor]);
+
+  const surfaceAlpha = Math.max(0.35, Math.min(0.98, (settings.appearance.surfaceOpacity ?? 92) / 100));
+  const shellBackground = settings.appearance.glassmorphism
+    ? toAlphaColor(settings.appearance.surfaceColor, Math.max(0.18, surfaceAlpha - 0.34), "rgba(255,255,255,0.18)")
+    : toAlphaColor(settings.appearance.surfaceColor, surfaceAlpha, settings.appearance.surfaceColor);
+  const shellStrongBackground = settings.appearance.glassmorphism
+    ? toAlphaColor(settings.appearance.surfaceColor, Math.max(0.24, surfaceAlpha - 0.22), "rgba(255,255,255,0.24)")
+    : toAlphaColor(settings.appearance.surfaceColor, Math.min(1, surfaceAlpha + 0.04), settings.appearance.surfaceColor);
+
   return (
-    <div className={`matrix-container ${formulaBarEditMode ? "formula-edit-mode" : ""}`} style={{ height }} onClick={handleBackgroundClick}>
+    <div className={`matrix-container ${formulaBarEditMode ? "formula-edit-mode" : ""} ${(settings.appearance as any).glassmorphism ? "is-glassmorphic" : ""}`} style={{ height, ...designStyles }} onClick={handleBackgroundClick}>
+      <div style={{ position: "absolute", inset: 0, ...glassEffect, pointerEvents: "none", zIndex: 0 }} />
       <div
         className="matrix-formula-shell"
-        style={{ minHeight: FORMULA_BAR_HEIGHT, height: FORMULA_BAR_HEIGHT }}
+        style={{ minHeight: FORMULA_BAR_HEIGHT, height: FORMULA_BAR_HEIGHT, position: "relative", zIndex: 1, background: shellStrongBackground }}
       >
         <FormulaBar
           ref={formulaBarRef}
@@ -1395,7 +1662,7 @@ export const Matrix: React.FC<MatrixProps> = ({
           canRedo={canRedo}
         />
       </div>
-      <div className="matrix-header-area" style={{ height: columnHeaderHeight }}>
+      <div className="matrix-header-area" style={{ height: columnHeaderHeight, position: "relative", zIndex: 1, background: shellStrongBackground }}>
         <div
           className="matrix-col-headers"
           style={{ height: columnHeaderHeight }}
@@ -1419,7 +1686,9 @@ export const Matrix: React.FC<MatrixProps> = ({
         onStartRowHeaderResize={startRowHeaderWidthResize}
         colFormats={parseColFormats(settings.manualData.colFormats)}
         colWidths={colWidths}
-        gridColumns={visualColumnRules.length > 0 ? gridColumns : undefined}
+        gridColumns={gridColumns}
+        settings={settings}
+        labelOverrides={labelOverrides}
       />
           </div>
         </div>
@@ -1437,7 +1706,7 @@ export const Matrix: React.FC<MatrixProps> = ({
 
       <div
         className={`matrix-body-area ${hasVScroll ? 'has-v-scroll' : ''} ${hasHScroll ? 'has-h-scroll' : ''}`}
-        style={{ height: viewportHeight }}
+        style={{ height: viewportHeight, position: "relative", zIndex: 1, background: shellBackground }}
         onScroll={handleScroll}
         onWheel={handleMatrixWheel}
         onKeyDown={handleMatrixKeyDown}
@@ -1455,26 +1724,36 @@ export const Matrix: React.FC<MatrixProps> = ({
             height: viewportHeight,
             zIndex: 80,
             opacity: 1,
-            backgroundColor: "var(--mx-row-header-bg, var(--mx-surface, #ffffff))",
+            background: shellStrongBackground,
+            backdropFilter: settings.appearance.glassmorphism ? `blur(${Math.max(6, settings.appearance.backgroundBlur || 0)}px)` : undefined,
           }}
         >
           <div
             className="matrix-row-headers-inner"
-            style={{ height: viewportHeight }}
+            ref={rowHeadersInnerRef}
+            style={{ height: totalContentHeight, transform: `translateY(-${scrollTop}px)`, willChange: "transform" }}
           >
             {visibleRows.map((row, idx) => {
               const actualIndex = visibleRange.startRow + idx;
               const isSelected = selectedRowKeys.has(row.key);
+              const prevRow = actualIndex > 0 ? rows[actualIndex - 1] : undefined;
+              const rowFormat = rowFormats[row.key];
+              const breakStyle = prevRow && prevRow.path?.[0] !== row.path?.[0]
+                ? settings.layout.rowBreak === "section"
+                  ? "3px double var(--mx-border, #cbd5e1)"
+                  : settings.layout.rowBreak === "page"
+                    ? "2px solid var(--mx-border, #cbd5e1)"
+                    : undefined
+                : undefined;
 
               // Build sparkline series for this row across leaf columns for the configured measure
               let sparklineValues: (number | null)[] | undefined;
               let sparklineLabels: string[] | undefined;
-              if (settings.sparklines.enabled && columns.length > 0 && measures.length > 0) {
+              if (settings.sparklines.enabled && sparklineColumns.length > 0 && measures.length > 0) {
                 const mIdx = Math.max(0, Math.min(measures.length - 1, sparklineMeasureIndex));
                 const values: (number | null)[] = [];
                 const labels: string[] = [];
-                for (const col of columns) {
-                  if (col.hasChildren) continue;
+                for (const col of sparklineColumns) {
                   const cell = getCellValue(cellMap, row.key, col.key, mIdx);
                   values.push(cell?.value ?? null);
                   labels.push(col.label);
@@ -1496,8 +1775,14 @@ export const Matrix: React.FC<MatrixProps> = ({
                   isFormatSelected={selectedRowKeysForFormatSet.has(row.key)}
                   style={{
                     ...getRowStyle(settings, actualIndex, row.isSubtotal, row.isGrandTotal, isSelected),
+                    ...(rowFormat?.backgroundColor ? { backgroundColor: rowFormat.backgroundColor } : {}),
+                    ...(rowFormat?.textColor ? { color: rowFormat.textColor } : {}),
+                    ...(rowFormat?.bold !== undefined ? { fontWeight: rowFormat.bold ? 700 : 400 } : {}),
+                    ...(rowFormat?.italic !== undefined ? { fontStyle: rowFormat.italic ? "italic" : "normal" } : {}),
+                    ...(rowFormat?.underline !== undefined ? { textDecoration: rowFormat.underline ? "underline" : "none" } : {}),
+                    ...(breakStyle ? { borderTop: breakStyle } : {}),
                     position: "absolute",
-                    top: (actualIndex * safeRowHeightPx) - scrollTop,
+                    top: actualIndex * safeRowHeightPx,
                     height: safeRowHeightPx,
                     width: rowHeaderWidth,
                   }}
@@ -1522,6 +1807,9 @@ export const Matrix: React.FC<MatrixProps> = ({
                   onDragEnd={handleRowDragEnd}
                   isDragOver={dragOverRowKey === row.key}
                   dropPosition={dragOverRowKey === row.key ? dropPosition : null}
+                  sparklineGlobalMin={sparklineScale.min}
+                  sparklineGlobalMax={sparklineScale.max}
+                  labelOverrides={labelOverrides}
                 />
               );
             })}
@@ -1544,6 +1832,9 @@ export const Matrix: React.FC<MatrixProps> = ({
               const actualIndex = visibleRange.startRow + idx;
               const prevRowKey = actualIndex > 0 ? rows[actualIndex - 1]?.key ?? null : null;
               const isSelected = selectedRowKeys.has(row.key);
+              const showRowBreak = actualIndex > 0
+                && rows[actualIndex - 1]?.path?.[0] !== row.path?.[0]
+                && settings.layout.rowBreak !== "none";
 
               return (
                 <Row
@@ -1557,6 +1848,7 @@ export const Matrix: React.FC<MatrixProps> = ({
                   measures={measures}
                   settings={settings}
                   isSelected={isSelected}
+                  showRowBreak={showRowBreak}
                   sparklineMeasureIndex={sparklineMeasureIndex}
                   rowHeight={safeRowHeightPx}
                   columnWidth={safeColumnWidthPx}

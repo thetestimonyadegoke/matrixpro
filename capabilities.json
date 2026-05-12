@@ -73,7 +73,7 @@
             "in": "Columns"
           },
           "dataReductionAlgorithm": {
-            "window": {
+            "top": {
               "count": 30000
             }
           }
@@ -201,6 +201,45 @@
                 "value": "drilldown",
                 "displayName": "Drilldown"
               }
+            ]
+          }
+        },
+        "pageMode": {
+          "displayName": "Page Mode",
+          "type": {
+            "enumeration": [
+              { "value": "single", "displayName": "Single Page" },
+              { "value": "multi", "displayName": "Multi Page" }
+            ]
+          }
+        },
+        "rowBreak": {
+          "displayName": "Row Break",
+          "type": {
+            "enumeration": [
+              { "value": "none", "displayName": "None" },
+              { "value": "page", "displayName": "Page" },
+              { "value": "section", "displayName": "Section" }
+            ]
+          }
+        },
+        "columnBreak": {
+          "displayName": "Column Break",
+          "type": {
+            "enumeration": [
+              { "value": "none", "displayName": "None" },
+              { "value": "page", "displayName": "Page" },
+              { "value": "section", "displayName": "Section" }
+            ]
+          }
+        },
+        "stylePreset": {
+          "displayName": "Style Preset",
+          "type": {
+            "enumeration": [
+              { "value": "modern", "displayName": "Modern" },
+              { "value": "ledger", "displayName": "Ledger" },
+              { "value": "editorial", "displayName": "Editorial" }
             ]
           }
         }
@@ -1162,6 +1201,12 @@
         },
         "locks": {
           "displayName": "Locked Rows JSON",
+          "type": {
+            "text": true
+          }
+        },
+        "hiddenCols": {
+          "displayName": "Hidden Column Keys JSON",
           "type": {
             "text": true
           }

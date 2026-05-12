@@ -98,6 +98,17 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     boxSizing: "border-box",
   };
 
+  const actionButtonStyle: React.CSSProperties = {
+    border: "1px solid rgba(15,23,42,0.12)",
+    background: "rgba(255,255,255,0.72)",
+    color: settings.color,
+    borderRadius: 6,
+    padding: "3px 8px",
+    fontSize: 11,
+    cursor: allowInteractions ? "pointer" : "not-allowed",
+    marginLeft: 8,
+  };
+
   return (
     <div style={barStyle} className="mx-title-bar">
       {editing ? (
@@ -117,6 +128,26 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         >
           {settings.text || <span style={{ opacity: 0.4, fontWeight: 400, fontStyle: "italic" }}>Untitled</span>}
         </span>
+      )}
+      {allowInteractions && !editing && (
+        <>
+          <button
+            type="button"
+            style={actionButtonStyle}
+            onClick={() => setEditing(true)}
+            title="Edit visual title"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            style={actionButtonStyle}
+            onClick={() => onPersistProperty("title", "show", false)}
+            title="Hide visual title"
+          >
+            Hide
+          </button>
+        </>
       )}
     </div>
   );

@@ -215,4 +215,43 @@ describe("Manual row ordering", () => {
       "Revenue Total",
     ]);
   });
+
+  it("reattaches a subtotal even when manual order stores it before its parent", () => {
+    const revenue = makeRow(["Revenue"], "Revenue", 1, { hasChildren: true, isLeaf: false });
+    const revenueChild = makeRow(["Revenue", "Revenue Detail"], "Revenue Detail", 2);
+    const revenueTotal = {
+      ...makeRow(["Revenue"], "Revenue Total", 1),
+      key: generateRowKey(["Revenue", "__subtotal"]),
+      isSubtotal: true,
+    };
+    const expense = makeRow(["Expense"], "Expense", 1);
+
+    const rows = [revenueTotal, expense, revenue, revenueChild].map((row, index) => ({
+      ...row,
+      visibleIndex: index,
+    }));
+
+    const settings = {
+      ...defaultSettings,
+      manualData: {
+        ...defaultSettings.manualData,
+        rowOrder: JSON.stringify([revenueTotal.key, expense.key, revenue.key, revenueChild.key]),
+      },
+    };
+
+    const result = applyManualOverrides(
+      rows,
+      new Map<string, CellValue>(),
+      settings,
+      [] as MeasureInfo[],
+      []
+    );
+
+    expect(result.rows.map(row => row.label)).toEqual([
+      "Expense",
+      "Revenue",
+      "Revenue Detail",
+      "Revenue Total",
+    ]);
+  });
 });

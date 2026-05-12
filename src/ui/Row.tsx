@@ -76,6 +76,7 @@ export interface RowProps {
   measures: MeasureInfo[];
   settings: VisualSettings;
   isSelected: boolean;
+  showRowBreak?: boolean;
   sparklineMeasureIndex: number;
   rowHeight: number;
   columnWidth: number;
@@ -99,9 +100,10 @@ export const Row: React.FC<RowProps> = memo(({
   measures: _measures,
   settings,
   isSelected,
+  showRowBreak,
   sparklineMeasureIndex: _sparklineMeasureIndex,
   rowHeight,
-  columnWidth,
+  columnWidth: _columnWidth,
   getCellStyle,
   getDataBarRange,
   onClick,
@@ -112,6 +114,11 @@ export const Row: React.FC<RowProps> = memo(({
   columnWidthMap,
 }) => {
   const rowStyle = getRowStyle(settings, rowIndex, row.isSubtotal, row.isGrandTotal, isSelected);
+  const rowBreakStyle = showRowBreak
+    ? settings.layout.rowBreak === "section"
+      ? "3px double var(--mx-border, #cbd5e1)"
+      : "2px solid var(--mx-border, #cbd5e1)"
+    : undefined;
 
   const className = [
     "matrix-row",
@@ -254,6 +261,7 @@ export const Row: React.FC<RowProps> = memo(({
       className={className}
       style={{
         ...rowStyle,
+        ...(rowBreakStyle ? { borderTop: rowBreakStyle } : {}),
         top: rowIndex * rowHeight,
         height: rowHeight,
       }}
@@ -322,11 +330,20 @@ export const Row: React.FC<RowProps> = memo(({
 
         const isActive = !!(activeCell && activeCell.rowKey === row.key && activeCell.colKey === colKey && activeCell.measureIndex === mIdx);
         const hasNote = !!manualNotes[editKey];
-        const isColSelected = !!selectedColumnKeys?.has(`${colKey}::m${mIdx}`);
+        const isColSelected = !!(
+          selectedColumnKeys?.has(`${colKey}::m${mIdx}`) ||
+          selectedColumnKeys?.has(`m:${mIdx}`)
+        );
 
         // Apply per-column direct formatting (bold/italic/bg/color/align/quickFormat).
         // Apply logical identity column formatting (Measure Global -> Dimension Global -> Specific).
-        const thisColFormat = resolveColumnFormat(colFormats, colKey, mIdx);
+        const stableMeasureIndex = gridCol.measure.index ?? mIdx;
+        const thisColFormat = stableMeasureIndex !== mIdx
+          ? {
+              ...resolveColumnFormat(colFormats, colKey, mIdx),
+              ...resolveColumnFormat(colFormats, colKey, stableMeasureIndex),
+            }
+          : resolveColumnFormat(colFormats, colKey, mIdx);
 
         // Quick-format scales the displayed numeric value and re-renders it
         // with the chosen precision. Non-numeric / null cells are untouched.
@@ -396,7 +413,14 @@ export const Row: React.FC<RowProps> = memo(({
           }
         }
 
-        const composedStyle = composeCellStyle(settings, cellStyle, thisColFormat, thisRowFormat, row.isSubtotal, row.isGrandTotal);
+        const composedStyle = composeCellStyle(
+          settings,
+          cellStyle,
+          thisColFormat,
+          thisRowFormat,
+          row.isSubtotal || gridCol.col.isSubtotal,
+          row.isGrandTotal || gridCol.col.isGrandTotal
+        );
         const composedAlign = resolveAlignment(settings, thisColFormat, thisRowFormat);
 
         return (

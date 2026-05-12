@@ -1,4 +1,4 @@
-import React, { memo, useState, useRef, useEffect, useCallback, useMemo } from "react";
+﻿import React, { memo, useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { QuickNumberFormat, ColumnFormat, parseColFormats, resolveColumnFormat } from "../format/directFormats";
 import {
   VisualSettings,
@@ -21,8 +21,6 @@ import {
   IconNote,
   IconTemplate,
   IconDisplay,
-  IconUndo,
-  IconRedo,
   IconInsertRow,
   IconFormula,
   IconCalculator,
@@ -124,10 +122,6 @@ export interface RibbonProps {
   onOpenTopNPanel?: () => void;
   onOpenFilterPanel?: () => void;
   onOpenLevelPanel?: () => void;
-  canUndo?: boolean;
-  canRedo?: boolean;
-  onUndo?: () => void;
-  onRedo?: () => void;
   rows?: import("../model/tree").FlattenedNode[];
   onOpenCondFormatDraft?: (draft: any) => void;
   selectedColumnKeys?: string[];
@@ -137,6 +131,7 @@ export interface RibbonProps {
   onAddQuickVariance?: () => void;
   /** Raw JSON string from settings.manualData.colFormats for reading column-level state. */
   colFormatsJson?: string;
+  rowFormatsJson?: string;
 }
 
 interface DropdownItem {
@@ -157,9 +152,9 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   explorerOpen,
   onOpenCondFormatDraft: _onOpenCondFormatDraft,
   selectedColumnKeys,
-  selectedRowKeys: _selectedRowKeys,
+  selectedRowKeys,
   onApplyColumnFormat,
-  onApplyRowFormat: _onApplyRowFormat,
+  onApplyRowFormat,
   onAddQuickVariance,
   onZoomIn: _onZoomIn,
   onZoomOut: _onZoomOut,
@@ -195,11 +190,8 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   onOpenLevelPanel,
   onOpenThemeGallery,
   onOpenHeaderFooter,
-  canUndo,
-  canRedo,
-  onUndo,
-  onRedo,
   colFormatsJson,
+  rowFormatsJson,
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -297,7 +289,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
   const showMinimalTabsCurated = (toolbarMode === "minimal-tabs") && !minimalTabsExpanded;
 
-  // Quick rule helpers — open the ConditionalFormattingPanel with a draft rule
+  // Quick rule helpers â€” open the ConditionalFormattingPanel with a draft rule
   // so users can customize before applying (instead of applying immediately).
   const openCfDraft = (rule: any) => {
     if (!allowInteractions) return;
@@ -305,13 +297,22 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     _onOpenCondFormatDraft?.(rule);
   };
 
-  // ── Context-aware formatting state ─────────────────────────────────────
+  // â”€â”€ Context-aware formatting state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Parse column formats once so we can read effective state for active
   // indicators and build correct toggle values.
   const colFormats = useMemo(
     () => parseColFormats(colFormatsJson),
     [colFormatsJson]
   );
+  const rowFormats = useMemo(() => {
+    if (!rowFormatsJson) return {} as Record<string, Record<string, any>>;
+    try {
+      const parsed = JSON.parse(rowFormatsJson);
+      return parsed && typeof parsed === "object" ? parsed as Record<string, Record<string, any>> : {};
+    } catch {
+      return {} as Record<string, Record<string, any>>;
+    }
+  }, [rowFormatsJson]);
 
   /**
    * Returns the effective value for a formatting property, respecting
@@ -323,6 +324,10 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
       // Resolve formatting using logical identity fallback.
       // We look at the first selected column and find its most specific active setting.
       const firstKey = selectedColumnKeys[0];
+      if (firstKey.startsWith("m:")) {
+        const fmt = colFormats[firstKey];
+        if (fmt && fmt[prop] !== undefined) return fmt[prop];
+      }
       const parts = firstKey.split("::m");
       const colKey = parts[0];
       const mIdx = parts.length > 1 ? parseInt(parts[1]) : -1;
@@ -330,9 +335,13 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
       const fmt = resolveColumnFormat(colFormats, colKey, mIdx);
       if (fmt && fmt[prop] !== undefined) return fmt[prop];
     }
+    if (selectedRowKeys && selectedRowKeys.length > 0) {
+      const fmt = rowFormats[selectedRowKeys[0]];
+      if (fmt && fmt[prop] !== undefined) return fmt[prop];
+    }
     // Fall back to global settings.values
     return (settings.values as any)[prop];
-  }, [selectedColumnKeys, colFormats, settings.values]);
+  }, [selectedColumnKeys, selectedRowKeys, colFormats, rowFormats, settings.values]);
 
   // Convenience readers for commonly used effective values
   const effBold = getEffective("bold") ?? settings.values.bold;
@@ -361,26 +370,18 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
    */
   const handleFormatUpdate = useCallback((patch: Record<string, any>) => {
     if (selectedColumnKeys && selectedColumnKeys.length > 0) {
-      // Determine logical targets based on user selection.
-      // We target the global measure format (m:index) or dimension format (c:colKey)
-      // so it applies across all hierarchy groups consistently as requested.
-      const logicalTargets = selectedColumnKeys.map(key => {
-        const parts = key.split("::m");
-        if (parts.length > 1) {
-          const mIdx = parseInt(parts[1]);
-          return `m:${mIdx}`;
-        }
-        return `c:${parts[0]}`; // fallback to dimension-global
-      });
-      // Deduplicate targets
-      const uniqueTargets = Array.from(new Set(logicalTargets));
-      onApplyColumnFormat?.(uniqueTargets, patch);
+      // Header selection can represent a single leaf column, a month group,
+      // or a full year group. Persist exact leaf keys so formatting remains
+      // scoped to the selected structure instead of leaking to every measure.
+      onApplyColumnFormat?.(Array.from(new Set(selectedColumnKeys)), patch);
+    } else if (selectedRowKeys && selectedRowKeys.length > 0) {
+      onApplyRowFormat?.(Array.from(new Set(selectedRowKeys)), patch);
     } else {
       Object.keys(patch).forEach(key => {
         onPersistProperty("values", key, patch[key]);
       });
     }
-  }, [selectedColumnKeys, onApplyColumnFormat, onPersistProperty]);
+  }, [selectedColumnKeys, selectedRowKeys, onApplyColumnFormat, onApplyRowFormat, onPersistProperty]);
 
   const newRuleId = () => `rule_${Date.now()}_${secureRandomId(6)}`;
   const baseScope = () => ({
@@ -568,6 +569,48 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     </select>
   );
 
+  const colorPickerButton = (
+    icon: React.ReactNode,
+    label: string,
+    title: string,
+    value: string,
+    onChange: (next: string) => void
+  ) => (
+    <label
+      className="ribbon-btn hover-scale"
+      title={title}
+      style={{ position: "relative", overflow: "hidden", cursor: allowInteractions ? "pointer" : "not-allowed" }}
+    >
+      {icon}
+      <span className="ribbon-btn-label">{label}</span>
+      <span
+        aria-hidden="true"
+        style={{
+          width: 12,
+          height: 12,
+          borderRadius: 3,
+          border: "1px solid rgba(0,0,0,0.18)",
+          background: value || "transparent",
+          display: "inline-block",
+          marginLeft: 2,
+          boxSizing: "border-box",
+        }}
+      />
+      <input
+        type="color"
+        value={value && value !== "transparent" ? value : "#ffffff"}
+        disabled={!allowInteractions}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          position: "absolute",
+          inset: 0,
+          opacity: 0,
+          cursor: allowInteractions ? "pointer" : "not-allowed",
+        }}
+      />
+    </label>
+  );
+
   const dropdownItems: DropdownItem[] = [
     {
       id: "full",
@@ -627,7 +670,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 onClick={() => scrollTabs("left")}
                 style={{ position: 'absolute', left: 0, zIndex: 10, background: 'rgba(255,255,255,0.8)', border: 'none', height: '100%', cursor: 'pointer', padding: '0 4px' }}
               >
-                ‹
+                â€¹
               </button>
             )}
             <div className="mx-ribbon-tabs" role="tablist" aria-label="Ribbon tabs" ref={tabsRef} style={{ display: 'flex', overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
@@ -642,7 +685,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 onClick={() => scrollTabs("right")}
                 style={{ position: 'absolute', right: 0, zIndex: 10, background: 'rgba(255,255,255,0.8)', border: 'none', height: '100%', cursor: 'pointer', padding: '0 4px' }}
               >
-                ›
+                â€º
               </button>
             )}
           </div>
@@ -736,7 +779,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                   <div className="curated-group" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <button className={`ribbon-format-btn sm ${effNumberFormat === "0.0%" ? "active" : ""}`} onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "0.0%" ? "" : "0.0%" })} title="Percentage">%</button>
                     <button className={`ribbon-format-btn sm ${effNumberFormat === "$#,##0.00" ? "active" : ""}`} onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "$#,##0.00" ? "" : "$#,##0.00" })} title="Currency">$</button>
-                    {/* Decimals — using .0 .00 as labels per user preference */}
+                    {/* Decimals â€” using .0 .00 as labels per user preference */}
                     <button className="ribbon-format-btn sm" onClick={() => handleFormatUpdate({ decimals: Math.min(10, effDecimals + 1) })} title="Increase decimals">.00</button>
                     <button className="ribbon-format-btn sm" onClick={() => handleFormatUpdate({ decimals: Math.max(0, effDecimals - 1) })} title="Decrease decimals">.0</button>
                   </div>
@@ -779,7 +822,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                onClick={() => setMinimalTabsExpanded(true)}
                style={{ height: 24, fontSize: 10, fontWeight: 700 }}
              >
-               EXPAND FULL ▾
+               EXPAND FULL â–¾
              </button>
            </div>
         </div>
@@ -818,12 +861,6 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
           <div className="mx-ribbon-content" role="tabpanel" ref={contentRef} style={{ display: 'flex', flex: 1, overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none', height: '100%' }}>
             {toolbarMode === "minimal" && (
               <div className="mx-ribbon-minimal-row" style={{ display: "flex", alignItems: "center", gap: 2, padding: "3px 8px", width: "100%", overflowX: "visible", flexWrap: "nowrap", minHeight: 32 }}>
-              {/* Undo / Redo */}
-              <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                <button className="ribbon-btn icon-only" onClick={onUndo} disabled={!canUndo || !allowInteractions} title="Undo (Ctrl+Z)" type="button"><IconUndo size={14} /></button>
-                <button className="ribbon-btn icon-only" onClick={onRedo} disabled={!canRedo || !allowInteractions} title="Redo (Ctrl+Y)" type="button"><IconRedo size={14} /></button>
-              </div>
-              <span className="ribbon-divider-v" />
               {/* Font */}
               <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
                 <select className="ribbon-select" style={{ width: 90, minWidth: 90, fontSize: 11 }} value={settings.general.fontFamily || "-apple-system"} onChange={(e) => onPersistProperty("general", "fontFamily", e.target.value)} disabled={!allowInteractions} title="Font family">
@@ -842,13 +879,13 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 {toolbarBtn(<IconItalic size={13} />, "", () => handleFormatUpdate({ italic: !effItalic }), !!effItalic, !allowInteractions, "Italic")}
                 {toolbarBtn(<IconUnderline size={13} />, "", () => handleFormatUpdate({ underline: !effUnderline }), !!effUnderline, !allowInteractions, "Underline")}
                 {toolbarBtn(<span style={{ fontFamily: "serif", fontSize: 12, textDecoration: "line-through", fontWeight: 700, lineHeight: 1 }}>S</span>, "", () => onPersistProperty("general", "strikethrough", !settings.general.strikethrough), settings.general.strikethrough, !allowInteractions, "Strikethrough")}
-                {toolbarBtn(<span style={{ fontSize: 11, fontWeight: 700 }}>↵</span>, "", () => onPersistProperty("general", "wrapText", !settings.general.wrapText), settings.general.wrapText, !allowInteractions, "Wrap Text")}
+                {toolbarBtn(<span style={{ fontSize: 11, fontWeight: 700 }}>â†µ</span>, "", () => onPersistProperty("general", "wrapText", !settings.general.wrapText), settings.general.wrapText, !allowInteractions, "Wrap Text")}
               </div>
               <span className="ribbon-divider-v" />
               {/* Colors */}
               <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                {toolbarBtn(<IconFontColor size={13} />, "", () => { const c = prompt("Text color (hex):", effTextColor || "#333333"); if (c) handleFormatUpdate({ textColor: c }); }, false, !allowInteractions, "Font Color")}
-                {toolbarBtn(<IconFillColor size={13} />, "", () => { const c = prompt("Background color (hex):", effBgColor || "#ffffff"); if (c) handleFormatUpdate({ backgroundColor: c }); }, false, !allowInteractions, "Fill Color")}
+                {colorPickerButton(<IconFontColor size={13} />, "", "Font Color", effTextColor || "#333333", (next) => handleFormatUpdate({ textColor: next }))}
+                {colorPickerButton(<IconFillColor size={13} />, "", "Fill Color", effBgColor && effBgColor !== "transparent" ? effBgColor : "#ffffff", (next) => handleFormatUpdate({ backgroundColor: next }))}
               </div>
               <span className="ribbon-divider-v" />
               {/* Alignment + Borders */}
@@ -951,7 +988,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
           )}
 
           {/* ============================================================
-              MINIMAL-TABS MODE — condensed per-tab content
+              MINIMAL-TABS MODE â€” condensed per-tab content
               ============================================================ */}
           {toolbarMode === "minimal-tabs" && minimalTabsExpanded && (
             <div className="mx-ribbon-minimal-row mx-ribbon-minimal-tabs-content" style={{ display: "flex", alignItems: "center", gap: 2, padding: "3px 8px", width: "100%", overflowX: "auto", overflowY: "visible", flexWrap: "nowrap", minHeight: 32 }}>
@@ -971,8 +1008,8 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                     {toolbarBtn(<IconBold size={13} />, "", () => handleFormatUpdate({ bold: !effBold }), !!effBold, !allowInteractions, "Bold")}
                     {toolbarBtn(<IconItalic size={13} />, "", () => handleFormatUpdate({ italic: !effItalic }), !!effItalic, !allowInteractions, "Italic")}
                     {toolbarBtn(<IconUnderline size={13} />, "", () => handleFormatUpdate({ underline: !effUnderline }), !!effUnderline, !allowInteractions, "Underline")}
-                    {toolbarBtn(<IconFontColor size={13} />, "", () => { const c = prompt("Text color:", effTextColor || "#333333"); if (c) handleFormatUpdate({ textColor: c }); }, false, !allowInteractions, "Font Color")}
-                    {toolbarBtn(<IconFillColor size={13} />, "", () => { const c = prompt("Background color:", effBgColor || "#ffffff"); if (c) handleFormatUpdate({ backgroundColor: c }); }, false, !allowInteractions, "Fill Color")}
+                    {colorPickerButton(<IconFontColor size={13} />, "", "Font Color", effTextColor || "#333333", (next) => handleFormatUpdate({ textColor: next }))}
+                    {colorPickerButton(<IconFillColor size={13} />, "", "Fill Color", effBgColor && effBgColor !== "transparent" ? effBgColor : "#ffffff", (next) => handleFormatUpdate({ backgroundColor: next }))}
                   </div>
                   <span className="ribbon-divider-v" />
                   <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
@@ -995,11 +1032,6 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                     {toolbarBtn(<IconFilter size={13} />, "Filter", () => onOpenFilterPanel?.(), false, !allowInteractions || !hasData, "Filter")}
                     {toolbarBtn(<IconTopN size={13} />, "Top N", () => onOpenTopNPanel?.(), false, !hasData, "Top N")}
                     {toolbarBtn(<IconExplorer size={13} />, "Explorer", onToggleExplorer, explorerOpen, !allowInteractions, "Toggle Explorer")}
-                  </div>
-                  <span className="ribbon-divider-v" />
-                  <div style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                    <button className="ribbon-btn icon-only" onClick={onUndo} disabled={!canUndo || !allowInteractions} title="Undo" type="button"><IconUndo size={13} /></button>
-                    <button className="ribbon-btn icon-only" onClick={onRedo} disabled={!canRedo || !allowInteractions} title="Redo" type="button"><IconRedo size={13} /></button>
                   </div>
                 </>
               )}
@@ -1169,35 +1201,15 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                       "Strikethrough"
                     )}
                     {toolbarBtn(
-                      <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1 }}>↵</span>,
+                      <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1 }}>â†µ</span>,
                       "",
                       () => onPersistProperty("general", "wrapText", !settings.general.wrapText),
                       settings.general.wrapText,
                       !allowInteractions,
                       "Wrap Text"
                     )}
-                    {toolbarBtn(
-                      <IconFontColor size={14} />,
-                      "",
-                      () => {
-                        const color = prompt("Enter text color (hex):", effTextColor || "#333333");
-                        if (color) handleFormatUpdate({ textColor: color });
-                      },
-                      false,
-                      !allowInteractions,
-                      "Font Color"
-                    )}
-                    {toolbarBtn(
-                      <IconFillColor size={14} />,
-                      "",
-                      () => {
-                        const color = prompt("Enter background color (hex):", effBgColor || "#ffffff");
-                        if (color) handleFormatUpdate({ backgroundColor: color });
-                      },
-                      false,
-                      !allowInteractions,
-                      "Fill Color"
-                    )}
+                    {colorPickerButton(<IconFontColor size={14} />, "", "Font Color", effTextColor || "#333333", (next) => handleFormatUpdate({ textColor: next }))}
+                    {colorPickerButton(<IconFillColor size={14} />, "", "Fill Color", effBgColor && effBgColor !== "transparent" ? effBgColor : "#ffffff", (next) => handleFormatUpdate({ backgroundColor: next }))}
                   </div>
                 </div>
               </div>
@@ -1284,7 +1296,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                   <div ref={cfAnchorRef} style={{ position: "relative", display: "inline-block" }}>
                     {toolbarBtn(
                       <IconCondFormat size={16} />,
-                      "Cond. Format ▾",
+                      "Cond. Format â–¾",
                       () => {
                         if (cfAnchorRef.current) {
                           setCfAnchorRect(cfAnchorRef.current.getBoundingClientRect());
@@ -1303,21 +1315,21 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                           // Quick Rule
                           if (id === "quick-positive") quickPositive();
                           else if (id === "quick-negative") quickNegative();
-                          // Color Scales — sequential
+                          // Color Scales â€” sequential
                           else if (id === "scale-seq-blue") quickColorScale(["#dbeafe", "#93c5fd", "#60a5fa", "#3b82f6", "#1d4ed8"], "Sequential Blue");
                           else if (id === "scale-seq-orange") quickColorScale(["#ffedd5", "#fdba74", "#fb923c", "#ea580c", "#9a3412"], "Sequential Orange");
                           else if (id === "scale-seq-green") quickColorScale(["#dcfce7", "#86efac", "#4ade80", "#16a34a", "#14532d"], "Sequential Green");
-                          // Color Scales — qualitative
+                          // Color Scales â€” qualitative
                           else if (id === "scale-qual-cool") quickColorScale(["#10b981", "#7c3aed", "#ef4444", "#eab308", "#3b82f6", "#6b7280"], "Qualitative Cool");
                           else if (id === "scale-qual-earth") quickColorScale(["#93c5fd", "#86efac", "#fdba74", "#c4b5fd", "#fca5a5", "#a8a29e"], "Qualitative Earth");
-                          // Color Scales — diverging
-                          else if (id === "scale-div-rwg") quickColorScale(["#b91c1c", "#f87171", "#fef3c7", "#86efac", "#166534"], "Diverging Red–Yellow–Green");
-                          else if (id === "scale-div-rwb") quickColorScale(["#b91c1c", "#fca5a5", "#fef9c3", "#bae6fd", "#1d4ed8"], "Diverging Red–Blue");
-                          else if (id === "scale-div-byg") quickColorScale(["#854d0e", "#d97706", "#ecfeff", "#22d3ee", "#0e7490"], "Diverging Brown–Teal");
-                          // Color Scales — continuous
+                          // Color Scales â€” diverging
+                          else if (id === "scale-div-rwg") quickColorScale(["#b91c1c", "#f87171", "#fef3c7", "#86efac", "#166534"], "Diverging Redâ€“Yellowâ€“Green");
+                          else if (id === "scale-div-rwb") quickColorScale(["#b91c1c", "#fca5a5", "#fef9c3", "#bae6fd", "#1d4ed8"], "Diverging Redâ€“Blue");
+                          else if (id === "scale-div-byg") quickColorScale(["#854d0e", "#d97706", "#ecfeff", "#22d3ee", "#0e7490"], "Diverging Brownâ€“Teal");
+                          // Color Scales â€” continuous
                           else if (id === "scale-cont-warm") quickColorScale(["#f97316", "#be123c"], "Continuous Warm");
                           else if (id === "scale-cont-div") quickColorScale(["#ef4444", "#ffffff", "#6366f1"], "Continuous Diverging");
-                          // Classification — icons / text
+                          // Classification â€” icons / text
                           else if (id === "class-icon-check" || id === "class-icon-flags" || id === "class-icon-arrows3" || id === "class-icon-arrows5" || id === "class-text-abc" || id === "class-text-levels" || id === "class-rating-squares" || id === "class-rating-stars" || id === "class-rating-circles") quickClassification();
                           // Data Bars
                           else if (id === "bar-blue") quickDataBars();
@@ -1325,7 +1337,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                           else if (id === "bar-red") quickColorScale(["#fee2e2", "#dc2626"], "Data Bar Red");
                           else if (id === "bar-orange") quickColorScale(["#ffedd5", "#f59e0b"], "Data Bar Orange");
                           else if (id === "bar-pink") quickColorScale(["#fce7f3", "#ec4899"], "Data Bar Pink");
-                          // Action Analysis — open full panel for configuration
+                          // Action Analysis â€” open full panel for configuration
                           else if (id === "action-dot" || id === "action-color" || id === "action-bubble-chart" || id === "action-bubble-only") {
                             onOpenCondFormatPanel?.();
                           }
@@ -1381,28 +1393,6 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 <div className="ribbon-btn-group">
                   {toolbarBtn(<IconTemplate size={16} />, "Templates", () => { }, false, true, "Coming soon")}
                   <div className="ribbon-btn-group vertical">
-                    <div className="toolbar-row">
-                      <button
-                        className={`ribbon-btn hover-scale`}
-                        onClick={onUndo}
-                        disabled={!canUndo || !allowInteractions}
-                        type="button"
-                        title="Undo (Ctrl+Z)"
-                      >
-                        <IconUndo size={16} />
-                        <span className="ribbon-btn-label">Undo</span>
-                      </button>
-                      <button
-                        className={`ribbon-btn hover-scale`}
-                        onClick={onRedo}
-                        disabled={!canRedo || !allowInteractions}
-                        type="button"
-                        title="Redo (Ctrl+Y)"
-                      >
-                        <IconRedo size={16} />
-                        <span className="ribbon-btn-label">Redo</span>
-                      </button>
-                    </div>
                     <div className="toolbar-row">
                       {toolbarBtn(<IconGrid size={16} />, "", () => toggle("general", "showGridlines", settings.general.showGridlines), settings.general.showGridlines, !allowInteractions, "Toggle gridlines")}
                       {toolbarBtn(<IconRows size={16} />, "", () => toggle("general", "rowBanding", settings.general.rowBanding), settings.general.rowBanding, !allowInteractions, "Toggle row banding")}
@@ -1499,7 +1489,6 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
               {divider()}
 
-              {/* Compare section */}
               <div className="ribbon-section" aria-label="Compare">
                 {sectionTitle("Compare")}
                 <div className="ribbon-btn-group">
@@ -1509,7 +1498,6 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
               {divider()}
 
-              {/* Measure section */}
               <div className="ribbon-section" aria-label="Measure">
                 {sectionTitle("Measure")}
                 <div className="ribbon-btn-group">
@@ -1519,7 +1507,6 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
               {divider()}
 
-              {/* Audit section */}
               <div className="ribbon-section" aria-label="Audit">
                 {sectionTitle("Audit")}
                 <div className="ribbon-btn-group">
@@ -1529,34 +1516,12 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
               {divider()}
 
-              {/* In-Cell Visuals (keep existing) */}
               <div className="ribbon-section" aria-label="Visualizations">
                 {sectionTitle("In-Cell Visuals")}
                 <div className="ribbon-btn-group">
-                  {toolbarBtn(
-                    <IconBars size={16} />,
-                    "Data Bars",
-                    () => toggle("dataBars", "enabled", settings.dataBars.enabled),
-                    settings.dataBars.enabled,
-                    !allowInteractions || !hasValues,
-                    "Toggle in-cell data bars"
-                  )}
-                  {toolbarBtn(
-                    <IconKpi size={16} />,
-                    "KPI Icons",
-                    () => toggle("kpiIcons", "enabled", settings.kpiIcons.enabled),
-                    settings.kpiIcons.enabled,
-                    !allowInteractions || !hasValues,
-                    "Toggle KPI trend icons"
-                  )}
-                  {toolbarBtn(
-                    <IconChart size={16} />,
-                    "Sparklines",
-                    () => toggle("sparklines", "enabled", settings.sparklines.enabled),
-                    settings.sparklines.enabled,
-                    !allowInteractions || !hasValues,
-                    "Toggle per-row sparklines"
-                  )}
+                  {toolbarBtn(<IconBars size={16} />, "Data Bars", () => toggle("dataBars", "enabled", settings.dataBars.enabled), settings.dataBars.enabled, !allowInteractions || !hasValues, "Toggle in-cell data bars")}
+                  {toolbarBtn(<IconKpi size={16} />, "KPI Icons", () => toggle("kpiIcons", "enabled", settings.kpiIcons.enabled), settings.kpiIcons.enabled, !allowInteractions || !hasValues, "Toggle KPI trend icons")}
+                  {toolbarBtn(<IconSpark size={16} />, "Sparklines", () => toggle("sparklines", "enabled", settings.sparklines.enabled), settings.sparklines.enabled, !allowInteractions || !hasValues, "Toggle per-row sparklines")}
                 </div>
               </div>
             </>
@@ -1564,7 +1529,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
           {toolbarMode !== "minimal" && activeTab === "design" && (
             <>
-               <div className="ribbon-section" aria-label="Layout">
+              <div className="ribbon-section" aria-label="Layout">
                 {sectionTitle("Layout")}
                 <div className="ribbon-btn-group">
                   {toolbarBtn(<IconHeaderFooter size={16} />, "Headers & Title", onOpenHeaderFooter, false, !allowInteractions, "Customize title, row headers and column headers")}
@@ -1577,51 +1542,28 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               <div className="ribbon-section" aria-label="Table">
                 {sectionTitle("Table")}
                 <div className="ribbon-btn-group">
-                  <div className="ribbon-btn-group vertical">
-                    <button className={`ribbon-btn ${settings.layout.mode === "hierarchy" ? "active" : ""}`} onClick={() => onPersistProperty("layout", "mode", "hierarchy")}>
-                      <IconPageBreak size={16} />
-                      <span className="ribbon-btn-label">Single Page</span>
-                    </button>
-                    <button className={`ribbon-btn ${settings.layout.mode === "outline" ? "active" : ""}`} onClick={() => onPersistProperty("layout", "mode", "outline")}>
-                      <IconPageBreak size={16} />
-                      <span className="ribbon-btn-label">Multi Pages</span>
-                    </button>
-                  </div>
-                  <div className="dropdown-btn-group">
-                    <label style={{ fontSize: '11px', color: '#666', marginBottom: '2px', display: 'block' }}>Row Break</label>
-                    <select className="ribbon-select" style={{ minWidth: '80px', width: '80px', padding: '2px 4px' }} disabled={!allowInteractions}>
-                      <option>None</option>
-                      <option>Page</option>
-                      <option>Section</option>
-                    </select>
-                  </div>
-                  <div className="dropdown-btn-group">
-                    <label style={{ fontSize: '11px', color: '#666', marginBottom: '2px', display: 'block' }}>Column Break</label>
-                    <select className="ribbon-select" style={{ minWidth: '80px', width: '80px', padding: '2px 4px' }} disabled={!allowInteractions}>
-                      <option>None</option>
-                      <option>Page</option>
-                      <option>Section</option>
-                    </select>
-                  </div>
-                  {toolbarBtn(<IconPageBreak size={16} />, "Section Break", () => {
-                  }, false, true, "Coming soon")}
+                  {toolbarBtn(<IconPageBreak size={16} />, "Single Page", () => onPersistProperty("layout", "mode", "hierarchy"), settings.layout.mode === "hierarchy", !allowInteractions, "Single Page")}
+                  {toolbarBtn(<IconPageBreak size={16} />, "Outline", () => onPersistProperty("layout", "mode", "outline"), settings.layout.mode === "outline", !allowInteractions, "Outline")}
+                  <select className="ribbon-select" value={settings.layout.rowBreak} onChange={(e) => onPersistProperty("layout", "rowBreak", e.target.value)} disabled={!allowInteractions} title="Row Break">
+                    <option value="none">Row None</option>
+                    <option value="page">Row Page</option>
+                    <option value="section">Row Section</option>
+                  </select>
+                  <select className="ribbon-select" value={settings.layout.columnBreak} onChange={(e) => onPersistProperty("layout", "columnBreak", e.target.value)} disabled={!allowInteractions} title="Column Break">
+                    <option value="none">Column None</option>
+                    <option value="page">Column Page</option>
+                    <option value="section">Column Section</option>
+                  </select>
                 </div>
               </div>
 
               {divider()}
 
-              <div className="ribbon-section" aria-label="Report+">
+              <div className="ribbon-section" aria-label="Report">
                 {sectionTitle("Report+")}
                 <div className="ribbon-btn-group">
-                  {toolbarBtn(<IconReport size={16} />, "Report+", () => {
-                  }, false, true, "Coming soon")}
-                  {toolbarBtn(<IconPageTotal size={16} />, "Totals", () => {
-                    if (onOpenTotalsPanel) onOpenTotalsPanel();
-                  }, false, !allowInteractions, "Manage Totals & Subtotals")}
-                  <button className="ribbon-btn style-btn" disabled={!allowInteractions} title="Style">
-                    <span className="style-icon" style={{ fontSize: '16px', fontWeight: 'bold' }}>S</span>
-                    <span className="ribbon-btn-label">Style</span>
-                  </button>
+                  {toolbarBtn(<IconReport size={16} />, "Report+", () => { }, false, true, "Coming soon")}
+                  {toolbarBtn(<IconPageTotal size={16} />, "Totals", onOpenTotalsPanel, false, !allowInteractions, "Manage Totals & Subtotals")}
                 </div>
               </div>
 
@@ -1630,26 +1572,9 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               <div className="ribbon-section" aria-label="Display">
                 {sectionTitle("Display")}
                 <div className="ribbon-btn-group">
-                  <div className="ribbon-btn-group vertical">
-                    <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
-                      <input
-                        type="checkbox"
-                        checked={settings.general.showGridlines}
-                        onChange={() => onPersistProperty("general", "showGridlines", !settings.general.showGridlines)}
-                        disabled={!allowInteractions}
-                      /> Major Gridlines
-                    </label>
-                    <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
-                      <input
-                        type="checkbox"
-                        checked={settings.general.rowBanding}
-                        onChange={() => onPersistProperty("general", "rowBanding", !settings.general.rowBanding)}
-                        disabled={!allowInteractions}
-                      /> Row Banding
-                    </label>
-                  </div>
-                  {toolbarBtn(<IconOutline size={16} />, "Outline", () => onPersistProperty("layout", "mode", "outline"), settings.layout.mode === "outline", !allowInteractions, "Outline")}
-                  {toolbarBtn(<IconHighlight size={16} />, "Row Highlight", () => onPersistProperty("general", "rowHighlight", !settings.general.rowHighlight), settings.general.rowHighlight, !allowInteractions, "Row Highlight")}
+                  {toolbarBtn(<IconGrid size={16} />, "Gridlines", () => toggle("general", "showGridlines", settings.general.showGridlines), settings.general.showGridlines, !allowInteractions, "Toggle gridlines")}
+                  {toolbarBtn(<IconRows size={16} />, "Banding", () => toggle("general", "rowBanding", settings.general.rowBanding), settings.general.rowBanding, !allowInteractions, "Toggle row banding")}
+                  {toolbarBtn(<IconHighlight size={16} />, "Highlight", () => toggle("general", "rowHighlight", settings.general.rowHighlight), settings.general.rowHighlight, !allowInteractions, "Row Highlight")}
                 </div>
               </div>
 
@@ -1658,27 +1583,9 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
               <div className="ribbon-section" aria-label="Theme">
                 {sectionTitle("Theme")}
                 <div className="ribbon-btn-group">
-                  <div className="ribbon-btn-group">
-                    {toolbarBtn(<IconTheme size={16} />, "Themes", onOpenThemeGallery, false, !allowInteractions, "Open Theme Gallery")}
-                  </div>
-                  <div className="ribbon-btn-group vertical">
-                    <button
-                      className={`ribbon-btn ${settings.theme.density === "compact" ? "active" : ""}`}
-                      onClick={() => onPersistProperty("theme", "density", "compact" as ThemeDensity)}
-                      disabled={!allowInteractions}
-                      style={{ flexDirection: 'row', padding: '2px 6px', height: '24px' }}
-                    >
-                      Compact
-                    </button>
-                    <button
-                      className={`ribbon-btn ${settings.theme.density === "comfortable" ? "active" : ""}`}
-                      onClick={() => onPersistProperty("theme", "density", "comfortable" as ThemeDensity)}
-                      disabled={!allowInteractions}
-                      style={{ flexDirection: 'row', padding: '2px 6px', height: '24px' }}
-                    >
-                      Comfortable
-                    </button>
-                  </div>
+                  {toolbarBtn(<IconTheme size={16} />, "Themes", onOpenThemeGallery, false, !allowInteractions, "Open Theme Gallery")}
+                  {toolbarBtn(<IconMinimal size={16} />, "Compact", () => onPersistProperty("theme", "density", "compact" as ThemeDensity), settings.theme.density === "compact", !allowInteractions, "Compact Density")}
+                  {toolbarBtn(<IconFull size={16} />, "Comfort", () => onPersistProperty("theme", "density", "comfortable" as ThemeDensity), settings.theme.density === "comfortable", !allowInteractions, "Comfortable Density")}
                 </div>
               </div>
             </>
@@ -1686,7 +1593,6 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
           {toolbarMode !== "minimal" && activeTab === "export" && (
             <>
-              {/* PDF & Presentation */}
               <div className="ribbon-section" aria-label="PDF & Report">
                 {sectionTitle("PDF & Report")}
                 <div className="ribbon-btn-group">
@@ -1697,29 +1603,26 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
               {divider()}
 
-              {/* Data Export (Excel/CSV/JSON) */}
               <div className="ribbon-section" aria-label="Data Export">
                 {sectionTitle("Data Export")}
                 <div className="ribbon-btn-group">
-                  {toolbarBtn(<IconExcel size={16} />, "Excel (XLSX)", onExportXLSX, false, !allowInteractions || !hasData, "Export to Excel")}
-                  {toolbarBtn(<IconGrid size={16} />, "CSV Data", onExportCSV, false, !allowInteractions || !hasData, "Export to CSV")}
-                  {toolbarBtn(<IconJson size={16} />, "JSON Data", onExportJSON, false, !allowInteractions || !hasData, "Export to JSON")}
+                  {toolbarBtn(<IconExcel size={16} />, "Excel", onExportXLSX, false, !allowInteractions || !hasData, "Export to Excel")}
+                  {toolbarBtn(<IconGrid size={16} />, "CSV", onExportCSV, false, !allowInteractions || !hasData, "Export to CSV")}
+                  {toolbarBtn(<IconJson size={16} />, "JSON", onExportJSON, false, !allowInteractions || !hasData, "Export to JSON")}
                 </div>
               </div>
 
               {divider()}
 
-              {/* Tools & Shortcuts */}
               <div className="ribbon-section" aria-label="Tools">
                 {sectionTitle("Tools")}
                 <div className="ribbon-btn-group">
-                  {toolbarBtn(<IconGrid size={16} />, "TSV Copy", onCopyToClipboard, false, !allowInteractions || !hasData, "Copy to clipboard (TSV)")}
+                  {toolbarBtn(<IconExport size={16} />, "Copy", onCopyToClipboard, false, !allowInteractions || !hasData, "Copy to clipboard")}
                 </div>
               </div>
 
               {divider()}
 
-              {/* Writeback */}
               <div className="ribbon-section" aria-label="Writeback">
                 {sectionTitle("Writeback")}
                 <div className="ribbon-btn-group">
@@ -1729,18 +1632,16 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
               {divider()}
 
-              {/* Schedule */}
               <div className="ribbon-section" aria-label="Schedule">
                 {sectionTitle("Schedule")}
                 <div className="ribbon-btn-group">
                   {toolbarBtn(<IconNew size={16} />, "New Subscription", () => { }, false, true, "Coming soon")}
-                  {toolbarBtn(<IconSchedule size={16} />, "Manage Subscriptions", () => { }, false, true, "Coming soon")}
+                  {toolbarBtn(<IconSchedule size={16} />, "Subscriptions", () => { }, false, true, "Coming soon")}
                 </div>
               </div>
 
               {divider()}
 
-              {/* Backup */}
               <div className="ribbon-section" aria-label="Backup">
                 {sectionTitle("Backup")}
                 <div className="ribbon-btn-group">
@@ -1753,27 +1654,27 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
           )}
           </div>
           {canScrollContentRight && (
-            <button 
-              className="ribbon-scroll-btn right" 
+            <button
+              className="ribbon-scroll-btn right"
               onClick={() => scrollContent("right")}
-              style={{ 
-                position: 'absolute', 
-                right: 0, 
-                top: '50%',
-                transform: 'translateY(-50%)',
-                zIndex: 500, 
-                background: 'rgba(255,255,255,0.95)', 
-                border: '1px solid rgba(0,0,0,0.1)', 
-                height: '48px', 
-                width: '24px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer', 
-                padding: 0, 
-                boxShadow: '-2px 0 8px rgba(0,0,0,0.15)',
-                borderRight: 'none',
-                borderRadius: '4px 0 0 4px'
+              style={{
+                position: "absolute",
+                right: 0,
+                top: "50%",
+                transform: "translateY(-50%)",
+                zIndex: 500,
+                background: "rgba(255,255,255,0.95)",
+                border: "1px solid rgba(0,0,0,0.1)",
+                height: "48px",
+                width: "24px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                padding: 0,
+                boxShadow: "-2px 0 8px rgba(0,0,0,0.15)",
+                borderRight: "none",
+                borderRadius: "4px 0 0 4px"
               }}
               title="Scroll Right"
             >

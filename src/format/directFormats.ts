@@ -71,24 +71,37 @@ export function parseColFormats(json: string | undefined): Record<string, Column
  */
 export function resolveColumnFormat(
   colFormats: Record<string, ColumnFormat>,
-  colKey: string,
+  colKey: string | null | undefined,
   measureIndex: number
 ): ColumnFormat | undefined {
-  const specificKey = `${colKey}::m${measureIndex}`;
+  if (!colFormats) return undefined;
+
+  const safeColKey = colKey || "";
+  
+  // Priority 1: Exact leaf (e.g., "2023::m0")
+  const specificKey = `${safeColKey}::m${measureIndex}`;
+  
+  // Priority 2: Measure global (e.g., "m:0" or "m_0")
   const measureKey = `m:${measureIndex}`;
-  const dimensionKey = `c:${colKey}`;
+  const measureKeyAlt = `m_${measureIndex}`;
+  
+  // Priority 3: Dimension/Column global (e.g., "c:2023")
+  const dimensionKey = `c:${safeColKey}`;
 
-  // Merge them with priority: specific > measure global > dimension global
-  const f1 = colFormats[dimensionKey];
-  const f2 = colFormats[measureKey];
-  const f3 = colFormats[specificKey];
+  const fDimension = colFormats[dimensionKey];
+  const fMeasure = colFormats[measureKey] || colFormats[measureKeyAlt];
+  const fSpecific = colFormats[specificKey];
 
-  if (!f1 && !f2 && !f3) return undefined;
+  if (!fDimension && !fMeasure && !fSpecific) return undefined;
 
+  // Merge order: Dimension (base) < Measure < Specific (wins).
+  // This ensures that measure-wide formatting (e.g. from Ribbon) correctly 
+  // overrides dimension-wide defaults, while still allowing a specific cell
+  // to have a manual override.
   return {
-    ...f1,
-    ...f2,
-    ...f3,
+    ...fDimension,
+    ...fMeasure,
+    ...fSpecific,
   };
 }
 

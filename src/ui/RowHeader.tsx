@@ -23,6 +23,9 @@ export interface RowHeaderProps {
   isDragOver?: boolean;
   sparklineValues?: (number | null)[];
   sparklineLabels?: string[];
+  sparklineGlobalMin?: number;
+  sparklineGlobalMax?: number;
+  labelOverrides?: Record<string, string>;
 }
 
 export const RowHeader: React.FC<RowHeaderProps> = memo(({
@@ -44,6 +47,9 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
   isDragOver,
   sparklineValues,
   sparklineLabels,
+  sparklineGlobalMin,
+  sparklineGlobalMax,
+  labelOverrides,
 }) => {
   const resolvedHeaderBackground =
     typeof style.backgroundColor === "string" && style.backgroundColor !== "transparent"
@@ -62,13 +68,7 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
   const indentPadding = row.indent * indentUnit;
 
   // Display label varies by layout mode
-  const displayLabel = settings.layout.mode === "table"
-    ? row.path.map(v => String(v)).join(" / ")
-    : settings.layout.mode === "drilldown"
-      ? row.path[row.path.length - 1]?.toString() || row.label
-      : settings.layout.mode === "stepped"
-        ? row.label
-        : row.label;
+  const rawLabel = labelOverrides?.[row.key] || row.label; const displayLabel = settings.layout.mode === "table" ? row.path.map(v => String(v)).join(" / ") : settings.layout.mode === "drilldown" ? row.path[row.path.length - 1]?.toString() || rawLabel : settings.layout.mode === "stepped" ? rawLabel : rawLabel;
 
   // Stepped mode shows level indicator
   const showLevelIndicator = settings.layout.mode === "stepped" && row.level > 0;
@@ -180,17 +180,26 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
       </span>
 
       {settings.sparklines.enabled && sparklineValues && (
-        <span className="row-header-sparkline">
+        <span
+          className={`row-header-sparkline ${settings.sparklines.showInDedicatedColumn ? "dedicated" : "inline"}`}
+          style={{
+            marginLeft: "auto",
+            flex: settings.sparklines.showInDedicatedColumn ? "0 0 112px" : "0 0 84px",
+            opacity: row.isSubtotal || row.isGrandTotal ? 0.85 : 1,
+          }}
+        >
           <Sparkline
             values={sparklineValues}
             labels={sparklineLabels}
-            width={80}
-            height={18}
+            width={settings.sparklines.showInDedicatedColumn ? 104 : 80}
+            height={settings.sparklines.showInDedicatedColumn ? 22 : 18}
             lineColor={settings.sparklines.lineColor}
             markerColor={settings.sparklines.markerColor}
             showMinMaxMarkers={settings.sparklines.showMinMaxMarkers}
             normalizePerRow={settings.sparklines.normalizePerRow}
             nullHandling={settings.sparklines.nullHandling}
+            globalMin={sparklineGlobalMin}
+            globalMax={sparklineGlobalMax}
           />
         </span>
       )}
@@ -213,3 +222,4 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
 });
 
 RowHeader.displayName = "RowHeader";
+

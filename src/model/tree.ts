@@ -49,9 +49,10 @@ export function buildRowTree(
   matrixNode: powerbi.DataViewMatrixNode,
   levelSources: powerbi.DataViewMetadataColumn[],
   // Relax identity and selection id typing
-  selectionIdBuilder: (identity: any) => any | undefined,
+  selectionIdBuilder: (node: any, levels?: powerbi.DataViewHierarchyLevel[]) => any | undefined,
   path: any[] = [],
-  level: number = 0
+  level: number = 0,
+  hierarchyLevels: powerbi.DataViewHierarchyLevel[] = []
 ): TreeNode {
   const nodeValue = matrixNode.value;
   const label = nodeValue !== undefined && nodeValue !== null ? String(nodeValue) : "";
@@ -82,7 +83,8 @@ export function buildRowTree(
           levelSources,
           selectionIdBuilder,
           currentPath,
-          level + 1
+          level + 1,
+          hierarchyLevels
         )
       );
     }
@@ -92,7 +94,7 @@ export function buildRowTree(
 
   let selectionId: any | undefined;
   if (matrixNode.identity) {
-    selectionId = selectionIdBuilder(matrixNode);
+    selectionId = selectionIdBuilder(matrixNode, hierarchyLevels);
   }
 
   return {

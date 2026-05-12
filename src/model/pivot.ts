@@ -59,7 +59,7 @@ export interface DataModelBuilderOptions {
   dataView: powerbi.DataView | undefined;
   settings: VisualSettings;
   // Relax identity and selection id typing to avoid dependency on SDK-internal types
-  selectionIdBuilder: (identity: any) => any | undefined;
+  selectionIdBuilder: (identity: any, levels?: powerbi.DataViewHierarchyLevel[]) => any | undefined;
   rowExpandedState: Map<string, boolean>;
   columnExpandedState: Map<string, boolean>;
 }
@@ -121,9 +121,10 @@ export function buildMatrixModel(options: DataModelBuilderOptions): MatrixModel 
   }
 
   const rowLevelSources = rows.levels?.map((l: powerbi.DataViewHierarchyLevel) => l.sources[0]) || [];
-  const columnLevelSources = columns?.levels?.map((l: powerbi.DataViewHierarchyLevel) => l.sources[0]) || [];
+  const columnLevelSources = columns?.levels?.map((l: powerbi.DataViewHierarchyLevel) => l.sources[0])
+    .filter(s => s && !s.isMeasure && !s.roles?.["Values"]) || [];
 
-  const rowTree = buildRowTree(rows.root, rowLevelSources, selectionIdBuilder);
+  const rowTree = buildRowTree(rows.root, rowLevelSources, selectionIdBuilder, [], 0, rows.levels || []);
   const columnTree = columns?.root
     ? buildColumnTree(columns.root, columnLevelSources)
     : createDefaultColumnTree();
@@ -301,9 +302,8 @@ function extractCellValues(
   for (const [valueIndex, nodeValue] of Object.entries(values)) {
     const idx = parseInt(valueIndex, 10);
     const measureIndex = idx % measures.length;
-    const columnIndex = Math.floor(idx / measures.length);
+    const columnIndex = idx;
     if (leafColumns.length === 0 || columnIndex < 0 || columnIndex >= leafColumns.length) {
-      // Safety: do not create cells for columns that have no header representation
       continue;
     }
 
@@ -331,7 +331,7 @@ function getLeafColumnsWithIndex(node: TreeNode): TreeNode[] {
     return [node];
   }
   const leaves: TreeNode[] = [];
-  for (const child of node.children) {
+  for (const child of node.children || []) {
     leaves.push(...getLeafColumnsWithIndex(child));
   }
   return leaves;
@@ -595,15 +595,18 @@ export function applyManualOverrides(
 
     if (children.length === 0) return;
 
+    const totalChildren = children.filter(child => child.isSubtotal || child.isGrandTotal);
+    const regularChildren = children.filter(child => !child.isSubtotal && !child.isGrandTotal);
+
     // Sort children according to rowOrder if available
-    const parentOrder: string[] = rowOrder.filter((key: string) => children.some(c => c.key === key));
+    const parentOrder: string[] = rowOrder.filter((key: string) => regularChildren.some(c => c.key === key));
     const orderedChildren = parentOrder.length > 0
       ? parentOrder.map((key: string) => rowMap.get(key)!).filter(Boolean)
-      : children;
+      : regularChildren;
 
     // Add any new children not in the order
     const orderedSet = new Set(parentOrder);
-    const newChildren = children.filter(c => !orderedSet.has(c.key));
+    const newChildren = regularChildren.filter(c => !orderedSet.has(c.key));
     const allChildren = [...orderedChildren, ...newChildren];
 
     for (const row of allChildren) {
@@ -617,7 +620,7 @@ export function applyManualOverrides(
       }
 
       // Keep attached subtotal / grand-total rows with their parent group.
-      const attachedTotals = updatedRows.filter(candidate => {
+      const attachedTotals = totalChildren.filter(candidate => {
         if (processed.has(candidate.key) || (!candidate.isSubtotal && !candidate.isGrandTotal)) {
           return false;
         }
@@ -635,6 +638,13 @@ export function applyManualOverrides(
 
       for (const totalRow of attachedTotals) {
         if (processed.has(totalRow.key)) continue;
+        processed.add(totalRow.key);
+        result.push({ ...totalRow, visibleIndex: result.length });
+      }
+    }
+
+    for (const totalRow of totalChildren) {
+      if (!processed.has(totalRow.key)) {
         processed.add(totalRow.key);
         result.push({ ...totalRow, visibleIndex: result.length });
       }

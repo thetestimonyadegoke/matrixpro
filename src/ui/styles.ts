@@ -128,9 +128,12 @@ export const matrixProStyles = `
   display: flex;
   align-items: center;
   padding: var(--matrix-spacing-sm) var(--matrix-spacing-md);
-  background-color: var(--matrix-bg-secondary);
+  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,0.9));
   border-bottom: 1px solid var(--matrix-border-color);
   gap: var(--matrix-spacing-md);
+  min-height: 52px;
+  box-sizing: border-box;
+  overflow: visible;
 }
 
 .matrix-formula-bar .formula-bar-address {
@@ -156,6 +159,7 @@ export const matrixProStyles = `
 .matrix-formula-bar .formula-bar-input-wrapper {
   flex: 1;
   position: relative;
+  min-width: 0;
 }
 
 .matrix-formula-bar .formula-bar-editor {
@@ -168,6 +172,9 @@ export const matrixProStyles = `
   background-color: var(--matrix-bg-primary);
   transition: var(--matrix-transition-normal);
   resize: none;
+  min-height: 36px;
+  line-height: 1.35;
+  box-sizing: border-box;
 }
 
 .matrix-formula-bar .formula-bar-editor:focus {
@@ -179,6 +186,7 @@ export const matrixProStyles = `
 .matrix-formula-bar .formula-bar-actions {
   display: flex;
   gap: var(--matrix-spacing-sm);
+  flex-shrink: 0;
 }
 
 .matrix-formula-bar .formula-bar-btn {
@@ -659,9 +667,15 @@ export const matrixProStyles = `
    ============================================ */
 @media (max-width: 768px) {
   .matrix-formula-bar {
-    flex-wrap: wrap;
-    padding: var(--matrix-spacing-xs);
-  }
+  display: flex;
+  align-items: center;
+  padding: var(--matrix-spacing-sm) var(--matrix-spacing-md);
+  background-color: var(--matrix-bg-secondary);
+  border-bottom: 1px solid var(--matrix-border-color);
+  gap: var(--matrix-spacing-md);
+  height: 40px;
+  box-sizing: border-box;
+}
   
   .matrix-formula-bar .formula-bar-address {
     min-width: 60px;
@@ -1235,6 +1249,18 @@ body > div[style*="fixed"] {
 .mx-restore-toolbar-btn svg {
   transform: rotate(180deg);
 }
+
+.matrix-container.is-glassmorphic {
+  --matrix-bg-primary: rgba(255, 255, 255, 0.25) !important;
+  --matrix-bg-secondary: rgba(248, 250, 252, 0.2) !important;
+  --mx-row-header-bg: rgba(255, 255, 255, 0.1) !important;
+}
+
+.theme-modern-dark .matrix-container.is-glassmorphic {
+  --matrix-bg-primary: rgba(15, 23, 42, 0.4) !important;
+  --matrix-bg-secondary: rgba(30, 41, 59, 0.3) !important;
+  --mx-row-header-bg: rgba(15, 23, 42, 0.2) !important;
+}
 `;
 
 // Export CSS for injection
@@ -1255,4 +1281,5 @@ export const Styles = {
   injectStyles,
 };
 
-export default Styles;
+
+

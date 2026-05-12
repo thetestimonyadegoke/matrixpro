@@ -12,11 +12,21 @@ interface FooterProps {
   onZoomSet: (level: number) => void;
   onToolbarModeChange: (mode: ToolbarMode) => void;
   onToggleExplorer: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
+  allowInteractions: boolean;
+  titleVisible: boolean;
+  onToggleTitle: () => void;
+  onEditTitle: () => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({
   rowCount, zoomLevel, toolbarMode, explorerOpen,
   onZoomIn, onZoomOut, onZoomReset, onZoomSet, onToolbarModeChange, onToggleExplorer,
+  canUndo, canRedo, onUndo, onRedo, allowInteractions,
+  titleVisible, onToggleTitle, onEditTitle,
 }) => {
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [zoomEditing, setZoomEditing] = useState(false);
@@ -78,6 +88,40 @@ export const Footer: React.FC<FooterProps> = ({
     <div style={footerStyle} className="mx-footer">
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <span>Total rows: <strong style={{ color: "#111827" }}>{rowCount.toLocaleString()}</strong></span>
+        <span style={{ color: "#d1d5db" }}>|</span>
+        <button
+          onClick={onToggleTitle}
+          disabled={!allowInteractions}
+          style={{ ...iconBtn, fontWeight: titleVisible ? 600 : 400, color: titleVisible ? "#2563eb" : "#4b5563" }}
+          title={titleVisible ? "Hide visual title" : "Show visual title"}
+        >
+          {titleVisible ? "Title On" : "Title Off"}
+        </button>
+        <button
+          onClick={onEditTitle}
+          disabled={!allowInteractions}
+          style={{ ...iconBtn, opacity: allowInteractions ? 1 : 0.4 }}
+          title="Edit title and header settings"
+        >
+          Edit Title
+        </button>
+        <span style={{ color: "#d1d5db" }}>|</span>
+        <button
+          onClick={onUndo}
+          disabled={!canUndo || !allowInteractions}
+          style={{ ...iconBtn, opacity: canUndo && allowInteractions ? 1 : 0.4, cursor: canUndo && allowInteractions ? "pointer" : "not-allowed" }}
+          title="Undo last matrix change (Ctrl+Z)"
+        >
+          Undo
+        </button>
+        <button
+          onClick={onRedo}
+          disabled={!canRedo || !allowInteractions}
+          style={{ ...iconBtn, opacity: canRedo && allowInteractions ? 1 : 0.4, cursor: canRedo && allowInteractions ? "pointer" : "not-allowed" }}
+          title="Redo matrix change (Ctrl+Y)"
+        >
+          Redo
+        </button>
         <span style={{ color: "#d1d5db" }}>|</span>
         <button
           onClick={onToggleExplorer}

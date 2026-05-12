@@ -126,9 +126,16 @@ export interface SparklineSettings {
 }
 
 export type LayoutMode = "hierarchy" | "outline" | "table" | "stepped" | "drilldown";
+export type PageMode = "single" | "multi";
+export type BreakMode = "none" | "page" | "section";
+export type DesignStylePreset = "modern" | "ledger" | "editorial";
 
 export interface LayoutSettings {
   mode: LayoutMode;
+  pageMode: PageMode;
+  rowBreak: BreakMode;
+  columnBreak: BreakMode;
+  stylePreset: DesignStylePreset;
 }
 
 export type ThemePresetId =
@@ -152,7 +159,13 @@ export type ThemePresetId =
   // New brand-accent presets
   | "brand-blue"
   | "brand-green"
-  | "brand-orange";
+  | "brand-orange"
+  // Modern expressive presets
+  | "atelier-ink"
+  | "aurora-slate"
+  | "editorial-luxe"
+  | "kinetic-mint"
+  | "obsidian-neon";
 
 export type ThemeDensity = "compact" | "comfortable" | "spacious";
 
@@ -185,6 +198,17 @@ export interface AppearanceSettings {
   accentColor: string;
   cornerRadius: number;
   showToolbar: boolean;
+  backgroundImage?: string;
+  backgroundBlur?: number;
+  glassmorphism?: boolean;
+  surfaceOpacity?: number;
+  gradientStart?: string;
+  gradientEnd?: string;
+  gradientAngle?: number;
+  overlayColor?: string;
+  overlayOpacity?: number;
+  backgroundEffect?: "none" | "gradient" | "image" | "hybrid";
+  layoutStyle?: "standard" | "floating" | "framed" | "spotlight";
 }
 
 export interface TitleSettings {
@@ -528,6 +552,10 @@ export const defaultSettings: VisualSettings = {
   },
   layout: {
     mode: "hierarchy",
+    pageMode: "single",
+    rowBreak: "none",
+    columnBreak: "none",
+    stylePreset: "modern",
   },
   theme: {
     preset: "modern-light",
@@ -628,6 +656,17 @@ export const defaultSettings: VisualSettings = {
     accentColor: "#2d74da",
     cornerRadius: 8,
     showToolbar: true,
+    backgroundImage: "",
+    backgroundBlur: 0,
+    glassmorphism: false,
+    surfaceOpacity: 92,
+    gradientStart: "#f8fbff",
+    gradientEnd: "#e8f1ff",
+    gradientAngle: 135,
+    overlayColor: "#0f172a",
+    overlayOpacity: 0,
+    backgroundEffect: "none",
+    layoutStyle: "standard",
   },
   title: {
     show: false,
@@ -733,6 +772,10 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
     },
     layout: {
       mode: getValue(objects, "layout", "mode", defaultSettings.layout.mode),
+      pageMode: getValue(objects, "layout", "pageMode", defaultSettings.layout.pageMode),
+      rowBreak: getValue(objects, "layout", "rowBreak", defaultSettings.layout.rowBreak),
+      columnBreak: getValue(objects, "layout", "columnBreak", defaultSettings.layout.columnBreak),
+      stylePreset: getValue(objects, "layout", "stylePreset", defaultSettings.layout.stylePreset),
     },
     theme: {
       preset: getValue(objects, "theme", "preset", defaultSettings.theme.preset),
@@ -841,6 +884,17 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       accentColor: getColor(objects, "appearance", "accentColor", defaultSettings.appearance.accentColor),
       cornerRadius: getValue(objects, "appearance", "cornerRadius", defaultSettings.appearance.cornerRadius),
       showToolbar: getValue(objects, "appearance", "showToolbar", defaultSettings.appearance.showToolbar),
+      backgroundImage: getValue(objects, "appearance", "backgroundImage", defaultSettings.appearance.backgroundImage),
+      backgroundBlur: getValue(objects, "appearance", "backgroundBlur", defaultSettings.appearance.backgroundBlur),
+      glassmorphism: getValue(objects, "appearance", "glassmorphism", defaultSettings.appearance.glassmorphism),
+      surfaceOpacity: getValue(objects, "appearance", "surfaceOpacity", defaultSettings.appearance.surfaceOpacity),
+      gradientStart: getColor(objects, "appearance", "gradientStart", defaultSettings.appearance.gradientStart!),
+      gradientEnd: getColor(objects, "appearance", "gradientEnd", defaultSettings.appearance.gradientEnd!),
+      gradientAngle: getValue(objects, "appearance", "gradientAngle", defaultSettings.appearance.gradientAngle),
+      overlayColor: getColor(objects, "appearance", "overlayColor", defaultSettings.appearance.overlayColor!),
+      overlayOpacity: getValue(objects, "appearance", "overlayOpacity", defaultSettings.appearance.overlayOpacity),
+      backgroundEffect: getValue(objects, "appearance", "backgroundEffect", defaultSettings.appearance.backgroundEffect),
+      layoutStyle: getValue(objects, "appearance", "layoutStyle", defaultSettings.appearance.layoutStyle),
     },
     title: {
       show: getValue(objects, "title", "show", defaultSettings.title.show),
@@ -889,3 +943,4 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
     },
   };
 }
+

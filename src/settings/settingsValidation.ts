@@ -447,6 +447,34 @@ export const settingsMetadata: SettingsMetadata = {
       requiresReload: true,
       excelEquivalent: "Report Layout",
     },
+    pageMode: {
+      description: "Whether the matrix is presented as a single page or split for multi-page output",
+      type: "enum",
+      defaultValue: "single",
+      allowedValues: ["single", "multi"],
+      category: "Layout",
+    },
+    rowBreak: {
+      description: "Visual break style inserted between top-level row groups",
+      type: "enum",
+      defaultValue: "none",
+      allowedValues: ["none", "page", "section"],
+      category: "Layout",
+    },
+    columnBreak: {
+      description: "Visual break style inserted between top-level column groups",
+      type: "enum",
+      defaultValue: "none",
+      allowedValues: ["none", "page", "section"],
+      category: "Layout",
+    },
+    stylePreset: {
+      description: "High-level design preset applied to matrix styling",
+      type: "enum",
+      defaultValue: "modern",
+      allowedValues: ["modern", "ledger", "editorial"],
+      category: "Layout",
+    },
   },
   theme: {
     preset: {

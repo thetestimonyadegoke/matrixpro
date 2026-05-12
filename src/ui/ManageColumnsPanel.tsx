@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { FlattenedNode } from "../model/tree";
 import { MeasureInfo } from "../model/pivot";
 import { VisualSettings } from "../settings/settings";
+import { secureRandomId } from "../model/keys";
 
 export interface ManageColumnsPanelProps {
   columns: FlattenedNode[];
@@ -10,14 +11,31 @@ export interface ManageColumnsPanelProps {
   settings: VisualSettings;
   onClose: () => void;
   onPersistProperty: (objectName: string, propertyName: string, value: any) => void;
+  onHiddenColsChange?: (keys: string[]) => void;
+  onHiddenRowKeysChange?: (keys: string[]) => void;
   onOpenCalcMeasureWizard?: (id?: string) => void;
   onDeleteCalcMeasure?: (id: string) => void;
   onDeleteCalcRow?: (rowKey: string) => void;
 }
 
-type TabId = "measures" | "columns" | "rows";
+type TabId = "measures" | "columns" | "rows" | "visualColumns" | "design";
+type VisualColumnFrequency = "all" | "yearly" | "quarterly" | "specific";
+type VisualColumnPosition = "normal" | "beginning" | "end" | "specific";
+type VisualColumnRule = {
+  id: string;
+  enabled?: boolean;
+  sourceMeasureId?: string;
+  sourceMeasureName?: string;
+  sourceMeasureIndex?: number;
+  frequency?: VisualColumnFrequency;
+  position?: VisualColumnPosition;
+  positionIndex?: number;
+  specificColumnKeys?: string[];
+  hierarchyLevel?: number;
+  applyTo?: "headers" | "values" | "both";
+};
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+// â”€â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function parseJSON<T>(raw: string, fallback: T): T {
   try {
@@ -28,7 +46,7 @@ function parseJSON<T>(raw: string, fallback: T): T {
   }
 }
 
-// ─── small presentational pieces ─────────────────────────────────────────────
+// â”€â”€â”€ small presentational pieces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const EyeOpen = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -45,100 +63,117 @@ const EyeOff = () => (
   </svg>
 );
 
-const DragHandle = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ color: "#aaa" }}>
-    <circle cx="9" cy="5" r="2" /><circle cx="15" cy="5" r="2" />
-    <circle cx="9" cy="12" r="2" /><circle cx="15" cy="12" r="2" />
-    <circle cx="9" cy="19" r="2" /><circle cx="15" cy="19" r="2" />
-  </svg>
-);
 
-// ─── shared styles (using design system tokens) ───────────────────────────────
 
-const overlay: React.CSSProperties = {
+const ui = {
+  bg: "#0B0C10",
+  surface: "#12141A",
+  surfaceHover: "#1A1D24",
+  surfaceActive: "#222630",
+  border: "rgba(255, 255, 255, 0.06)",
+  borderStrong: "rgba(255, 255, 255, 0.12)",
+  text: "#F8FAFC",
+  textMuted: "#8B95A5",
+  accent: "#00E5FF", 
+  accentStrong: "#00B8D9",
+  accentSoft: "rgba(0, 229, 255, 0.1)",
+  danger: "#FF0055",
+  dangerSoft: "rgba(255, 0, 85, 0.1)",
+  shadow: "0 32px 64px -12px rgba(0,0,0,0.8)",
+  shadowSoft: "0 8px 16px -4px rgba(0,0,0,0.5)",
+  glow: "0 0 12px rgba(0, 229, 255, 0.3)",
+};
+
+const overlayStyles: React.CSSProperties = {
   position: "fixed", inset: 0, zIndex: 10000,
-  background: "rgba(15, 23, 42, 0.6)",
-  backdropFilter: "blur(4px)",
+  background: "rgba(4, 5, 8, 0.8)",
+  backdropFilter: "blur(16px) saturate(120%)",
   display: "flex", alignItems: "center", justifyContent: "center",
-  fontFamily: "var(--mx-font-family, sans-serif)",
+  fontFamily: "'Inter', sans-serif",
   animation: "matrix-fade-in 0.3s ease-out",
 };
 
-const modal: React.CSSProperties = {
-  width: "min(980px, 98vw)", 
-  height: "min(720px, 92vh)",
-  background: "var(--mx-surface, #ffffff)",
-  borderRadius: 16,
-  boxShadow: "0 32px 64px -16px rgba(0,0,0,0.45)",
-  display: "flex", 
+const modalStyles: React.CSSProperties = {
+  width: "min(840px, 95%)",
+  height: "min(720px, 90%)",
+  background: "rgba(11, 12, 16, 0.7)",
+  backdropFilter: "blur(32px)",
+  borderRadius: 24,
+  boxShadow: `inset 0 1px 1px rgba(255,255,255,0.1), ${ui.shadow}`,
+  display: "flex",
   flexDirection: "row",
-  border: "1px solid var(--mx-border, #e2e8f0)",
+  border: "1px solid rgba(255, 255, 255, 0.08)",
   overflow: "hidden",
-  animation: "matrix-slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
 };
 
-const sidebar: React.CSSProperties = {
-  width: 260,
-  borderRight: "1px solid var(--mx-border, #e2e8f0)",
-  background: "var(--mx-surface-subtle, #f8fafc)",
-  display: "flex", flexDirection: "column", minHeight: 0,
-  padding: "24px 0",
+const sidebarStyles: React.CSSProperties = {
+  width: 200,
+  borderRight: `1px solid ${ui.border}`,
+  background: "rgba(0, 0, 0, 0.2)",
+  display: "flex", flexDirection: "column",
+  padding: "32px 16px",
 };
 
-const content: React.CSSProperties = {
+const contentStyles: React.CSSProperties = {
   flex: 1, display: "flex", flexDirection: "column", overflow: "hidden",
-  background: "var(--mx-surface, #ffffff)",
+  background: "transparent",
 };
 
-// ─── New Toggle Switch Component ─────────────────────────────────────────────
+const actionBtn: React.CSSProperties = {
+  height: 36,
+  padding: "0 16px",
+  borderRadius: 12,
+  fontSize: 13,
+  fontWeight: 700,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+  cursor: "pointer",
+  transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+  whiteSpace: "nowrap",
+};
 
-const Toggle = ({ checked, onChange, title }: { checked: boolean, onChange: () => void, title?: string }) => (
+const Toggle = ({ checked, onChange }: { checked: boolean, onChange: () => void }) => (
   <div 
     onClick={(e) => { e.stopPropagation(); onChange(); }}
-    title={title}
     style={{
-      width: 38, height: 20, borderRadius: 12,
-      background: checked ? "var(--mx-accent, #2563eb)" : "var(--mx-surface-subtle, #f1f5f9)",
+      width: 44, height: 24, borderRadius: 12,
+      background: checked ? "linear-gradient(135deg, #00E5FF 0%, #0077FF 100%)" : "rgba(255,255,255,0.1)",
       position: "relative", cursor: "pointer",
-      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+      transition: "all 0.3s ease",
       display: "flex", alignItems: "center",
       padding: 3,
-      border: `1px solid ${checked ? "var(--mx-accent, #2563eb)" : "var(--mx-border, #e2e8f0)"}`,
+      boxShadow: checked ? "0 0 12px rgba(0, 229, 255, 0.4)" : "none",
     }}
   >
     <div style={{
-      width: 14, height: 14, borderRadius: "50%",
+      width: 18, height: 18, borderRadius: "50%",
       background: "#fff",
-      boxShadow: "0 2px 4px rgba(0,0,0,0.15)",
-      transform: checked ? "translateX(18px)" : "translateX(0)",
-      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+      boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
+      transform: checked ? "translateX(20px)" : "translateX(0)",
+      transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
     }} />
   </div>
 );
 
-// ─── Modern Icons ────────────────────────────────────────────────────────────
-
 const SearchIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-  </svg>
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
 );
 
 const TrashIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="3 6 5 6 21 6"></polyline>
-    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-  </svg>
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
 );
 
 const PlusIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="12" y1="5" x2="12" y2="19"></line>
-    <line x1="5" y1="12" x2="19" y2="12"></line>
-  </svg>
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
 );
 
-// ─── component ───────────────────────────────────────────────────────────────
+const DragHandle = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ color: "rgba(255, 255, 255, 0.2)" }}><circle cx="9" cy="5" r="2"/><circle cx="15" cy="5" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="19" r="2"/><circle cx="15" cy="19" r="2"/></svg>
+);
+
+// --- component ---------------------------------------------------------------
 
 export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
   columns,
@@ -147,6 +182,8 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
   settings,
   onClose,
   onPersistProperty,
+  onHiddenColsChange,
+  onHiddenRowKeysChange,
   onOpenCalcMeasureWizard,
   onDeleteCalcMeasure,
   onDeleteCalcRow,
@@ -158,22 +195,61 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [editingWidth, setEditingWidth] = useState<string | null>(null);
   const [widthInput, setWidthInput] = useState("");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameInput, setRenameInput] = useState("");
 
-  // ── persisted state ──────────────────────────────────────────────────────
+
+  // â”€â”€ persisted state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const colOrder = useMemo(
     () => parseJSON<string[]>(settings.manualData.colOrder, []),
     [settings.manualData.colOrder]
   );
 
-  const hiddenCols = useMemo(
-    () => new Set(parseJSON<string[]>(settings.manualData.hiddenCols, [])),
-    [settings.manualData.hiddenCols]
+  const [hiddenColsState, setHiddenColsState] = useState<Set<string>>(
+    () => new Set(parseJSON<string[]>(settings.manualData.hiddenCols, []))
+  );
+  const [hiddenRowKeysState, setHiddenRowKeysState] = useState<Set<string>>(
+    () => new Set(parseJSON<string[]>(settings.manualData.hiddenRowKeys, []))
   );
 
-  const hiddenRowKeys = useMemo(
-    () => new Set(parseJSON<string[]>(settings.manualData.hiddenRowKeys, [])),
-    [settings.manualData.hiddenRowKeys]
-  );
+  // Refs for "latest" state to handle rapid clicks
+  const hiddenColsRef = useRef(new Set(parseJSON<string[]>(settings.manualData.hiddenCols, [])));
+  const hiddenRowKeysRef = useRef(new Set(parseJSON<string[]>(settings.manualData.hiddenRowKeys, [])));
+  
+  // Refs for "last persisted" to avoid sync-back loops
+  const lastHiddenColsPersisted = useRef(settings.manualData.hiddenCols);
+  const lastHiddenRowsPersisted = useRef(settings.manualData.hiddenRowKeys);
+
+  useEffect(() => {
+    const incoming = settings.manualData.hiddenCols || "[]";
+    // Robust comparison: parse and check equality
+    const currentSet = hiddenColsRef.current;
+    const incomingArr = parseJSON<string[]>(incoming, []);
+    const incomingSet = new Set(incomingArr);
+    
+    const isSame = currentSet.size === incomingSet.size && [...currentSet].every(x => incomingSet.has(x));
+    
+    if (!isSame) {
+      setHiddenColsState(incomingSet);
+      hiddenColsRef.current = new Set(incomingSet);
+      lastHiddenColsPersisted.current = incoming;
+    }
+  }, [settings.manualData.hiddenCols]);
+
+  useEffect(() => {
+    const incoming = settings.manualData.hiddenRowKeys || "[]";
+    const currentSet = hiddenRowKeysRef.current;
+    const incomingArr = parseJSON<string[]>(incoming, []);
+    const incomingSet = new Set(incomingArr);
+    
+    const isSame = currentSet.size === incomingSet.size && [...currentSet].every(x => incomingSet.has(x));
+    
+    if (!isSame) {
+      setHiddenRowKeysState(incomingSet);
+      hiddenRowKeysRef.current = new Set(incomingSet);
+      lastHiddenRowsPersisted.current = incoming;
+    }
+  }, [settings.manualData.hiddenRowKeys]);
 
   const colWidths = useMemo(
     () => parseJSON<Record<string, number>>(settings.manualData.colWidths, {}),
@@ -190,9 +266,14 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
     [settings.manualData.aggregationOverrides]
   );
 
-  // ── derived item lists ────────────────────────────────────────────────────
+  const visualColumnRules = useMemo(
+    () => parseJSON<VisualColumnRule[]>(settings.calculations.visualColumns || "[]", []),
+    [settings.calculations.visualColumns]
+  );
+
+  // â”€â”€ derived item lists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const measureItems = useMemo(() => {
-    const base = measures.map(m => ({ id: `m_${m.index}`, label: m.name, sub: m.format || "General", measure: m }));
+    const base = measures.map((m, index) => ({ id: `m_${m.index ?? index}`, label: m.name, sub: m.format || "General", measure: m }));
     const ordered = colOrder.length
       ? [...base].sort((a, b) => {
           const ia = colOrder.indexOf(a.id);
@@ -206,8 +287,20 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
   }, [measures, colOrder, search]);
 
   const columnItems = useMemo(() => {
-    const leafCols = columns.filter(c => c.isLeaf || c.isSubtotal);
-    const base = leafCols.map(c => ({ id: c.key, label: c.label || "(Empty)", sub: `Level ${c.level}`, col: c }));
+    const base = columns
+      .filter(c => c.key && c.key !== "col:root")
+      .map(c => ({
+        id: c.key,
+        label: c.label || (c.isGrandTotal ? "Column Grand Total" : "(Empty)"),
+        sub: c.isGrandTotal
+          ? "Grand total"
+          : c.isSubtotal
+            ? `Subtotal - Level ${c.level}`
+            : c.hasChildren
+              ? `Group - Level ${c.level}`
+              : `Level ${c.level}`,
+        col: c,
+      }));
     const ordered = colOrder.length
       ? [...base].sort((a, b) => {
           const ia = colOrder.indexOf(a.id);
@@ -219,6 +312,34 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
       !search || item.label.toLowerCase().includes(search.toLowerCase())
     );
   }, [columns, colOrder, search]);
+
+  const selectableColumnItems = useMemo(() => columns
+    .filter((col, index) => {
+      const next = columns[index + 1];
+      return col.isLeaf || col.isSubtotal || col.isGrandTotal || !next || next.level <= col.level;
+    })
+    .map(col => ({
+      id: col.key,
+      label: col.label || "(Empty)",
+      sub: `${(col.path || []).map(value => String(value ?? "")).filter(Boolean).join(" / ") || `Level ${col.level}`}`,
+    })), [columns]);
+
+  const filteredVisualColumnRules = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return visualColumnRules;
+    return visualColumnRules.filter(rule => {
+      const selectedColumns = selectableColumnItems
+        .filter(col => rule.specificColumnKeys?.includes(col.id))
+        .map(col => `${col.label} ${col.sub}`)
+        .join(" ");
+      return [
+        rule.sourceMeasureName,
+        rule.frequency,
+        rule.position,
+        selectedColumns,
+      ].join(" ").toLowerCase().includes(q);
+    });
+  }, [search, selectableColumnItems, visualColumnRules]);
 
   const rowItems = useMemo(() => {
     const seen = new Set<string>();
@@ -235,7 +356,7 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
         sub: r.key.startsWith("__calcrow__")
           ? "Calculated row"
           : r.isSubtotal
-            ? `Subtotal • Level ${r.level + 1}`
+            ? `Subtotal â€¢ Level ${r.level + 1}`
             : `Level ${r.level + 1}`,
         row: r,
       }));
@@ -245,33 +366,132 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
     ? measureItems
     : activeTab === "columns"
       ? columnItems
-      : rowItems;
+      : activeTab === "rows"
+        ? rowItems
+        : [];
 
   const items = useMemo(
     () => (showHiddenOnly
-      ? baseItems.filter(item => (activeTab === "rows" ? hiddenRowKeys.has(item.id) : hiddenCols.has(item.id)))
+      ? baseItems.filter(item => (activeTab === "rows" ? hiddenRowKeysState.has(item.id) : hiddenColsState.has(item.id)))
       : baseItems),
-    [activeTab, baseItems, hiddenCols, hiddenRowKeys, showHiddenOnly]
+    [activeTab, baseItems, hiddenColsState, hiddenRowKeysState, showHiddenOnly]
   );
 
-  // ── helpers ───────────────────────────────────────────────────────────────
+  // â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const persistOrder = useCallback((next: string[]) => {
     onPersistProperty("manualData", "colOrder", JSON.stringify(next));
   }, [onPersistProperty]);
 
   const persistHiddenState = useCallback((next: Set<string>) => {
+    const nextKeys = [...next];
+    const json = JSON.stringify(nextKeys);
     if (activeTab === "rows") {
-      onPersistProperty("manualData", "hiddenRowKeys", JSON.stringify([...next]));
+      hiddenRowKeysRef.current = new Set(next);
+      setHiddenRowKeysState(new Set(next));
+      lastHiddenRowsPersisted.current = json;
+      if (onHiddenRowKeysChange) onHiddenRowKeysChange(nextKeys);
+      else onPersistProperty("manualData", "hiddenRowKeys", json);
       return;
     }
-    onPersistProperty("manualData", "hiddenCols", JSON.stringify([...next]));
-  }, [activeTab, onPersistProperty]);
+    hiddenColsRef.current = new Set(next);
+    setHiddenColsState(new Set(next));
+    lastHiddenColsPersisted.current = json;
+    if (onHiddenColsChange) onHiddenColsChange(nextKeys);
+    else onPersistProperty("manualData", "hiddenCols", json);
+  }, [activeTab, onHiddenColsChange, onHiddenRowKeysChange, onPersistProperty]);
 
   const toggleVisibility = useCallback((id: string) => {
-    const next = new Set(activeTab === "rows" ? hiddenRowKeys : hiddenCols);
+    const ref = activeTab === "rows" ? hiddenRowKeysRef : hiddenColsRef;
+    const next = new Set(ref.current);
     if (next.has(id)) next.delete(id); else next.add(id);
     persistHiddenState(next);
-  }, [activeTab, hiddenCols, hiddenRowKeys, persistHiddenState]);
+  }, [activeTab, persistHiddenState]);
+
+  const persistVisualColumnRules = useCallback((next: VisualColumnRule[]) => {
+    onPersistProperty("calculations", "visualColumns", JSON.stringify(next));
+  }, [onPersistProperty]);
+
+  const addVisualColumnRule = useCallback(() => {
+    const firstMeasure = measures[0];
+    const next: VisualColumnRule = {
+      id: `visual_${secureRandomId(8)}`,
+      enabled: true,
+      sourceMeasureId: firstMeasure?.id,
+      sourceMeasureName: firstMeasure?.name,
+      sourceMeasureIndex: firstMeasure?.index ?? 0,
+      frequency: "all",
+      position: "end",
+      specificColumnKeys: [],
+    };
+    persistVisualColumnRules([...visualColumnRules, next]);
+  }, [measures, persistVisualColumnRules, visualColumnRules]);
+
+  const addVisualRuleForMeasure = useCallback((measure: MeasureInfo) => {
+    const exists = visualColumnRules.some(rule =>
+      rule.sourceMeasureIndex === measure.index ||
+      (measure.id && rule.sourceMeasureId === measure.id) ||
+      rule.sourceMeasureName === measure.name
+    );
+    const next: VisualColumnRule = {
+      id: `visual_${secureRandomId(8)}`,
+      enabled: true,
+      sourceMeasureId: measure.id,
+      sourceMeasureName: measure.name,
+      sourceMeasureIndex: measure.index,
+      frequency: "all",
+      position: "end",
+      specificColumnKeys: [],
+    };
+    persistVisualColumnRules(exists
+      ? visualColumnRules.map(rule =>
+        rule.sourceMeasureIndex === measure.index ||
+        (measure.id && rule.sourceMeasureId === measure.id) ||
+        rule.sourceMeasureName === measure.name
+          ? { ...rule, ...next, id: rule.id }
+          : rule
+      )
+      : [...visualColumnRules, next]
+    );
+    setActiveTab("visualColumns");
+    setSearch(measure.name);
+  }, [persistVisualColumnRules, visualColumnRules]);
+
+  const addVisualRulesForColumn = useCallback((col: FlattenedNode) => {
+    if (measures.length === 0) return;
+    const colKey = col.key;
+    const nextRules = [...visualColumnRules];
+    for (const measure of measures) {
+      const existingIndex = nextRules.findIndex(rule =>
+        rule.sourceMeasureIndex === measure.index ||
+        (measure.id && rule.sourceMeasureId === measure.id) ||
+        rule.sourceMeasureName === measure.name
+      );
+      const patch: VisualColumnRule = {
+        id: existingIndex >= 0 ? nextRules[existingIndex].id : `visual_${secureRandomId(8)}`,
+        enabled: true,
+        sourceMeasureId: measure.id,
+        sourceMeasureName: measure.name,
+        sourceMeasureIndex: measure.index,
+        frequency: "specific",
+        position: "normal",
+        specificColumnKeys: Array.from(new Set([...(existingIndex >= 0 ? nextRules[existingIndex].specificColumnKeys || [] : []), colKey])),
+      };
+      if (existingIndex >= 0) nextRules[existingIndex] = { ...nextRules[existingIndex], ...patch };
+      else nextRules.push(patch);
+    }
+    persistVisualColumnRules(nextRules);
+    setActiveTab("visualColumns");
+    setSearch(col.label || colKey);
+  }, [measures, persistVisualColumnRules, visualColumnRules]);
+
+  const updateVisualColumnRule = useCallback((id: string, patch: Partial<VisualColumnRule>) => {
+    persistVisualColumnRules(visualColumnRules.map(rule => rule.id === id ? { ...rule, ...patch } : rule));
+  }, [persistVisualColumnRules, visualColumnRules]);
+
+  const deleteVisualColumnRule = useCallback((id: string) => {
+    persistVisualColumnRules(visualColumnRules.filter(rule => rule.id !== id));
+  }, [persistVisualColumnRules, visualColumnRules]);
+
 
   const saveWidth = useCallback((id: string, val: string) => {
     const n = parseInt(val, 10);
@@ -285,7 +505,7 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
     onPersistProperty("manualData", "aggregationOverrides", JSON.stringify({ ...aggregationOverrides, [measureIndex]: val }));
   }, [aggregationOverrides, onPersistProperty]);
 
-  // ── drag-and-drop ─────────────────────────────────────────────────────────
+  // â”€â”€ drag-and-drop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const allKeys = (activeTab === "measures" ? measureItems : columnItems).map(i => i.id);
 
   const buildOrder = useCallback(() => {
@@ -325,11 +545,14 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
 
   const handleDragEnd = () => { setDraggedId(null); setDragOverId(null); };
 
-  // ── show-all / hide-all ───────────────────────────────────────────────────
-  const allHidden = items.length > 0 && items.every(i => activeTab === "rows" ? hiddenRowKeys.has(i.id) : hiddenCols.has(i.id));
+  // â”€â”€ show-all / hide-all â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const toggleAll = () => {
-    const next = new Set(activeTab === "rows" ? hiddenRowKeys : hiddenCols);
-    if (allHidden) items.forEach(i => next.delete(i.id));
+    const ref = activeTab === "rows" ? hiddenRowKeysRef : hiddenColsRef;
+    const currentSet = ref.current;
+    const isAllHidden = items.length > 0 && items.every(i => currentSet.has(i.id));
+    
+    const next = new Set(currentSet);
+    if (isAllHidden) items.forEach(i => next.delete(i.id));
     else items.forEach(i => next.add(i.id));
     persistHiddenState(next);
   };
@@ -344,546 +567,330 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
     }
   }, [onDeleteCalcMeasure, onDeleteCalcRow]);
 
-  // ── tab button ────────────────────────────────────────────────────────────
+  const saveRename = (id: string, newLabel: string) => {
+    const next = { ...labelOverrides, [id]: newLabel };
+    onPersistProperty("manualData", "labelOverrides", JSON.stringify(next));
+    setRenamingId(null);
+  };
+
+
+  // â”€â”€ tab button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const TabBtn = ({ id, label }: { id: TabId; label: string }) => {
     const active = activeTab === id;
     return (
       <div
         onClick={() => { setActiveTab(id); setSearch(""); setShowHiddenOnly(false); setEditingWidth(null); }}
         style={{
-          margin: "4px 12px",
-          padding: "10px 16px", 
+          margin: "2px 10px",
+          padding: "10px 14px",
           cursor: "pointer", 
-          fontSize: 14,
-          borderRadius: 10,
-          background: active ? "var(--mx-accent, #2563eb)" : "transparent",
-          color: active ? "white" : "var(--mx-text-secondary, #475569)",
-          fontWeight: active ? 600 : 500,
+          fontSize: 11,
+          borderRadius: 12,
+          background: active ? "rgba(255, 255, 255, 0.08)" : "transparent",
+          color: active ? ui.accent : ui.textMuted,
+          fontWeight: active ? 700 : 500,
           display: "flex", alignItems: "center", gap: 12,
-          transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
-          boxShadow: active ? "0 4px 12px rgba(37, 99, 235, 0.25)" : "none",
+          transition: "all 0.2s",
         }}
         onMouseEnter={e => {
-          if (!active) {
-            e.currentTarget.style.background = "var(--mx-hover-bg, #f1f5f9)";
-            e.currentTarget.style.color = "var(--mx-text, #0f172a)";
-          }
+          if (!active) e.currentTarget.style.color = ui.text;
         }}
         onMouseLeave={e => {
-          if (!active) {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.color = "var(--mx-text-secondary, #475569)";
-          }
+          if (!active) e.currentTarget.style.color = ui.textMuted;
         }}
       >
         <div style={{
-          width: 8, height: 8, borderRadius: "50%",
-          background: active ? "white" : "var(--mx-border, #e2e8f0)",
-          transition: "background 0.2s",
+          width: 6, height: 6, borderRadius: "50%",
+          background: active ? ui.accent : "rgba(255,255,255,0.1)",
+          boxShadow: active ? ui.glow : "none",
         }} />
-        <span style={{ flex: 1 }}>{label}</span>
+        {label}
       </div>
     );
   };
 
   return (
-    <div style={overlay} onClick={onClose}>
-      <div style={modal} onClick={e => e.stopPropagation()}>
-
-        {/* ── Sidebar ─────────────────────────────────────────── */}
-        <div style={sidebar}>
-          <div style={{ 
-            padding: "0 24px 16px 24px", 
-            fontWeight: 800, 
-            fontSize: 18,
-            color: "var(--mx-text, #0f172a)",
-            letterSpacing: "-0.01em",
-          }}>
-            Studio Layout
+    <div style={overlayStyles} onClick={onClose}>
+      <style>{`
+        @keyframes matrix-fade-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes glow-pulse { 0% { box-shadow: 0 0 5px rgba(0, 229, 255, 0.4); } 50% { box-shadow: 0 0 20px rgba(0, 229, 255, 0.8); } 100% { box-shadow: 0 0 5px rgba(0, 229, 255, 0.4); } }
+        .matrix-scrollbar::-webkit-scrollbar { width: 4px; }
+        .matrix-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .matrix-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); borderRadius: 10px; }
+        .matrix-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+        .btn-pulse:hover { animation: glow-pulse 2s infinite; }
+      `}</style>
+      <div style={modalStyles} onClick={e => e.stopPropagation()}>
+        <div style={sidebarStyles}>
+          <div style={{ padding: "0 14px 32px 14px", fontWeight: 900, fontSize: 18, color: ui.text, letterSpacing: "-0.04em" }}>
+            STUDIO<span style={{ color: ui.accent }}>.</span>
           </div>
-          <div style={{ padding: "8px 0" }}>
-            <TabBtn id="measures" label="Measures" />
-            <TabBtn id="columns" label="Data Columns" />
-            <TabBtn id="rows" label="Rows" />
-          </div>
-          <div style={{ flex: 1 }} />
-          <div style={{ 
-            padding: "20px", 
-            fontSize: 11, 
-            color: "var(--mx-text-muted, #94a3b8)", 
-            borderTop: "1px solid var(--mx-border, #e2e8f0)",
-            lineHeight: 1.5
-          }}>
-            <strong>Pro Tip:</strong><br />
-            {activeTab === "rows"
-              ? "Rows hidden from the matrix stay here so you can show them again whenever you need."
-              : "Drag items to reorder them in the matrix. Use Hidden Only to quickly review anything you hid."}
-          </div>
+          <TabBtn id="measures" label="Measures" />
+          <TabBtn id="columns" label="Columns" />
+          <TabBtn id="visualColumns" label="Visuals" />
+          <TabBtn id="rows" label="Rows" />
+          <TabBtn id="design" label="Design Studio" />
         </div>
 
-        {/* ── Main content ─────────────────────────────────────── */}
-        <div style={content}>
-
-          {/* Header */}
-          <div style={{ 
-            padding: "20px 24px", 
-            borderBottom: "1px solid var(--mx-border, #e2e8f0)", 
-            display: "flex", 
-            alignItems: "center", 
-            gap: 12,
-            background: "var(--mx-surface, #ffffff)"
-          }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 24, color: "var(--mx-text, #0f172a)", letterSpacing: "-0.02em" }}>
-                {activeTab === "measures" ? "Matrix Measures" : activeTab === "columns" ? "Structure & Groups" : "Matrix Rows"}
-              </div>
-              <div style={{ fontSize: 13, color: "var(--mx-text-secondary, #475569)", marginTop: 4, fontWeight: 500 }}>
-                {baseItems.length} elements in this collection
-              </div>
-            </div>
-            
-            {activeTab === "measures" && onOpenCalcMeasureWizard && (
-              <button
-                onClick={() => { onClose(); onOpenCalcMeasureWizard!(); }}
-                style={{ 
-                  padding: "10px 20px", 
-                  background: "var(--mx-accent, #2563eb)", 
-                  color: "var(--mx-text-inverse, #ffffff)", 
-                  border: "none", 
-                  borderRadius: 12, 
-                  cursor: "pointer", 
-                  fontSize: 14,
-                  fontWeight: 600,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  boxShadow: "0 8px 16px -4px rgba(37, 99, 235, 0.35)",
-                  transition: "all 0.2s"
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.transform = "translateY(-1px) scale(1.02)";
-                  e.currentTarget.style.boxShadow = "0 12px 20px -4px rgba(37, 99, 235, 0.45)";
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.transform = "translateY(0) scale(1)";
-                  e.currentTarget.style.boxShadow = "0 8px 16px -4px rgba(37, 99, 235, 0.35)";
-                }}
-              >
-                <PlusIcon />
-                New Measure
-              </button>
-            )}
-            <button 
-              onClick={onClose} 
-              style={{ 
-                background: "var(--mx-surface-subtle, #f8fafc)", 
-                border: "none", 
-                cursor: "pointer", 
-                width: 32, height: 32,
-                borderRadius: "50%",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                color: "var(--mx-text-secondary, #475569)",
-                transition: "background 0.2s"
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = "var(--mx-surface-elevated, #f1f5f9)"}
-              onMouseLeave={e => e.currentTarget.style.background = "var(--mx-surface-subtle, #f8fafc)"}
-            >
-              ×
-            </button>
-          </div>
-
-          {/* Toolbar row: search + show/hide all */}
-          <div style={{ 
-            padding: "12px 24px", 
-            background: "var(--mx-surface-subtle, #f8fafc)",
-            borderBottom: "1px solid var(--mx-border, #e2e8f0)", 
-            display: "flex", 
-            alignItems: "center", 
-            gap: 12,
-            flexWrap: "wrap"
-          }}>
-            <div style={{ position: "relative", flex: 1 }}>
-              <input
-                type="text"
-                placeholder={activeTab === "measures" ? "Find measures..." : activeTab === "columns" ? "Find columns..." : "Find rows..."}
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                style={{ 
-                  width: "100%",
-                  padding: "12px 14px 12px 42px", 
-                  border: "1px solid var(--mx-border, #e2e8f0)", 
-                  borderRadius: 12, 
-                  fontSize: 14, 
-                  outline: "none",
-                  background: "var(--mx-surface, #ffffff)",
-                  color: "var(--mx-text, #0f172a)",
-                  transition: "all 0.2s ease",
-                  boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)",
-                }}
-                onFocus={e => {
-                  e.currentTarget.style.borderColor = "var(--mx-accent, #2563eb)";
-                  e.currentTarget.style.boxShadow = "var(--mx-shadow-focus)";
-                }}
-                onBlur={e => {
-                  e.currentTarget.style.borderColor = "var(--mx-border, #e2e8f0)";
-                  e.currentTarget.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)";
-                }}
-              />
-              <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "var(--matrix-text-muted)", display: "flex" }}>
-                <SearchIcon />
-              </div>
-              {search && (
-                <button 
-                  onClick={() => setSearch("")}
+        <div style={contentStyles}>
+          {/* Grid Overlay */}
+          <div style={{ position: "absolute", inset: 0, backgroundImage: `radial-gradient(${ui.border} 1px, transparent 1px)`, backgroundSize: "24px 24px", opacity: 0.2, pointerEvents: "none" }} />
+          
+          <div style={{ padding: "32px 32px 16px 32px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 1 }}>
+            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>{activeTab.toUpperCase()}</h1>
+            <div style={{ display: "flex", gap: 12 }}>
+              {(activeTab === "measures" || activeTab === "visualColumns") && (
+                <button
+                  onClick={activeTab === "measures" ? () => { onClose(); onOpenCalcMeasureWizard?.(); } : addVisualColumnRule}
                   style={{
-                    position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
-                    background: "var(--matrix-bg-tertiary)", border: "none", borderRadius: "50%",
-                    width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center",
-                    cursor: "pointer", color: "var(--matrix-text-secondary)"
+                    ...actionBtn,
+                    background: ui.accent,
+                    color: "#000",
+                    border: "none",
+                    boxShadow: ui.glow,
                   }}
                 >
-                  ×
+                  <PlusIcon /> {activeTab === "measures" ? "New Measure" : "Add Rule"}
                 </button>
               )}
+              <button onClick={onClose} style={{ background: "rgba(255,255,255,0.05)", border: "none", color: "#fff", width: 36, height: 36, borderRadius: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
             </div>
-            <button
-              onClick={() => setShowHiddenOnly(v => !v)}
-              style={{
-                padding: "8px 16px",
-                border: "1px solid var(--mx-border, #e2e8f0)",
-                borderRadius: 8,
-                cursor: "pointer",
-                background: showHiddenOnly ? "var(--mx-selection-bg, #dbeafe)" : "var(--mx-surface, #ffffff)",
-                fontSize: 13,
-                color: showHiddenOnly ? "var(--mx-accent, #2563eb)" : "var(--mx-text, #0f172a)",
-                fontWeight: 600,
-              }}
-            >
-              {showHiddenOnly ? "Showing hidden only" : "Show hidden only"}
-            </button>
-            <button
-              onClick={toggleAll}
-              style={{ 
-                padding: "8px 16px", 
-                border: "1px solid var(--mx-border, #e2e8f0)", 
-                borderRadius: 8, 
-                cursor: "pointer", 
-                background: "var(--mx-surface, #ffffff)", 
-                fontSize: 13, 
-                display: "flex", 
-                alignItems: "center", 
-                gap: 8,
-                color: "var(--mx-text, #0f172a)",
-                fontWeight: 500,
-                transition: "background 0.2s"
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = "var(--mx-hover-bg, #f1f5f9)"}
-              onMouseLeave={e => e.currentTarget.style.background = "var(--mx-surface, #ffffff)"}
-            >
-              {allHidden ? <EyeOpen /> : <EyeOff />}
-              <span>{allHidden ? "Show all" : "Hide all"}</span>
-            </button>
           </div>
 
-          {/* List content area */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "12px 24px" }} className="matrix-scrollbar">
-            {items.length === 0 && (
-              <div style={{ padding: 48, textAlign: "center", color: "var(--mx-text-muted, #94a3b8)", fontSize: 14 }}>
-                {showHiddenOnly
-                  ? "No hidden items match this filter."
-                  : search
-                    ? "No items match your search."
-                    : "No items available in this category."}
+          <div style={{ padding: "0 32px 20px 32px", zIndex: 1 }}>
+            <div style={{ position: "relative" }}>
+              <input
+                type="text"
+                placeholder="Search resources..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "rgba(255,255,255,0.03)",
+                  border: `1px solid ${ui.border}`,
+                  padding: "12px 16px 12px 44px",
+                  color: ui.text,
+                  fontSize: 13,
+                  borderRadius: 12,
+                  outline: "none",
+                }}
+              />
+              <div style={{ position: "absolute", left: 16, top: "50%", transform: "translateY(-50%)", color: ui.textMuted }}>
+                <SearchIcon />
               </div>
-            )}
-            
-            {items.map(item => {
-              const hidden = activeTab === "rows" ? hiddenRowKeys.has(item.id) : hiddenCols.has(item.id);
-              const isDragOver = dragOverId === item.id;
-              const customWidth = colWidths[item.id];
-              const displayLabel = labelOverrides[item.id] ?? item.label;
-              const canDelete = Boolean(
-                ("measure" in item && item.measure?.id && onDeleteCalcMeasure) ||
-                ("row" in item && item.row?.key?.startsWith("__calcrow__") && onDeleteCalcRow)
-              );
+            </div>
+            <div style={{ height: 1, background: ui.border, margin: "24px -32px 0 -32px" }} />
 
-              return (
-                <div
-                  key={item.id}
-                  draggable={activeTab !== "rows"}
-                  onDragStart={e => handleDragStart(e, item.id)}
-                  onDragOver={e => handleDragOver(e, item.id)}
-                  onDrop={e => handleDrop(e, item.id)}
-                  onDragEnd={handleDragEnd}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    padding: "12px 16px",
-                    background: isDragOver ? "var(--mx-selection-bg, #dbeafe)" : "var(--mx-surface, #ffffff)",
-                    borderRadius: 12,
-                    marginBottom: 8,
-                    gap: 16,
-                    border: isDragOver ? "2px solid var(--mx-accent, #2563eb)" : "1px solid var(--mx-border, #e2e8f0)",
-                    opacity: hidden ? 0.5 : 1,
-                    cursor: activeTab === "rows" ? "default" : "grab",
-                    transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-                    boxShadow: isDragOver ? "var(--mx-shadow-elevated)" : "0 2px 4px rgba(0,0,0,0.02)",
-                    position: "relative",
-                  }}
-                  onMouseEnter={e => {
-                    if (!isDragOver) {
-                      e.currentTarget.style.background = "var(--mx-hover-bg, #f8fafc)";
-                      e.currentTarget.style.borderColor = "var(--mx-accent-secondary, #3b82f6)";
-                      e.currentTarget.style.boxShadow = "var(--mx-shadow-subtle)";
-                      e.currentTarget.style.transform = "translateX(4px)";
-                    }
-                  }}
-                  onMouseLeave={e => {
-                    if (!isDragOver) {
-                      e.currentTarget.style.background = "var(--mx-surface, #ffffff)";
-                      e.currentTarget.style.borderColor = "var(--mx-border, #e2e8f0)";
-                      e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.02)";
-                      e.currentTarget.style.transform = "translateX(0)";
-                    }
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", cursor: activeTab === "rows" ? "default" : "move", color: "var(--mx-text-muted, #94a3b8)", opacity: activeTab === "rows" ? 0.35 : 1 }}>
-                    <DragHandle />
-                  </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16 }}>
+              <div style={{ color: ui.textMuted, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                {items.length} {activeTab} available
+              </div>
+              <button 
+                onClick={toggleAll}
+                style={{ background: "none", border: "none", color: ui.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: "4px 8px" }}
+              >
+                Toggle Visibility
+              </button>
+            </div>
+          </div>
 
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15, color: "var(--mx-text, #0f172a)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {displayLabel}
+          <div style={{ flex: 1, overflowY: "auto", padding: "0 32px 32px 32px", zIndex: 1 }} className="matrix-scrollbar">
+            {activeTab === "visualColumns" ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 24, paddingTop: 16 }}>
+                {filteredVisualColumnRules.map(rule => (
+                  <div key={rule.id} style={{ background: ui.surface, border: `1px solid ${ui.border}`, padding: 20, borderRadius: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                       <div style={{ fontSize: 14, fontWeight: 700, color: ui.accent }}>{rule.sourceMeasureName || "Unnamed Rule"}</div>
+                       <div style={{ display: "flex", gap: 8 }}>
+                          <Toggle checked={rule.enabled !== false} onChange={() => updateVisualColumnRule(rule.id, { enabled: rule.enabled === false })} />
+                          <button onClick={() => deleteVisualColumnRule(rule.id)} style={{ background: "none", border: "none", color: ui.danger, cursor: "pointer" }}><TrashIcon /></button>
+                       </div>
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--mx-text-muted, #94a3b8)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.02em", marginTop: 2 }}>
-                      {item.sub}
-                    </div>
-                  </div>
-
-                  {/* Aggregation */}
-                  {activeTab === "measures" && "measure" in item ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                       <span style={{ fontSize: 9, fontWeight: 800, color: "var(--mx-text-muted, #94a3b8)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Function</span>
-                       <select
-                        value={aggregationOverrides[item.measure.index] || "sum"}
-                        onChange={e => saveAggregation(item.measure.index, e.target.value)}
-                        style={{ 
-                          padding: "6px 12px", 
-                          fontSize: 12, 
-                          borderRadius: 8, 
-                          border: "1px solid var(--mx-border, #e2e8f0)", 
-                          outline: "none", 
-                          background: "var(--mx-surface, #ffffff)", 
-                          color: "var(--mx-text, #0f172a)",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          transition: "border-color 0.2s"
-                        }}
-                        onFocus={e => e.currentTarget.style.borderColor = "var(--mx-accent, #2563eb)"}
-                        onBlur={e => e.currentTarget.style.borderColor = "var(--mx-border, #e2e8f0)"}
-                       >
-                        <option value="sum">Sum</option>
-                        <option value="avg">Average</option>
-                        <option value="min">Minimum</option>
-                        <option value="max">Maximum</option>
-                        <option value="count">Count</option>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                       <select value={rule.frequency} onChange={e => updateVisualColumnRule(rule.id, { frequency: e.target.value as any })} style={{ background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 12px", borderRadius: 8, fontSize: 12 }}>
+                          <option value="all">Everywhere</option>
+                          <option value="yearly">Yearly</option>
+                          <option value="quarterly">Quarterly</option>
+                          <option value="specific">Specific</option>
+                       </select>
+                       <select value={rule.position} onChange={e => updateVisualColumnRule(rule.id, { position: e.target.value as any })} style={{ background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 12px", borderRadius: 8, fontSize: 12 }}>
+                          <option value="normal">Normal</option>
+                          <option value="beginning">Beginning</option>
+                          <option value="end">End</option>
                        </select>
                     </div>
-                  ) : null}
-
-                  {/* Width */}
-                  {activeTab === "columns" ? (
-                    <div style={{ width: 100, display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
-                      <span style={{ fontSize: 9, fontWeight: 800, color: "var(--mx-text-muted, #94a3b8)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Width</span>
-                      {editingWidth === item.id ? (
-                        <input
-                          autoFocus
-                          type="number"
-                          value={widthInput}
-                          onChange={e => setWidthInput(e.target.value)}
-                          onBlur={() => saveWidth(item.id, widthInput)}
-                          onKeyDown={e => {
-                            if (e.key === "Enter") saveWidth(item.id, widthInput);
-                            if (e.key === "Escape") setEditingWidth(null);
-                          }}
-                          style={{ 
-                            width: "100%", 
-                            padding: "6px 10px", 
-                            border: "2px solid var(--mx-accent, #2563eb)", 
-                            borderRadius: 8, 
-                            fontSize: 12, 
-                            outline: "none",
-                            fontWeight: 700,
-                            textAlign: "right"
-                          }}
-                        />
-                      ) : (
-                        <div 
-                          onClick={() => { setEditingWidth(item.id); setWidthInput(String(customWidth ?? settings.general.defaultColumnWidth)); }}
-                          style={{ 
-                            fontSize: 13, 
-                            color: customWidth ? "var(--mx-accent, #2563eb)" : "var(--mx-text-secondary, #475569)", 
-                            fontWeight: 700,
-                            padding: "6px 12px",
-                            borderRadius: 8,
-                            background: customWidth ? "var(--mx-selection-bg, #dbeafe)" : "var(--mx-surface-subtle, #f1f5f9)",
-                            cursor: "pointer",
-                            transition: "all 0.2s",
-                            minWidth: 60,
-                            textAlign: "center",
-                            border: "1px solid transparent",
-                          }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.borderColor = "var(--mx-accent, #2563eb)";
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.borderColor = "transparent";
-                          }}
-                        >
-                          {customWidth ? `${customWidth}px` : "Auto"}
-                        </div>
-                      )}
+                    <div style={{ marginTop: 12 }}>
+                       <div style={{ fontSize: 10, color: ui.textMuted, marginBottom: 8, fontWeight: 700, textTransform: "uppercase" }}>Style Application</div>
+                       <select 
+                         value={rule.applyTo || "both"} 
+                         onChange={e => updateVisualColumnRule(rule.id, { applyTo: e.target.value as any })} 
+                         style={{ width: "100%", background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 12px", borderRadius: 8, fontSize: 12 }}
+                       >
+                          <option value="both">Apply to Headers & Values</option>
+                          <option value="headers">Headers Only</option>
+                          <option value="values">Values Only</option>
+                       </select>
                     </div>
-                  ) : activeTab === "rows" ? (
-                    <div style={{ minWidth: 100, textAlign: "right", color: "var(--mx-text-secondary, #475569)", fontSize: 12, fontWeight: 700 }}>
-                      {"row" in item && item.row?.indent ? `Indent ${item.row.indent}` : "Top level"}
+                  </div>
+                ))}
+              </div>
+            ) : activeTab === "design" ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 24, paddingTop: 16 }}>
+                <div style={{ background: ui.surface, border: `1px solid ${ui.border}`, padding: 24, borderRadius: 20 }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", marginBottom: 20 }}>Surface Aesthetics</div>
+                  
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Background Color</div>
+                      <input 
+                        type="color" 
+                        value={settings.appearance.surfaceColor || "#ffffff"} 
+                        onChange={e => onPersistProperty("appearance", "surfaceColor", e.target.value)}
+                        style={{ width: "100%", height: 40, border: "none", background: "none", cursor: "pointer" }}
+                      />
                     </div>
-                  ) : null}
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Corner Radius</div>
+                      <input 
+                        type="range" min="0" max="40" 
+                        value={settings.appearance.cornerRadius || 0}
+                        onChange={e => onPersistProperty("appearance", "cornerRadius", parseInt(e.target.value))}
+                        style={{ width: "100%", accentColor: ui.accent }}
+                      />
+                    </div>
+                  </div>
 
-                  {/* Actions */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
-                    {activeTab === "measures" && "measure" in item && item.measure.id && onOpenCalcMeasureWizard && (
-                      <button
-                        title="Configure Logic"
-                        onClick={() => { onClose(); onOpenCalcMeasureWizard!(item.measure.id ?? ""); }}
-                        style={{ 
-                          background: "var(--mx-surface-subtle, #f1f5f9)", 
-                          border: "1px solid var(--mx-border, #e2e8f0)", 
-                          cursor: "pointer", 
-                          color: "var(--mx-text-secondary, #475569)", 
-                          width: 32, height: 32, 
-                          borderRadius: 8, 
-                          display: "flex", 
-                          alignItems: "center", 
-                          justifyContent: "center",
-                          transition: "all 0.2s"
-                        }}
-                        onMouseEnter={e => {
-                          e.currentTarget.style.background = "var(--mx-hover-bg, #f1f5f9)";
-                          e.currentTarget.style.color = "var(--mx-accent, #2563eb)";
-                        }}
-                        onMouseLeave={e => {
-                          e.currentTarget.style.background = "var(--mx-surface-subtle, #f1f5f9)";
-                          e.currentTarget.style.color = "var(--mx-text-secondary, #475569)";
-                        }}
-                      >
-                        <div style={{ margin: "0 auto", display: "flex" }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                        </div>
-                      </button>
-                    )}
-                    {canDelete && (
-                      <button
-                        title={activeTab === "rows" ? "Delete calculated row" : "Delete calculated measure"}
-                        onClick={() => handleDeleteItem(item)}
-                        style={{
-                          background: "#fef2f2",
-                          border: "1px solid #fecaca",
-                          cursor: "pointer",
-                          color: "#b91c1c",
-                          width: 32,
-                          height: 32,
-                          borderRadius: 8,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          transition: "all 0.2s"
-                        }}
-                      >
-                        <TrashIcon />
-                      </button>
-                    )}
-                    <Toggle 
-                      checked={!hidden} 
-                      onChange={() => toggleVisibility(item.id)} 
-                      title={hidden ? "Hidden - Toggle to show" : "Visible - Toggle to hide"} 
+                  <div style={{ marginTop: 24 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Background Image URL</div>
+                    <input 
+                      type="text" 
+                      placeholder="https://example.com/image.jpg"
+                      value={(settings.appearance as any).backgroundImage || ""}
+                      onChange={e => onPersistProperty("appearance", "backgroundImage", e.target.value)}
+                      style={{ width: "100%", background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "10px 16px", borderRadius: 10, fontSize: 13 }}
                     />
                   </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginTop: 24 }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Blur Intensity</div>
+                      <input 
+                        type="range" min="0" max="40" 
+                        value={(settings.appearance as any).backgroundBlur || 0}
+                        onChange={e => onPersistProperty("appearance", "backgroundBlur", parseInt(e.target.value))}
+                        style={{ width: "100%", accentColor: ui.accent }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Glassmorphism</div>
+                      <Toggle 
+                        checked={(settings.appearance as any).glassmorphism || false} 
+                        onChange={() => onPersistProperty("appearance", "glassmorphism", !(settings.appearance as any).glassmorphism)} 
+                      />
+                    </div>
+                  </div>
                 </div>
-              );
-            })}
+
+                <div style={{ background: ui.surface, border: `1px solid ${ui.border}`, padding: 24, borderRadius: 20 }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", marginBottom: 20 }}>Typography & Contrast</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Primary Font Size</div>
+                      <input 
+                        type="number" 
+                        value={settings.values.fontSize}
+                        onChange={e => onPersistProperty("values", "fontSize", parseInt(e.target.value))}
+                        style={{ width: "100%", background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 12px", borderRadius: 8 }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Header Alignment</div>
+                      <select 
+                        value={settings.values.alignment}
+                        onChange={e => onPersistProperty("values", "alignment", e.target.value)}
+                        style={{ width: "100%", background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 12px", borderRadius: 8 }}
+                      >
+                        <option value="left">Left</option>
+                        <option value="center">Center</option>
+                        <option value="right">Right</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 16 }}>
+                {items.map((item: any) => {
+                  const isHidden = activeTab === "rows" ? hiddenRowKeysState.has(item.id) : hiddenColsState.has(item.id);
+                  const isDragOver = dragOverId === item.id;
+                  return (
+                    <div 
+                      key={item.id}
+                      draggable={activeTab !== "rows"}
+                      onDragStart={e => handleDragStart(e, item.id)}
+                      onDragOver={e => handleDragOver(e, item.id)}
+                      onDrop={e => handleDrop(e, item.id)}
+                      onDragEnd={handleDragEnd}
+                      style={{
+                        padding: "12px 16px",
+                        background: isDragOver ? ui.accentSoft : isHidden ? "transparent" : ui.surface,
+                        border: `1px solid ${isDragOver ? ui.accent : isHidden ? "transparent" : ui.border}`,
+                        borderRadius: 12,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 16,
+                        opacity: isHidden ? 0.4 : 1,
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      <DragHandle />
+                      <div style={{ flex: 1 }}>
+                                                {renamingId === item.id ? (
+                          <input 
+                            autoFocus
+                            value={renameInput}
+                            onChange={e => setRenameInput(e.target.value)}
+                            onBlur={() => saveRename(item.id, renameInput)}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") saveRename(item.id, renameInput);
+                              if (e.key === "Escape") setRenamingId(null);
+                            }}
+                            style={{ width: "100%", background: "rgba(0,0,0,0.2)", border: `1px solid ${ui.accent}`, color: "#fff", padding: "4px 8px", borderRadius: 6, fontSize: 13, outline: "none" }}
+                          />
+                        ) : (
+                          <div 
+                            style={{ fontWeight: 600, fontSize: 13, color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+                            onClick={() => {
+                              setRenamingId(item.id);
+                              setRenameInput(labelOverrides[item.id] || item.label);
+                            }}
+                          >
+                            {labelOverrides[item.id] || item.label}
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: 0.3 }}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                          </div>
+                        )}
+
+                        <div style={{ fontSize: 10, color: ui.textMuted, marginTop: 2 }}>{item.sub}</div>
+                      </div>
+                      <Toggle checked={!isHidden} onChange={() => toggleVisibility(item.id)} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          <div style={{ 
-            padding: "24px 32px", 
-            borderTop: "1px solid var(--mx-border, #e2e8f0)", 
-            display: "flex", 
-            justifyContent: "flex-end", 
-            gap: 16, 
-            background: "var(--mx-surface-elevated, #f8fafc)" 
-          }}>
-            <button
-              onClick={() => {
-                if (activeTab === "rows") {
-                  const nextHiddenRows = new Set(hiddenRowKeys);
-                  rowItems.forEach(i => nextHiddenRows.delete(i.id));
-                  onPersistProperty("manualData", "hiddenRowKeys", JSON.stringify([...nextHiddenRows]));
-                  return;
-                }
-                const keys = (activeTab === "measures" ? measureItems : columnItems).map(i => i.id);
-                const nextOrder = colOrder.filter(k => !keys.includes(k));
-                onPersistProperty("manualData", "colOrder", JSON.stringify(nextOrder));
-                const nextWidths = { ...colWidths };
-                keys.forEach(k => delete nextWidths[k]);
-                onPersistProperty("manualData", "colWidths", JSON.stringify(nextWidths));
-                const nextHidden = new Set(hiddenCols);
-                keys.forEach(k => nextHidden.delete(k));
-                onPersistProperty("manualData", "hiddenCols", JSON.stringify([...nextHidden]));
-              }}
-              style={{ 
-                padding: "10px 20px", 
-                background: "transparent", 
-                border: "1px solid var(--mx-border, #e2e8f0)", 
-                color: "var(--mx-text-secondary, #475569)", 
-                borderRadius: 12, 
-                cursor: "pointer", 
-                fontSize: 14, 
-                fontWeight: 600,
-                transition: "all 0.2s"
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = "var(--mx-hover-bg, #f1f5f9)"}
-              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-            >
-              Reset Tab
-            </button>
-            <button
-              onClick={onClose}
-              style={{ 
-                padding: "10px 32px", 
-                background: "var(--mx-accent, #2563eb)", 
-                color: "var(--mx-text-inverse, #ffffff)", 
-                border: "none", 
-                borderRadius: 12, 
-                cursor: "pointer", 
-                fontSize: 14, 
-                fontWeight: 700, 
-                boxShadow: "0 8px 16px -4px rgba(37, 99, 235, 0.35)",
-                transition: "all 0.2s"
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.transform = "translateY(-1px) scale(1.02)";
-                e.currentTarget.style.boxShadow = "0 12px 20px -4px rgba(37, 99, 235, 0.45)";
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.transform = "translateY(0) scale(1)";
-                e.currentTarget.style.boxShadow = "0 8px 16px -4px rgba(37, 99, 235, 0.35)";
-              }}
-            >
-              Done
-            </button>
+          <div style={{ padding: "20px 32px", borderTop: `1px solid ${ui.border}`, display: "flex", justifyContent: "flex-end", gap: 12, zIndex: 1 }}>
+             <button onClick={onClose} style={{ ...actionBtn, background: "none", color: ui.textMuted }}>Discard</button>
+             <button onClick={onClose} style={{ ...actionBtn, background: ui.accent, color: "#000", boxShadow: ui.glow }} className="btn-pulse">Save Changes</button>
           </div>
         </div>
       </div>
     </div>
   );
 };
+
+
+
+

@@ -124,12 +124,21 @@ export function getRowStyle(
 
   const fontStyle = settings.values.italic ? "italic" : "normal";
   const textDecoration = settings.values.underline ? "underline" : undefined;
+  const stylePreset = settings.layout.stylePreset || "modern";
+  const presetAccentBackground =
+    stylePreset === "ledger"
+      ? isBanded ? "#f8fafc" : backgroundColor
+      : stylePreset === "editorial"
+        ? isBanded ? "#fcfaf7" : backgroundColor
+        : backgroundColor;
+  const letterSpacing = stylePreset === "editorial" && (isSubtotal || isGrandTotal) ? "0.01em" : undefined;
 
   return {
-    backgroundColor,
+    backgroundColor: presetAccentBackground,
     fontWeight,
     fontStyle,
     textDecoration,
+    letterSpacing,
     color: resolveThemeAwareColor(settings.values.textColor, defaultSettings.values.textColor, "--mx-cell-fg") || "inherit",
     fontSize: `${settings.values.fontSize || 12}px`,
   };

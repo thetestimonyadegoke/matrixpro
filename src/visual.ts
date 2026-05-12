@@ -133,7 +133,7 @@ export class Visual implements IVisual {
       this.model = buildMatrixModel({
         dataView: this.lastDataView,
         settings: this.settings,
-        selectionIdBuilder: (identity) => this.buildSelectionId(identity),
+        selectionIdBuilder: (identity: any, levels?: powerbi.DataViewHierarchyLevel[]) => this.buildSelectionId(identity, levels),
         rowExpandedState: this.rowExpandedState,
         columnExpandedState: this.columnExpandedState,
       });
@@ -307,7 +307,7 @@ export class Visual implements IVisual {
       this.model = buildMatrixModel({
         dataView,
         settings: this.settings,
-        selectionIdBuilder: (identity) => this.buildSelectionId(identity),
+        selectionIdBuilder: (identity: any, levels?: powerbi.DataViewHierarchyLevel[]) => this.buildSelectionId(identity, levels),
         rowExpandedState: this.rowExpandedState,
         columnExpandedState: this.columnExpandedState,
       });
@@ -329,11 +329,11 @@ export class Visual implements IVisual {
   }
 
   // "identity" type is relaxed to any to avoid tight coupling to SDK-specific types
-  private buildSelectionId(matrixNode: any): any | undefined {
+  private buildSelectionId(matrixNode: any, levels: powerbi.DataViewHierarchyLevel[] = []): any | undefined {
     if (!matrixNode || !matrixNode.identity) return undefined;
     try {
       return this.host.createSelectionIdBuilder()
-        .withMatrixNode(matrixNode as powerbi.DataViewMatrixNode, [])
+        .withMatrixNode(matrixNode as powerbi.DataViewMatrixNode, levels)
         .createSelectionId();
     } catch {
       return undefined;

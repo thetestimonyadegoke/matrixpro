@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import powerbi from "powerbi-visuals-api";
 import { MatrixModel, CellValue } from "../model/pivot";
 import { VisualSettings } from "../settings/settings";
@@ -67,6 +67,20 @@ export interface AppProps {
 
 type QuickInsertedRowKind = Exclude<RowInsertAction, "panel">;
 
+let optimisticHiddenColsCache: string[] | null = null;
+let optimisticHiddenRowsCache: string[] | null = null;
+let optimisticHiddenColsDirty = false;
+let optimisticHiddenRowsDirty = false;
+
+function parseStringArray(raw: string | undefined): string[] {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 function createQuickInsertedRow(kind: QuickInsertedRowKind, order: number): InsertedRow {
   const base: {
     id: string;
@@ -122,7 +136,7 @@ export const App: React.FC<AppProps> = ({
   highContrastColors: _highContrastColors,
   width,
   height,
-  onPersistProperty,
+  onPersistProperty: persistPropertyRaw,
   onToggleRowExpand,
   onToggleColumnExpand,
   onResetRowExpansion,
@@ -132,11 +146,48 @@ export const App: React.FC<AppProps> = ({
   onExpandAllUnder,
   onCollapseAllUnder,
 }) => {
+  const stringSetsEqual = (a: string[], b: string[]) => {
+    if (a.length !== b.length) return false;
+    const bSet = new Set(b);
+    return a.every(value => bSet.has(value));
+  };
+
   const [activeTab, setActiveTabOriginal] = useState<RibbonTab>((settings.uiState.activeTab as RibbonTab) || "home");
   const [toolbarMode, setToolbarModeOriginal] = useState<ToolbarMode>((settings.uiState.toolbarMode as ToolbarMode) || "full");
   const [toolbarPinned, setToolbarPinnedOriginal] = useState(settings.uiState.toolbarPinned ?? true);
   const [explorerOpen, setExplorerOpenOriginal] = useState(settings.uiState.explorerOpen ?? false);
   const [zoomLevel, setZoomLevelOriginal] = useState(settings.uiState.zoomLevel ?? 100);
+
+  type HistoryEntry = {
+    objectName: string;
+    propertyName: string;
+    before: any;
+    after: any;
+  };
+
+  const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
+  const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
+  const isRestoringHistoryRef = useRef(false);
+
+  const getPersistedValue = useCallback((objectName: string, propertyName: string): any => {
+    return (settings as any)?.[objectName]?.[propertyName];
+  }, [settings]);
+
+  const onPersistProperty = useCallback((objectName: string, propertyName: string, value: any) => {
+    const before = getPersistedValue(objectName, propertyName);
+    const beforeJson = JSON.stringify(before);
+    const afterJson = JSON.stringify(value);
+
+    if (!isRestoringHistoryRef.current && beforeJson !== afterJson) {
+      setUndoStack(stack => {
+        const next = [...stack, { objectName, propertyName, before, after: value }];
+        return next.length > 100 ? next.slice(next.length - 100) : next;
+      });
+      setRedoStack([]);
+    }
+
+    persistPropertyRaw(objectName, propertyName, value);
+  }, [getPersistedValue, persistPropertyRaw]);
 
   const setActiveTab = useCallback((tab: RibbonTab | ((prev: RibbonTab) => RibbonTab)) => {
     setActiveTabOriginal(prev => {
@@ -213,10 +264,6 @@ export const App: React.FC<AppProps> = ({
   const [themeGalleryOpen, setThemeGalleryOpen] = useState(false);
   const [headerOptionsOpen, setHeaderOptionsOpen] = useState(false);
 
-  // Undo/redo stacks (snapshots of manualData.edits JSON)
-  const [undoStack, setUndoStack] = useState<string[]>([]);
-  const [redoStack, setRedoStack] = useState<string[]>([]);
-
   const [sortConfig, setSortConfig] = useState<SortConfig>({
     columnKey: null,
     measureIndex: 0,
@@ -256,6 +303,97 @@ export const App: React.FC<AppProps> = ({
     selectedIds: new Set(),
     lastSelectedId: null,
   });
+  const [hiddenColsState, setHiddenColsState] = useState<string[]>(() => {
+    return optimisticHiddenColsCache ?? parseStringArray(settings.manualData.hiddenCols);
+  });
+  const [hiddenRowKeysState, setHiddenRowKeysState] = useState<string[]>(() => {
+    return optimisticHiddenRowsCache ?? parseStringArray(settings.manualData.hiddenRowKeys);
+  });
+  const pendingHiddenColsRef = useRef<string[] | null>(null);
+  const pendingHiddenRowKeysRef = useRef<string[] | null>(null);
+
+  useEffect(() => {
+    try {
+      const incoming = parseStringArray(settings.manualData.hiddenCols);
+      const pending = pendingHiddenColsRef.current;
+      if (pending) {
+        if (stringSetsEqual(incoming, pending)) {
+          pendingHiddenColsRef.current = null;
+          optimisticHiddenColsCache = incoming;
+          optimisticHiddenColsDirty = false;
+          setHiddenColsState(incoming);
+        }
+        return;
+      }
+      if (optimisticHiddenColsDirty && optimisticHiddenColsCache && !stringSetsEqual(incoming, optimisticHiddenColsCache)) {
+        setHiddenColsState(optimisticHiddenColsCache);
+        return;
+      }
+      optimisticHiddenColsCache = incoming;
+      optimisticHiddenColsDirty = false;
+      setHiddenColsState(incoming);
+    } catch {
+      if (!pendingHiddenColsRef.current) setHiddenColsState([]);
+    }
+  }, [settings.manualData.hiddenCols]);
+
+  useEffect(() => {
+    try {
+      const incoming = parseStringArray(settings.manualData.hiddenRowKeys);
+      const pending = pendingHiddenRowKeysRef.current;
+      if (pending) {
+        if (stringSetsEqual(incoming, pending)) {
+          pendingHiddenRowKeysRef.current = null;
+          optimisticHiddenRowsCache = incoming;
+          optimisticHiddenRowsDirty = false;
+          setHiddenRowKeysState(incoming);
+        }
+        return;
+      }
+      if (optimisticHiddenRowsDirty && optimisticHiddenRowsCache && !stringSetsEqual(incoming, optimisticHiddenRowsCache)) {
+        setHiddenRowKeysState(optimisticHiddenRowsCache);
+        return;
+      }
+      optimisticHiddenRowsCache = incoming;
+      optimisticHiddenRowsDirty = false;
+      setHiddenRowKeysState(incoming);
+    } catch {
+      if (!pendingHiddenRowKeysRef.current) setHiddenRowKeysState([]);
+    }
+  }, [settings.manualData.hiddenRowKeys]);
+
+  const effectiveSettings = useMemo<VisualSettings>(() => ({
+    ...settings,
+    manualData: {
+      ...settings.manualData,
+      hiddenCols: JSON.stringify(hiddenColsState),
+      hiddenRowKeys: JSON.stringify(hiddenRowKeysState),
+    },
+  }), [settings, hiddenColsState, hiddenRowKeysState]);
+
+  const persistHiddenColumns = useCallback((nextKeys: string[]) => {
+    const normalized = Array.from(new Set(nextKeys.filter(Boolean).map(key => {
+      if (key.startsWith("m:")) {
+        const measureIndex = Number(key.slice(2));
+        return Number.isFinite(measureIndex) ? `m_${measureIndex}` : key;
+      }
+      return key;
+    })));
+    optimisticHiddenColsCache = normalized;
+    optimisticHiddenColsDirty = true;
+    pendingHiddenColsRef.current = normalized;
+    setHiddenColsState(normalized);
+    onPersistProperty("manualData", "hiddenCols", JSON.stringify(normalized));
+  }, [onPersistProperty]);
+
+  const persistHiddenRows = useCallback((nextKeys: string[]) => {
+    const normalized = Array.from(new Set(nextKeys.filter(key => key && key !== "root")));
+    optimisticHiddenRowsCache = normalized;
+    optimisticHiddenRowsDirty = true;
+    pendingHiddenRowKeysRef.current = normalized;
+    setHiddenRowKeysState(normalized);
+    onPersistProperty("manualData", "hiddenRowKeys", JSON.stringify(normalized));
+  }, [onPersistProperty]);
 
   const sortedRows = useMemo(() => {
     // Check for multi-column sort rules saved via SortPanel first
@@ -354,7 +492,7 @@ export const App: React.FC<AppProps> = ({
 
     // Apply individually hidden row keys
     try {
-      const hiddenKeys: string[] = JSON.parse(settings.manualData.hiddenRowKeys || "[]");
+      const hiddenKeys: string[] = hiddenRowKeysState;
       if (Array.isArray(hiddenKeys) && hiddenKeys.length > 0) {
         const hset = new Set<string>(hiddenKeys);
         rows = rows.filter(r => !hset.has(r.key));
@@ -421,7 +559,7 @@ export const App: React.FC<AppProps> = ({
     settings.manualData.filterRules,
     settings.manualData.topNConfig,
     settings.manualData.hiddenRowLevels,
-    settings.manualData.hiddenRowKeys,
+    hiddenRowKeysState,
     settings.manualData.groupings,
     model.flattenedColumns,
     model.cellMap,
@@ -509,6 +647,11 @@ export const App: React.FC<AppProps> = ({
       }
       return { columnKey, measureIndex, direction: "asc" as SortDirection };
     });
+  }, [allowInteractions]);
+
+  const handleSetSortDirection = useCallback((columnKey: string, measureIndex: number, direction: SortDirection) => {
+    if (!allowInteractions) return;
+    setSortConfig({ columnKey, measureIndex, direction });
   }, [allowInteractions]);
 
   const handleRowSelect = useCallback(async (
@@ -786,7 +929,7 @@ export const App: React.FC<AppProps> = ({
 
   const handleHideRow = useCallback((rowKey: string) => {
     try {
-      const hiddenKeys = JSON.parse(settings.manualData.hiddenRowKeys || "[]") as string[];
+      const hiddenKeys = hiddenRowKeysState;
       const keysToHide = getNodeAndDescendantKeys(model.rowTree, rowKey);
       const next = new Set(hiddenKeys);
 
@@ -797,12 +940,38 @@ export const App: React.FC<AppProps> = ({
       });
 
       if (next.size !== hiddenKeys.length) {
-        onPersistProperty("manualData", "hiddenRowKeys", JSON.stringify([...next]));
+        persistHiddenRows([...next]);
       }
     } catch (e) {
       console.error("Failed to hide row", e);
     }
-  }, [settings.manualData.hiddenRowKeys, onPersistProperty, model.rowTree]);
+  }, [hiddenRowKeysState, persistHiddenRows, model.rowTree]);
+
+  const handleHideColumns = useCallback((keys: string[]) => {
+    if (!keys || keys.length === 0) return;
+    try {
+      const hiddenKeys = hiddenColsState;
+      const next = new Set(hiddenKeys);
+      keys.forEach((key) => {
+        if (!key) return;
+        if (key.startsWith("m:")) {
+          const measureIndex = Number(key.slice(2));
+          if (Number.isFinite(measureIndex)) {
+            next.add(`m_${measureIndex}`);
+            return;
+          }
+        }
+        next.add(key);
+      });
+
+      if (next.size !== hiddenKeys.length) {
+        persistHiddenColumns([...next]);
+      }
+      setSelectedColumnKeys([]);
+    } catch (e) {
+      console.error("Failed to hide columns", e);
+    }
+  }, [hiddenColsState, persistHiddenColumns]);
 
   const handleQuickVariance = useCallback((columnKey: string, measureIndex: number) => {
     try {
@@ -890,31 +1059,57 @@ export const App: React.FC<AppProps> = ({
   // Undo handler
   const handleUndo = useCallback(() => {
     if (undoStack.length === 0) return;
-    const prev = undoStack[undoStack.length - 1];
-    const current = settings.manualData.edits;
+    const entry = undoStack[undoStack.length - 1];
     setUndoStack(s => s.slice(0, -1));
-    setRedoStack(s => [...s, current]);
-    onPersistProperty("manualData", "edits", prev);
-  }, [undoStack, settings.manualData.edits, onPersistProperty]);
+    setRedoStack(s => [...s, entry]);
+    isRestoringHistoryRef.current = true;
+    persistPropertyRaw(entry.objectName, entry.propertyName, entry.before);
+    window.setTimeout(() => {
+      isRestoringHistoryRef.current = false;
+    }, 0);
+  }, [undoStack, persistPropertyRaw]);
 
   // Redo handler
   const handleRedo = useCallback(() => {
     if (redoStack.length === 0) return;
-    const next = redoStack[redoStack.length - 1];
-    const current = settings.manualData.edits;
+    const entry = redoStack[redoStack.length - 1];
     setRedoStack(s => s.slice(0, -1));
-    setUndoStack(s => [...s, current]);
-    onPersistProperty("manualData", "edits", next);
-  }, [redoStack, settings.manualData.edits, onPersistProperty]);
+    setUndoStack(s => [...s, entry]);
+    isRestoringHistoryRef.current = true;
+    persistPropertyRaw(entry.objectName, entry.propertyName, entry.after);
+    window.setTimeout(() => {
+      isRestoringHistoryRef.current = false;
+    }, 0);
+  }, [redoStack, persistPropertyRaw]);
 
-  // Track edits for undo
+  // Kept for older call sites; all persisted visual changes now flow through the central history wrapper.
   const handlePersistPropertyWithUndo = useCallback((objectName: string, propertyName: string, value: unknown) => {
-    if (objectName === "manualData" && propertyName === "edits") {
-      setUndoStack(s => [...s, settings.manualData.edits]);
-      setRedoStack([]);
-    }
     onPersistProperty(objectName, propertyName, value);
-  }, [onPersistProperty, settings.manualData.edits]);
+  }, [onPersistProperty]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]')) {
+        return;
+      }
+
+      const isUndo = (event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "z";
+      const isRedo = ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") ||
+        ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "z");
+
+      if (isUndo) {
+        event.preventDefault();
+        handleUndo();
+      } else if (isRedo) {
+        event.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleUndo, handleRedo]);
 
   /**
    * Merge a direct-format patch into `manualData.colFormats` for every
@@ -925,12 +1120,45 @@ export const App: React.FC<AppProps> = ({
     if (!keys || keys.length === 0) return;
     let current: Record<string, any> = {};
     try { current = JSON.parse(settings.manualData.colFormats || "{}") || {}; } catch { current = {}; }
-    for (const k of keys) {
+    const expandedKeys = new Set<string>();
+    for (const key of keys) {
+      if (!key) continue;
+      expandedKeys.add(key);
+      if (key.startsWith("m:")) {
+        const measureIndex = Number(key.slice(2));
+        if (Number.isFinite(measureIndex)) {
+          expandedKeys.add(`m_${measureIndex}`);
+          const stableIndex = model.measures[measureIndex]?.index;
+          if (stableIndex !== undefined && stableIndex !== measureIndex) {
+            expandedKeys.add(`m:${stableIndex}`);
+            expandedKeys.add(`m_${stableIndex}`);
+          }
+        }
+      } else if (key.startsWith("m_")) {
+        const measureIndex = Number(key.slice(2));
+        if (Number.isFinite(measureIndex)) {
+          expandedKeys.add(`m:${measureIndex}`);
+          const stableIndex = model.measures[measureIndex]?.index;
+          if (stableIndex !== undefined && stableIndex !== measureIndex) {
+            expandedKeys.add(`m:${stableIndex}`);
+            expandedKeys.add(`m_${stableIndex}`);
+          }
+        }
+      } else {
+        const parts = key.split("::m");
+        const measureIndex = parts.length > 1 ? Number(parts[1]) : NaN;
+        const stableIndex = Number.isFinite(measureIndex) ? model.measures[measureIndex]?.index : undefined;
+        if (stableIndex !== undefined && stableIndex !== measureIndex) {
+          expandedKeys.add(`${parts[0]}::m${stableIndex}`);
+        }
+      }
+    }
+    for (const k of expandedKeys) {
       const prev = current[k] || {};
       current[k] = { ...prev, ...patch };
     }
     onPersistProperty("manualData", "colFormats", JSON.stringify(current));
-  }, [onPersistProperty, settings.manualData.colFormats]);
+  }, [model.measures, onPersistProperty, settings.manualData.colFormats]);
 
   /**
    * Toggle the `collapsed` field of a calc-row group definition and persist.
@@ -958,17 +1186,17 @@ export const App: React.FC<AppProps> = ({
     onPersistProperty("manualData", "rowFormats", JSON.stringify(current));
   }, [onPersistProperty, settings.manualData.rowFormats]);
 
-  const ribbonHeight = settings.appearance.showToolbar
+  const ribbonHeight = effectiveSettings.appearance.showToolbar
     ? (toolbarMode === "full" ? 86 : toolbarMode === "minimal-tabs" ? 34 : 40)
     : 0;
-  const titleBarHeight = settings.title.show ? Math.max(0, settings.title.height || 0) : 0;
+  const titleBarHeight = effectiveSettings.title.show ? Math.max(0, effectiveSettings.title.height || 0) : 0;
 
   if (!model.hasData) {
     return (
       <div className="advanced-matrix-visual" style={{ width, height }}>
-        {settings.appearance.showToolbar && (
-          <Ribbon
-            settings={settings}
+        {effectiveSettings.appearance.showToolbar && (
+            <Ribbon
+            settings={effectiveSettings}
             allowInteractions={allowInteractions}
             hasData={model.hasData}
             hasValues={model.hasValues}
@@ -1007,17 +1235,14 @@ export const App: React.FC<AppProps> = ({
             onOpenFilterPanel={() => setFilterPanelOpen(true)}
             onOpenLevelPanel={() => setLevelPanelOpen(true)}
             onAddQuickVariance={() => {}}
-            canUndo={undoStack.length > 0}
-            canRedo={redoStack.length > 0}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
             rows={[]}
             colFormatsJson="{}"
+            rowFormatsJson="{}"
           />
         )}
-        {settings.title.show && (
+        {effectiveSettings.title.show && (
           <TitleBar
-            settings={settings.title}
+            settings={effectiveSettings.title}
             allowInteractions={allowInteractions}
             onPersistProperty={onPersistProperty}
           />
@@ -1026,34 +1251,38 @@ export const App: React.FC<AppProps> = ({
           <EmptyState
             hasRows={model.hasRows}
             hasValues={model.hasValues}
-            settings={settings}
+            settings={effectiveSettings}
             onPersistProperty={onPersistProperty}
           />
         </div>
       </div>
     );
   }
-  const simulateBarHeight = settings.general.simulateMode ? 34 : 0;
+  const simulateBarHeight = effectiveSettings.general.simulateMode ? 34 : 0;
   const footerHeight = 28;
   const workspaceHeight = Math.max(0, height - ribbonHeight - titleBarHeight - simulateBarHeight - footerHeight);
 
   const explorerWidth = explorerOpen ? 280 : 0;
   const matrixWidth = Math.max(0, width - explorerWidth);
+  const layoutStyle = effectiveSettings.appearance.layoutStyle || "standard";
+  const canvasPadding = layoutStyle === "floating" ? 18 : layoutStyle === "framed" ? 22 : layoutStyle === "spotlight" ? 26 : 0;
+  const matrixStageWidth = Math.max(0, matrixWidth - canvasPadding * 2);
+  const matrixStageHeight = Math.max(0, workspaceHeight - canvasPadding * 2);
 
   return (
     <div
-      className={`advanced-matrix-visual ${settings.general.showGridlines ? "show-gridlines" : ""} theme-${settings.theme.preset}`}
+      className={`advanced-matrix-visual ${effectiveSettings.general.showGridlines ? "show-gridlines" : ""} theme-${effectiveSettings.theme.preset}`}
       style={{
         width,
         height,
         position: 'relative',
         // @ts-ignore
-        "--mx-font-family": settings.general.fontFamily || "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+        "--mx-font-family": effectiveSettings.general.fontFamily || "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
       }}
     >
-      {settings.appearance.showToolbar && (
+      {effectiveSettings.appearance.showToolbar && (
         <Ribbon
-          settings={settings}
+          settings={effectiveSettings}
           allowInteractions={allowInteractions}
           hasData={model.hasData}
           hasValues={model.hasValues}
@@ -1104,22 +1333,19 @@ export const App: React.FC<AppProps> = ({
           onOpenFilterPanel={() => setFilterPanelOpen(true)}
           onOpenLevelPanel={() => setLevelPanelOpen(true)}
           onAddQuickVariance={() => handleQuickVariance("", 0)}
-          canUndo={undoStack.length > 0}
-          canRedo={redoStack.length > 0}
-          onUndo={handleUndo}
-          onRedo={handleRedo}
           rows={displayRows}
-          colFormatsJson={settings.manualData.colFormats}
+          colFormatsJson={effectiveSettings.manualData.colFormats}
+          rowFormatsJson={effectiveSettings.manualData.rowFormats}
         />
       )}
 
-      {settings.general.simulateMode && (
+      {effectiveSettings.general.simulateMode && (
         <SimulateBar onExit={() => onPersistProperty("general", "simulateMode", false)} />
       )}
 
-      {settings.title.show && (
+      {effectiveSettings.title.show && (
         <TitleBar
-          settings={settings.title}
+          settings={effectiveSettings.title}
           allowInteractions={allowInteractions}
           onPersistProperty={onPersistProperty}
         />
@@ -1146,13 +1372,21 @@ export const App: React.FC<AppProps> = ({
           style={{
             width: matrixWidth,
             height: workspaceHeight,
+            padding: canvasPadding,
+            boxSizing: "border-box",
+            background:
+              layoutStyle === "spotlight"
+                ? "radial-gradient(circle at top center, rgba(59,130,246,0.12), rgba(255,255,255,0) 42%)"
+                : layoutStyle === "framed"
+                  ? "linear-gradient(180deg, rgba(255,255,255,0.4), rgba(241,245,249,0.14))"
+                  : "transparent",
           }}
         >
           <div
             className="mx-zoom-stage"
             style={{
-              width: matrixWidth / zoomFactor,
-              height: workspaceHeight / zoomFactor,
+              width: matrixStageWidth / zoomFactor,
+              height: matrixStageHeight / zoomFactor,
               transform: zoomFactor === 1 ? undefined : `scale(${zoomFactor})`,
               transformOrigin: "top left",
             }}
@@ -1162,16 +1396,17 @@ export const App: React.FC<AppProps> = ({
               columns={model.flattenedColumns}
               cellMap={quickCalcView.cellMap}
               measures={quickCalcView.measures}
-              settings={settings}
+              settings={effectiveSettings}
               tooltipService={tooltipService}
               allowInteractions={allowInteractions}
-              width={matrixWidth / zoomFactor}
-              height={workspaceHeight / zoomFactor}
+              width={matrixStageWidth / zoomFactor}
+              height={matrixStageHeight / zoomFactor}
               sortConfig={sortConfig}
               selectionState={selectionState}
               selectionManager={selectionManager}
               sparklineMeasureIndex={model.sparklineMeasureIndex}
               onSort={handleSort}
+              onSetSortDirection={handleSetSortDirection}
               onToggleRowExpand={onToggleRowExpand}
               onToggleColumnExpand={onToggleColumnExpand}
               onExpandAllUnder={handleExpandAllUnder}
@@ -1199,6 +1434,7 @@ export const App: React.FC<AppProps> = ({
               selectedRowKeysForFormat={selectedRowKeysForFormat}
               onRowSelectionForFormatChange={setSelectedRowKeysForFormat}
               onHideRow={handleHideRow}
+              onHideColumns={handleHideColumns}
               onEditCalcRow={handleEditCalcRow}
               onDeleteCalcRow={handleDeleteCalcRow}
               onToggleGroupCollapsed={handleToggleGroupCollapsed}
@@ -1207,7 +1443,7 @@ export const App: React.FC<AppProps> = ({
         </div>
       </div>
 
-      {!settings.appearance.showToolbar && allowInteractions && (
+      {!effectiveSettings.appearance.showToolbar && allowInteractions && (
         <button
           className="mx-restore-toolbar-btn"
           onClick={() => onPersistProperty("appearance", "showToolbar", true)}
@@ -1231,18 +1467,30 @@ export const App: React.FC<AppProps> = ({
         onZoomSet={handleZoomSet}
         onToolbarModeChange={setToolbarMode}
         onToggleExplorer={toggleExplorer}
+        canUndo={undoStack.length > 0}
+        canRedo={redoStack.length > 0}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        allowInteractions={allowInteractions}
+        titleVisible={effectiveSettings.title.show}
+        onToggleTitle={() => onPersistProperty("title", "show", !effectiveSettings.title.show)}
+        onEditTitle={() => setHeaderOptionsOpen(true)}
       />
 
       <ThemeGallery
         open={themeGalleryOpen}
-        currentPreset={settings.theme.preset}
+        currentPreset={effectiveSettings.theme.preset}
         onClose={() => setThemeGalleryOpen(false)}
         onApply={(preset) => onPersistProperty("theme", "preset", preset)}
       />
 
       {headerOptionsOpen && (
         <HeaderOptionsPanel
-          settings={settings}
+          settings={effectiveSettings}
+          rows={displayRows}
+          columns={model.flattenedColumns}
+          selectedRowKeys={selectedRowKeysForFormat}
+          selectedColumnKeys={selectedColumnKeys}
           onPersistProperty={onPersistProperty}
           onClose={() => setHeaderOptionsOpen(false)}
         />
@@ -1305,9 +1553,11 @@ export const App: React.FC<AppProps> = ({
           columns={model.flattenedColumns}
           rows={model.flattenedRows}
           measures={model.measures}
-          settings={settings}
+          settings={effectiveSettings}
           onClose={() => setManageColumnsPanelOpen(false)}
           onPersistProperty={onPersistProperty}
+          onHiddenColsChange={persistHiddenColumns}
+          onHiddenRowKeysChange={persistHiddenRows}
           onOpenCalcMeasureWizard={openCalcMeasureWizard}
           onDeleteCalcMeasure={handleDeleteCalcMeasure}
           onDeleteCalcRow={handleDeleteCalcRow}

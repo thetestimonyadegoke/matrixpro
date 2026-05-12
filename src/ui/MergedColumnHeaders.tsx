@@ -8,6 +8,7 @@ import { FlattenedNode } from "../model/tree";
 import { MeasureInfo } from "../model/pivot";
 import { SortConfig, SortDirection } from "../model/sorting";
 import { ColumnFormat, quickFormatHeaderLabel, resolveColumnFormat } from "../format/directFormats";
+import { VisualSettings } from "../settings/settings";
 
 export type ColumnArrangement = "time-then-measure" | "measure-then-time";
 
@@ -27,7 +28,8 @@ export interface MergedColumnHeadersProps {
   onColumnHeaderClick?: (
     columnKey: string,
     measureIndex: number,
-    modifiers: { ctrl: boolean; shift: boolean }
+    modifiers: { ctrl: boolean; shift: boolean },
+    selectionKeys?: string[]
   ) => void;
   onStartResize: (clientX: number) => void;
   onStartRowHeaderResize: (clientX: number) => void;
@@ -35,6 +37,8 @@ export interface MergedColumnHeadersProps {
   colFormats?: Record<string, ColumnFormat>;
   colWidths: Record<string, number>;
   gridColumns?: { key: string; col: FlattenedNode; measure: MeasureInfo; measureIndex: number }[];
+  settings: VisualSettings;
+  labelOverrides?: Record<string, string>;
 }
 
 interface HeaderCell {
@@ -45,7 +49,10 @@ interface HeaderCell {
   isLeaf: boolean;
   columnKey?: string;
   measureIndex?: number;
+  selectionKeys?: string[];
   sortDirection?: SortDirection;
+  isSubtotal?: boolean;
+  isGrandTotal?: boolean;
 }
 
 interface HeaderRow {
@@ -72,25 +79,27 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
   colFormats,
   colWidths,
   gridColumns = [],
+  settings,
+  labelOverrides,
 }) => {
   const headerRows = useMemo(() => {
     return buildMergedHeaders(columns, measures, arrangement, sortConfig, gridColumns);
   }, [columns, measures, arrangement, sortConfig, gridColumns]);
 
-  const handleLeafClick = (
+  const handleHeaderClick = (
     e: React.MouseEvent,
-    columnKey: string | undefined,
-    measureIndex: number | undefined
+    cell: HeaderCell
   ) => {
-    if (!allowInteractions || columnKey === undefined || measureIndex === undefined) return;
+    if (!allowInteractions || !cell.selectionKeys?.length) return;
     const ctrl = e.ctrlKey || e.metaKey;
     const shift = e.shiftKey;
-    // Notify column selection first so downstream state updates regardless of sort.
-    onColumnHeaderClick?.(columnKey, measureIndex, { ctrl, shift });
+    const fallbackColumnKey = cell.columnKey ?? cell.selectionKeys[0].split("::m")[0];
+    const fallbackMeasureIndex = cell.measureIndex ?? Number(cell.selectionKeys[0].split("::m")[1] ?? 0);
+    onColumnHeaderClick?.(fallbackColumnKey, fallbackMeasureIndex, { ctrl, shift }, cell.selectionKeys);
     // Preserve existing sort behavior only on plain clicks (no modifier),
     // so Ctrl/Shift clicks are reserved for multi-select without side effects.
-    if (!ctrl && !shift) {
-      onSort(columnKey, measureIndex);
+    if (cell.isLeaf && cell.columnKey !== undefined && cell.measureIndex !== undefined && !ctrl && !shift) {
+      onSort(cell.columnKey, cell.measureIndex);
     }
   };
 
@@ -143,12 +152,34 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
               const compositeKey = cell.isLeaf && cell.columnKey !== undefined && cell.measureIndex !== undefined
                 ? `${cell.columnKey}::m${cell.measureIndex}`
                 : undefined;
-              const isColSelected = !!(compositeKey && selectedColumnKeys?.has(compositeKey));
-              const colFmt = cell.isLeaf && cell.columnKey !== undefined && cell.measureIndex !== undefined
+              const selectionKeys = cell.selectionKeys ?? (compositeKey ? [compositeKey] : []);
+              const isColSelected = selectionKeys.length > 0 && selectionKeys.some(key => selectedColumnKeys?.has(key));
+              const firstSelectionParts = selectionKeys[0]?.split("::m") ?? [];
+              const firstSelectionMeasure = firstSelectionParts.length > 1 ? Number(firstSelectionParts[1]) : undefined;
+              const colFmt = cell.columnKey !== undefined && cell.measureIndex !== undefined
                 ? resolveColumnFormat(colFormats || {}, cell.columnKey, cell.measureIndex)
-                : undefined;
+                : selectionKeys[0]?.startsWith("m:")
+                  ? colFormats?.[selectionKeys[0]]
+                : firstSelectionParts[0] && firstSelectionMeasure !== undefined
+                  ? resolveColumnFormat(colFormats || {}, firstSelectionParts[0], firstSelectionMeasure)
+                  : undefined;
+              const totalStyle = getTotalHeaderStyle(settings, cell.isSubtotal, cell.isGrandTotal);
               const suffix = quickFormatHeaderLabel(colFmt?.quickFormat);
-              const displayLabel = suffix ? `${cell.label} ${suffix}` : cell.label;
+              const baseLabel = (labelOverrides && (cell.columnKey ? labelOverrides[cell.columnKey] : (cell.measureIndex !== undefined ? labelOverrides[`m_${cell.measureIndex}`] : undefined))) || cell.label;
+              const displayLabel = suffix ? `${baseLabel} ${suffix}` : baseLabel;
+              const headerBreakStyle = row.level === 0 && cellIndex > 0 && settings.layout.columnBreak !== "none"
+                ? settings.layout.columnBreak === "section"
+                  ? "3px double var(--mx-border, #cbd5e1)"
+                  : "2px solid var(--mx-border, #cbd5e1)"
+                : undefined;
+              const presetBackground =
+                !cell.isSubtotal && !cell.isGrandTotal && !colFmt?.backgroundColor
+                  ? settings.layout.stylePreset === "ledger"
+                    ? row.level === 0 ? "#f8fafc" : undefined
+                    : settings.layout.stylePreset === "editorial"
+                      ? row.level === 0 ? "#fcfaf7" : row.level === 1 ? "#fffaf0" : undefined
+                      : undefined
+                  : undefined;
 
               // Calculate width based on underlying columns
               let currentIdx = 0;
@@ -173,19 +204,26 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
                 style={{
                   width: width,
                   minWidth: width,
+                  ...totalStyle,
+                  ...(presetBackground ? { backgroundColor: presetBackground } : {}),
+                  ...(colFmt?.backgroundColor ? { backgroundColor: colFmt.backgroundColor } : {}),
+                  ...(headerBreakStyle ? { borderLeft: headerBreakStyle } : {}),
                 }}
-                onClick={(e) => cell.isLeaf && handleLeafClick(e, cell.columnKey, cell.measureIndex)}
+                onClick={(e) => handleHeaderClick(e, cell)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   onContextMenu(e, cell.columnKey, cell.measureIndex);
                 }}
-                role={cell.isLeaf ? "button" : undefined}
-                tabIndex={cell.isLeaf && allowInteractions ? 0 : undefined}
+                role={selectionKeys.length > 0 ? "button" : undefined}
+                tabIndex={selectionKeys.length > 0 && allowInteractions ? 0 : undefined}
               >
                 <span 
                   className="merged-header-label"
                   style={{
-                    color: cell.level === 0 ? "var(--mx-col-l0-color)" : (cell.level === 1 ? "var(--mx-col-l1-color)" : (cell.isLeaf ? "var(--mx-col-leaf-color)" : "inherit")),
+                    color: colFmt?.textColor || totalStyle.color || (cell.level === 0 ? "var(--mx-col-l0-color)" : (cell.level === 1 ? "var(--mx-col-l1-color)" : (cell.isLeaf ? "var(--mx-col-leaf-color)" : "inherit"))),
+                    fontWeight: colFmt?.bold ? 800 : undefined,
+                    fontStyle: colFmt?.italic ? "italic" : undefined,
+                    textDecoration: colFmt?.underline ? "underline" : undefined,
                     whiteSpace: "normal",
                     wordBreak: "break-word",
                     textAlign: "center",
@@ -221,6 +259,30 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
 });
 
 MergedColumnHeaders.displayName = "MergedColumnHeaders";
+
+function getTotalHeaderStyle(
+  settings: VisualSettings,
+  isSubtotal?: boolean,
+  isGrandTotal?: boolean
+): React.CSSProperties {
+  if (isGrandTotal) {
+    return {
+      backgroundColor: settings.totals.grandTotalBackgroundColor,
+      color: settings.totals.grandTotalTextColor,
+      fontWeight: settings.totals.grandTotalBold ? 700 : undefined,
+    };
+  }
+
+  if (isSubtotal) {
+    return {
+      backgroundColor: settings.totals.subtotalBackgroundColor,
+      color: settings.totals.subtotalTextColor,
+      fontWeight: settings.totals.subtotalBold ? 700 : undefined,
+    };
+  }
+
+  return {};
+}
 
 function buildMergedHeaders(
   columns: FlattenedNode[],
@@ -265,6 +327,9 @@ function buildHeadersFromGridColumns(
         colSpan: 1,
         level: 0,
         isLeaf: false,
+        selectionKeys: [`m:${gc.measureIndex}`],
+        isSubtotal: gc.col.isSubtotal,
+        isGrandTotal: gc.col.isGrandTotal,
       });
     }
     rows.push({ level: 0, cells: measureCells });
@@ -294,6 +359,9 @@ function buildHeadersFromGridColumns(
       isLeaf: true,
       columnKey: gc.col.key,
       measureIndex: gc.measureIndex,
+      selectionKeys: [`m:${gc.measureIndex}`],
+      isSubtotal: gc.col.isSubtotal,
+      isGrandTotal: gc.col.isGrandTotal,
       sortDirection: sortConfig.columnKey === gc.col.key && sortConfig.measureIndex === gc.measureIndex
         ? sortConfig.direction
         : "none",
@@ -335,6 +403,9 @@ function buildContiguousHeaderCells(
       isLeaf: asLeaf && span === 1,
       columnKey: asLeaf && span === 1 ? current.col.key : undefined,
       measureIndex: asLeaf && span === 1 ? current.measureIndex : undefined,
+      selectionKeys: gridColumns.slice(index, index + span).map(gc => gc.key),
+      isSubtotal: current.col.isSubtotal,
+      isGrandTotal: current.col.isGrandTotal,
       sortDirection: asLeaf && span === 1 && sortConfig.columnKey === current.col.key && sortConfig.measureIndex === current.measureIndex
         ? sortConfig.direction
         : "none",
@@ -357,6 +428,7 @@ function buildMeasureOnlyHeaders(
     isLeaf: true,
     columnKey: `col:measure_${i}`,
     measureIndex: i,
+    selectionKeys: [`m:${i}`],
     sortDirection: sortConfig.columnKey === `col:measure_${i}` && sortConfig.measureIndex === i
       ? sortConfig.direction
       : "none",
@@ -389,6 +461,9 @@ function buildTimeFirstHeaders(
           colSpan: totalSpan,
           level,
           isLeaf: false,
+          selectionKeys: collectLegacySelectionKeys(i, columns, measures),
+          isSubtotal: col.isSubtotal,
+          isGrandTotal: col.isGrandTotal,
         });
       }
     }
@@ -415,6 +490,9 @@ function buildTimeFirstHeaders(
           isLeaf: true,
           columnKey: col.key,
           measureIndex: m,
+          selectionKeys: [`m:${m}`],
+          isSubtotal: col.isSubtotal,
+          isGrandTotal: col.isGrandTotal,
           sortDirection: sortConfig.columnKey === col.key && sortConfig.measureIndex === m
             ? sortConfig.direction
             : "none",
@@ -437,7 +515,8 @@ function buildMeasureFirstHeaders(
   sortConfig: SortConfig
 ): HeaderRow[] {
   const rows: HeaderRow[] = [];
-  const leafColumns = columns.filter(c => !c.hasChildren || c.level === maxLevel);
+    const leafColumns = columns.filter((c, i) => isVisualLeaf(c, i, columns));
+
 
   // Measure row at top
   const measureCells: HeaderCell[] = measures.map((m, i) => ({
@@ -446,6 +525,7 @@ function buildMeasureFirstHeaders(
     colSpan: leafColumns.length,
     level: 0,
     isLeaf: false,
+    selectionKeys: [`m:${i}`],
   }));
 
   rows.push({ level: 0, cells: measureCells });
@@ -467,6 +547,9 @@ function buildMeasureFirstHeaders(
             isLeaf: level === maxLevel,
             columnKey: level === maxLevel ? col.key : undefined,
             measureIndex: level === maxLevel ? m : undefined,
+            selectionKeys: level === maxLevel ? [`m:${m}`] : collectLegacySelectionKeys(i, columns, [measures[m]], m),
+            isSubtotal: col.isSubtotal,
+            isGrandTotal: col.isGrandTotal,
             sortDirection: level === maxLevel && sortConfig.columnKey === col.key && sortConfig.measureIndex === m
               ? sortConfig.direction
               : "none",
@@ -507,4 +590,35 @@ function countLeafDescendants(nodeIndex: number, allColumns: FlattenedNode[]): n
   }
 
   return count || 1;
+}
+
+function isVisualLeaf(node: FlattenedNode, nodeIndex: number, allColumns: FlattenedNode[]): boolean {
+  const next = allColumns[nodeIndex + 1];
+  return node.isLeaf || node.isSubtotal || !next || next.level <= node.level;
+}
+
+function collectLegacySelectionKeys(
+  nodeIndex: number,
+  allColumns: FlattenedNode[],
+  measures: MeasureInfo[],
+  measureOffset = 0
+): string[] {
+  const node = allColumns[nodeIndex];
+  const keys: string[] = [];
+  const addMeasureKeys = (col: FlattenedNode) => {
+    measures.forEach((_, idx) => keys.push(`${col.key}::m${measureOffset + idx}`));
+  };
+
+  if (isVisualLeaf(node, nodeIndex, allColumns)) {
+    addMeasureKeys(node);
+    return keys;
+  }
+
+  for (let i = nodeIndex + 1; i < allColumns.length; i++) {
+    const col = allColumns[i];
+    if (col.level <= node.level) break;
+    if (isVisualLeaf(col, i, allColumns)) addMeasureKeys(col);
+  }
+
+  return keys;
 }

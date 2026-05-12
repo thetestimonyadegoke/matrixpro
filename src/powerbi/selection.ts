@@ -5,6 +5,12 @@ import ISelectionIdBuilder = powerbi.visuals.ISelectionIdBuilder;
 // Loosely typed selection id wrapper so we can call equals/getKey without SDK type mismatches
 type SelectionId = any;
 
+function isUsableSelectionId(selectionId: SelectionId): boolean {
+  return !!selectionId &&
+    typeof selectionId.getKey === "function" &&
+    typeof selectionId.equals === "function";
+}
+
 export interface SelectionState {
   selectedIds: Set<string>;
   lastSelectedId: string | null;
@@ -31,7 +37,7 @@ export class SelectionManagerWrapper {
     // inside VisualContainerDataSelectionService.getSelectedValues if a null/undefined id is passed.
     // Subtotal / grand-total / calculated rows legitimately have no selectionId, so a click on
     // one of those cells must not be forwarded to the host selection pipeline.
-    if (!selectionId) {
+    if (!isUsableSelectionId(selectionId)) {
       // Treat as a "clear selection" gesture when not multi-selecting, otherwise a no-op.
       if (!multiSelect) {
         try {
@@ -80,8 +86,7 @@ export class SelectionManagerWrapper {
     // For rows without an identity (totals/calculated), fall back to an empty selection
     // so the visual still shows the default context menu without throwing.
     try {
-      if (!selectionId) {
-        this.selectionManager.showContextMenu({} as any, position);
+      if (!isUsableSelectionId(selectionId)) {
         return;
       }
       this.selectionManager.showContextMenu(selectionId, position);
@@ -93,9 +98,10 @@ export class SelectionManagerWrapper {
 
 export function buildSelectionId(
   builder: ISelectionIdBuilder,
-  identity: any
+  identity: any,
+  levels: powerbi.DataViewHierarchyLevel[] = []
 ): SelectionId {
-  return builder.withMatrixNode(identity, []).createSelectionId();
+  return builder.withMatrixNode(identity, levels).createSelectionId();
 }
 
 export function isSelected(
@@ -121,7 +127,9 @@ export function updateSelectionState(
   let lastSelectedId: string | null = null;
 
   for (const id of selectionIds) {
+    if (!isUsableSelectionId(id)) continue;
     const key = id.getKey();
+    if (!key) continue;
     selectedIds.add(key);
     lastSelectedId = key;
   }
