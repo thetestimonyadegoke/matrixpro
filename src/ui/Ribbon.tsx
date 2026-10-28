@@ -288,17 +288,18 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
 
   // Labels drop automatically when the bar is too narrow to show them, so
   // "full" degrades into "compact" instead of scrolling or wrapping.
-  const [narrow, setNarrow] = useState(false);
-  const labelledWidthRef = useRef(0); // content width the labelled bar needed when it last overflowed
+  // Three steps: 0 = every label, 1 = labels on the main actions only, 2 = icons only.
+  const [labelStep, setLabelStep] = useState<0 | 1 | 2>(0);
+  const stepWidthsRef = useRef<number[]>([0, 0]); // content width steps 0 and 1 needed when they last overflowed
   useLayoutEffect(() => {
     const el = barRef.current;
     if (!el) return undefined;
     const fit = () => {
-      if (!narrow && el.scrollWidth > el.clientWidth + 1) {
-        labelledWidthRef.current = el.scrollWidth;
-        setNarrow(true);
-      } else if (narrow && el.clientWidth >= labelledWidthRef.current) {
-        setNarrow(false);
+      if (labelStep < 2 && el.scrollWidth > el.clientWidth + 1) {
+        stepWidthsRef.current[labelStep] = el.scrollWidth;
+        setLabelStep((labelStep + 1) as 0 | 1 | 2);
+      } else if (labelStep > 0 && el.clientWidth >= stepWidthsRef.current[labelStep - 1]) {
+        setLabelStep((labelStep - 1) as 0 | 1 | 2);
       }
     };
     fit();
@@ -306,8 +307,8 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [narrow, toolbarMode]);
-  const showLabels = toolbarMode === "full" && !narrow;
+  }, [labelStep, toolbarMode]);
+  const showLabels = toolbarMode === "full" && labelStep < 2;
 
   const closeMenu = useCallback(() => setOpenMenu(null), []);
   const toggleMenu = (id: string, anchor: HTMLElement) =>
@@ -621,9 +622,11 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     disabled?: boolean;
     menu?: string;
     iconOnly?: boolean;
+    /** Drops its label first when the bar runs out of room. */
+    secondary?: boolean;
   }) => {
     const isMenuOpen = !!opts.menu && openMenu?.id === opts.menu;
-    const labelVisible = showLabels && !opts.iconOnly;
+    const labelVisible = showLabels && !opts.iconOnly && !(opts.secondary && labelStep >= 1);
     return (
       <button
         key={opts.id}
@@ -661,26 +664,26 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
       <div className="rb-group" role="group" aria-label="Explore">
         {button({ id: "sort", icon: <IconSort size={16} />, label: "Sort", onClick: () => onOpenSortPanel?.(), disabled: needsData })}
         {button({ id: "filter", icon: <IconFilter size={16} />, label: "Filter", onClick: () => onOpenFilterPanel?.(), active: filterActive, disabled: needsData })}
-        {button({ id: "topn", icon: <IconTopN size={16} />, label: "Top N", onClick: () => onOpenTopNPanel?.(), active: topNActive, disabled: !hasData })}
-        {button({ id: "levels", icon: <IconLevels size={16} />, label: "Levels", title: "Show or hide hierarchy levels", onClick: () => onOpenLevelPanel?.(), active: levelsActive, disabled: needsData })}
-        {button({ id: "find", icon: <IconSearch size={16} />, label: "Find", title: "Find in labels and values (Ctrl+F)", onClick: () => onOpenFind?.(), disabled: !hasData || !onOpenFind })}
+        {button({ id: "topn", secondary: true, icon: <IconTopN size={16} />, label: "Top N", onClick: () => onOpenTopNPanel?.(), active: topNActive, disabled: !hasData })}
+        {button({ id: "levels", secondary: true, icon: <IconLevels size={16} />, label: "Levels", title: "Show or hide hierarchy levels", onClick: () => onOpenLevelPanel?.(), active: levelsActive, disabled: needsData })}
+        {button({ id: "find", secondary: true, icon: <IconSearch size={16} />, label: "Find", title: "Find in labels and values (Ctrl+F)", onClick: () => onOpenFind?.(), disabled: !hasData || !onOpenFind })}
       </div>
 
       <div className="rb-group" role="group" aria-label="Build">
         {button({ id: "rows", icon: <IconInsertRow size={16} />, label: "Rows", menu: "rows", disabled: edit })}
         {button({ id: "columns", icon: <IconManageColumns size={16} />, label: "Columns", menu: "columns", disabled: edit })}
         {button({ id: "totals", icon: <IconTotals size={16} />, label: "Totals", title: "Totals and subtotals", onClick: () => onOpenTotalsPanel?.(), active: settings.totals.showGrandTotals, disabled: edit })}
-        {button({ id: "group", icon: <IconGroup size={16} />, label: "Group", title: "Group rows", onClick: () => onOpenGroupPanel?.(), disabled: edit })}
+        {button({ id: "group", secondary: true, icon: <IconGroup size={16} />, label: "Group", title: "Group rows", onClick: () => onOpenGroupPanel?.(), disabled: edit })}
       </div>
 
       <div className="rb-group" role="group" aria-label="Format">
-        <span className="rb-scope" title="Formatting applies to this selection">{scopeLabel}</span>
+        {labelStep === 0 && <span className="rb-scope" title="Formatting applies to this selection">{scopeLabel}</span>}
         {button({ id: "bold", icon: <IconBold size={16} />, label: "Bold", iconOnly: true, onClick: () => handleFormatUpdate({ bold: !effBold }), active: !!effBold, disabled: edit })}
         {button({ id: "italic", icon: <IconItalic size={16} />, label: "Italic", iconOnly: true, onClick: () => handleFormatUpdate({ italic: !effItalic }), active: !!effItalic, disabled: edit })}
         {button({ id: "underline", icon: <IconUnderline size={16} />, label: "Underline", iconOnly: true, onClick: () => handleFormatUpdate({ underline: !effUnderline }), active: !!effUnderline, disabled: edit })}
         {button({ id: "align", icon: alignIcon, label: "Alignment", iconOnly: true, menu: "align", disabled: edit })}
         {button({ id: "text", icon: colorIcon, label: "Text", title: "Font, size and colors", iconOnly: true, menu: "text", disabled: edit })}
-        {button({ id: "number", icon: <IconNumber size={16} />, label: "Number", title: "Number format, display units and decimals", menu: "number", disabled: edit })}
+        {button({ id: "number", secondary: true, icon: <IconNumber size={16} />, label: "Number", title: "Number format, display units and decimals", menu: "number", disabled: edit })}
         {button({
           id: "rules",
           icon: <IconCondFormat size={16} />,
@@ -690,7 +693,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
           disabled: needsValues,
           onClick: (el) => setCfAnchor(current => (current ? null : el.getBoundingClientRect())),
         })}
-        {button({ id: "visuals", icon: <IconBars size={16} />, label: "In-cell", title: "Data bars, trend icons and sparklines", menu: "visuals", active: visualsActive, disabled: needsValues })}
+        {button({ id: "visuals", secondary: true, icon: <IconBars size={16} />, label: "In-cell", title: "Data bars, trend icons and sparklines", menu: "visuals", active: visualsActive, disabled: needsValues })}
       </div>
 
       <div className="rb-group" role="group" aria-label="Analyze">
