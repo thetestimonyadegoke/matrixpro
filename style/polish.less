@@ -105,7 +105,7 @@
       pointer-events: none;
     }
 
-    &.lvl-0.is-parent.is-expanded::after {
+    &.hl-on.lvl-0.is-parent.is-expanded::after {
       opacity: 0.9;
       transform: none;
     }
@@ -115,9 +115,40 @@
       transform: none;
     }
 
-    // Top-level groups: set apart with a soft wash that fades into the grid.
-    &.lvl-0.is-parent:not(.subtotal-row):not(.grandtotal-row) {
+    // Group highlight (Format pane: Appearance → Group highlight): a soft accent wash that fades
+    // into the grid on expandable group rows. Strength sets how much accent the wash starts with.
+    &.hl-on {
+      --mx-hl: 12%;
+    }
+
+    &.hl-on.hl-subtle {
+      --mx-hl: 6%;
+    }
+
+    &.hl-on.hl-strong {
+      --mx-hl: 22%;
+    }
+
+    &.hl-on.lvl-0.is-parent:not(.subtotal-row):not(.grandtotal-row),
+    &.hl-on.hl-two.lvl-1.is-parent:not(.subtotal-row):not(.grandtotal-row) {
       background-image: linear-gradient(90deg, var(--mx-accent-12) 0, transparent 90%);
+
+      @supports (color: color-mix(in srgb, red, blue)) {
+        background-image: linear-gradient(90deg, color-mix(in srgb, var(--mx-accent) var(--mx-hl), transparent) 0, transparent 90%);
+      }
+    }
+
+    // The second level gets half the strength, so the top level still leads.
+    &.hl-on.hl-two.lvl-1.is-parent:not(.subtotal-row):not(.grandtotal-row) {
+      --mx-hl: 6%;
+
+      &.hl-strong {
+        --mx-hl: 11%;
+      }
+
+      &.hl-subtle {
+        --mx-hl: 3%;
+      }
     }
 
     // Depth reads through weight and presence, not just indent.

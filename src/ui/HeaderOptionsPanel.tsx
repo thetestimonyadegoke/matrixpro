@@ -283,6 +283,37 @@ export const HeaderOptionsPanel: React.FC<HeaderOptionsPanelProps> = memo(({
 
       <hr className="mx-divider" />
 
+      <Section title="Group highlight" description="A soft accent wash and rail on expandable group rows, so the hierarchy reads at a glance.">
+        <Switch label="Highlight groups" checked={a.groupHighlight} onChange={(v) => updateAppearance("groupHighlight", v)} />
+        <Field inline label="Strength">
+          <Segmented
+            size="sm"
+            ariaLabel="Group highlight strength"
+            value={a.groupHighlightStrength}
+            onChange={(v) => updateAppearance("groupHighlightStrength", v)}
+            options={[
+              { value: "subtle", label: "Subtle", disabled: !a.groupHighlight },
+              { value: "normal", label: "Normal", disabled: !a.groupHighlight },
+              { value: "strong", label: "Strong", disabled: !a.groupHighlight },
+            ]}
+          />
+        </Field>
+        <Field inline label="Levels">
+          <Segmented
+            size="sm"
+            ariaLabel="Group highlight levels"
+            value={a.groupHighlightLevels}
+            onChange={(v) => updateAppearance("groupHighlightLevels", v)}
+            options={[
+              { value: "top", label: "Top level", disabled: !a.groupHighlight },
+              { value: "two", label: "Top two", disabled: !a.groupHighlight },
+            ]}
+          />
+        </Field>
+      </Section>
+
+      <hr className="mx-divider" />
+
       <Section title="Headers and grid">
         {rangeRow("Header font size", h.fontSize, 8, 24, (value) => updateHeader("fontSize", value))}
         <Switch label="Bold headers" checked={h.bold} onChange={(v) => updateHeader("bold", v)} />

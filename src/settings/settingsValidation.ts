@@ -430,6 +430,26 @@ export const settingsMetadata: SettingsMetadata = {
       defaultValue: true,
       category: "Appearance",
     },
+    groupHighlight: {
+      description: "Highlight expandable group rows in the row headers",
+      type: "boolean",
+      defaultValue: true,
+      category: "Appearance",
+    },
+    groupHighlightStrength: {
+      description: "How strong the group highlight is",
+      type: "enum",
+      defaultValue: "normal",
+      allowedValues: ["subtle", "normal", "strong"],
+      category: "Appearance",
+    },
+    groupHighlightLevels: {
+      description: "Which levels get the group highlight",
+      type: "enum",
+      defaultValue: "top",
+      allowedValues: ["top", "two"],
+      category: "Appearance",
+    },
   },
   title: {
     show: { description: "Show the custom in-visual title bar", type: "boolean", defaultValue: false, category: "Title" },

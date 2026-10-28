@@ -247,6 +247,48 @@ export function getFormattingModel(settings: VisualSettings): powerbi.visuals.Fo
                   },
                 },
               },
+              {
+                uid: "appearance_groupHighlight",
+                displayName: "Group Highlight",
+                control: {
+                  type: powerbi.visuals.FormattingComponent.ToggleSwitch,
+                  properties: {
+                    descriptor: {
+                      objectName: "appearance",
+                      propertyName: "groupHighlight",
+                    },
+                    value: settings.appearance.groupHighlight,
+                  },
+                },
+              },
+              {
+                uid: "appearance_groupHighlightStrength",
+                displayName: "Group Highlight Strength",
+                control: {
+                  type: powerbi.visuals.FormattingComponent.Dropdown,
+                  properties: {
+                    descriptor: {
+                      objectName: "appearance",
+                      propertyName: "groupHighlightStrength",
+                    },
+                    value: settings.appearance.groupHighlightStrength,
+                  },
+                },
+              },
+              {
+                uid: "appearance_groupHighlightLevels",
+                displayName: "Group Highlight Levels",
+                control: {
+                  type: powerbi.visuals.FormattingComponent.Dropdown,
+                  properties: {
+                    descriptor: {
+                      objectName: "appearance",
+                      propertyName: "groupHighlightLevels",
+                    },
+                    value: settings.appearance.groupHighlightLevels,
+                  },
+                },
+              },
             ],
           },
         ],

@@ -436,6 +436,31 @@
           "type": {
             "bool": true
           }
+        },
+        "groupHighlight": {
+          "displayName": "Group Highlight",
+          "type": {
+            "bool": true
+          }
+        },
+        "groupHighlightStrength": {
+          "displayName": "Group Highlight Strength",
+          "type": {
+            "enumeration": [
+              { "value": "subtle", "displayName": "Subtle" },
+              { "value": "normal", "displayName": "Normal" },
+              { "value": "strong", "displayName": "Strong" }
+            ]
+          }
+        },
+        "groupHighlightLevels": {
+          "displayName": "Group Highlight Levels",
+          "type": {
+            "enumeration": [
+              { "value": "top", "displayName": "Top level only" },
+              { "value": "two", "displayName": "Top two levels" }
+            ]
+          }
         }
       }
     },

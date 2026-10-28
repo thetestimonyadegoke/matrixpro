@@ -109,6 +109,7 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
     `lvl-${Math.min(Math.max((row.indent ?? 0) - 1, 0), 3)}`,
     row.hasChildren ? "is-parent" : "is-leaf",
     row.isExpanded ? "is-expanded" : "",
+    settings.appearance.groupHighlight ? `hl-on hl-${settings.appearance.groupHighlightStrength} hl-${settings.appearance.groupHighlightLevels}` : "",
     row.isSubtotal ? "subtotal-row" : "",
     row.isGrandTotal ? "grandtotal-row" : "",
     isSelected ? "selected" : "",

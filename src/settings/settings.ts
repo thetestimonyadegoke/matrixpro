@@ -213,6 +213,10 @@ export interface AppearanceSettings {
   overlayOpacity?: number;
   backgroundEffect?: "none" | "gradient" | "image" | "hybrid";
   layoutStyle?: "standard" | "floating" | "framed" | "spotlight";
+  /** Soft accent wash and rail on expandable group rows in the row headers. */
+  groupHighlight: boolean;
+  groupHighlightStrength: "subtle" | "normal" | "strong";
+  groupHighlightLevels: "top" | "two";
 }
 
 export interface TitleSettings {
@@ -692,6 +696,9 @@ export const defaultSettings: VisualSettings = {
     overlayOpacity: 0,
     backgroundEffect: "none",
     layoutStyle: "standard",
+    groupHighlight: true,
+    groupHighlightStrength: "normal",
+    groupHighlightLevels: "top",
   },
   title: {
     show: false,
@@ -932,6 +939,9 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       overlayOpacity: getValue(objects, "appearance", "overlayOpacity", defaultSettings.appearance.overlayOpacity),
       backgroundEffect: getValue(objects, "appearance", "backgroundEffect", defaultSettings.appearance.backgroundEffect),
       layoutStyle: getValue(objects, "appearance", "layoutStyle", defaultSettings.appearance.layoutStyle),
+      groupHighlight: getValue(objects, "appearance", "groupHighlight", defaultSettings.appearance.groupHighlight),
+      groupHighlightStrength: getValue(objects, "appearance", "groupHighlightStrength", defaultSettings.appearance.groupHighlightStrength),
+      groupHighlightLevels: getValue(objects, "appearance", "groupHighlightLevels", defaultSettings.appearance.groupHighlightLevels),
     },
     title: {
       show: getValue(objects, "title", "show", defaultSettings.title.show),
