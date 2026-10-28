@@ -2,7 +2,7 @@ import { buildMatrixModel } from "../model/pivot";
 import { buildGridColumns } from "../model/gridColumns";
 import { defaultSettings, VisualSettings } from "../settings/settings";
 import { buildExportTable, flatColumnLabels, normalizeExportColor } from "../export/exportTable";
-import { escapeCSV, tableToCSV } from "../export/csv";
+import { escapeCSV, tableToCSV, tableToTSV } from "../export/csv";
 import { crc32, createZip, inferExcelNumberFormat, tableToXLSX } from "../export/xlsx";
 import { buildPdfDocument, tableToPDF, toWinAnsi } from "../export/pdf";
 import { buildJSONExport } from "../export/json";
@@ -198,5 +198,32 @@ describe("JSON", () => {
     const colKey = table.columns[0].key;
     expect(first.values[colKey]["Measure 1"]).toHaveProperty("raw");
     expect(first.values[colKey]["Measure 1"]).toHaveProperty("formatted");
+  });
+});
+
+describe("clipboard table (tab-separated)", () => {
+  it("has the same shape as the CSV: one header row plus one line per row", () => {
+    const { table } = setup();
+    const lines = tableToTSV(table).split("\r\n");
+    expect(lines).toHaveLength(table.rows.length + 1);
+    const width = 1 + flatColumnLabels(table).length;
+    for (const line of lines) expect(line.split("\t")).toHaveLength(width);
+  });
+
+  it("quotes cells that contain tabs, quotes or line breaks and neutralizes formulas", () => {
+    const table = {
+      title: "t",
+      rowHeaderLabel: "Row",
+      headerRows: [[{ label: "A", colSpan: 1 }]],
+      columns: [{ key: "k", measureIndex: 0, label: "A" }],
+      rows: [
+        { label: "has\ttab", indent: 0, isTotal: false, cells: [{ text: "say \"hi\"" }] },
+        { label: "=SUM(A1)", indent: 1, isTotal: false, cells: [{ text: "-12.5" }] },
+      ],
+      headerStyle: {},
+    } as unknown as Parameters<typeof tableToTSV>[0];
+    const lines = tableToTSV(table).split("\r\n");
+    expect(lines[1]).toBe('"has\ttab"\t"say ""hi"""');
+    expect(lines[2]).toBe("'  =SUM(A1)\t-12.5");
   });
 });

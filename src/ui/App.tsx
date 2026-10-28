@@ -7,7 +7,7 @@ import { SortConfig, SortDirection, toggleSortDirection, sortFlattenedRows, sort
 import { SelectionManagerWrapper, SelectionState, updateSelectionState } from "../powerbi/selection";
 import { Matrix } from "./Matrix";
 import { EmptyState } from "./EmptyState";
-import { buildCSVContent, exportToCSV } from "../export/csv";
+import { buildTSVContent, exportToCSV } from "../export/csv";
 import { exportToXLSX } from "../export/xlsx";
 import { exportToPDF } from "../export/pdf";
 import { exportToJSON } from "../export/json";
@@ -673,12 +673,14 @@ export const App: React.FC<AppProps> = ({
     return slug || "matrix-export";
   }, [effectiveSettings.title.show, effectiveSettings.title.text]);
 
-  const copyCsvFallback = useCallback(async (text: string) => {
+  // Tab-separated, so it pastes into Excel or Sheets as a grid rather than one column of text.
+  const copyTableFallback = useCallback(async () => {
+    const text = buildTSVContent(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, effectiveSettings, model.rowLevelNames);
     const copied = await copyTextToClipboard(text);
     setExportNotice(copied
-      ? { type: "success", message: "Data copied to the clipboard as CSV. Paste it into Excel or another app." }
+      ? { type: "success", message: "Table copied to the clipboard. Paste it into Excel or Google Sheets." }
       : { type: "error", message: "The clipboard isn’t available here either. Ask a Power BI admin to allow downloads from custom visuals." });
-  }, []);
+  }, [displayRows, model.flattenedColumns, model.rowLevelNames, quickCalcView, effectiveSettings]);
 
   /**
    * Runs an export and reports the outcome. When the host blocks downloads,
@@ -693,23 +695,28 @@ export const App: React.FC<AppProps> = ({
       const outcome = await run();
       setExportNotice(outcome.completed
         ? { type: "success", message: `${label} export saved as ${outcome.filename}.` }
-        : { type: "info", message: `${label} export was cancelled.` });
+        : {
+            // Power BI also reports "not completed" when it refuses the download itself (a restricted
+            // tenant or a sensitivity label), so don't leave the user at a dead end.
+            type: "warning",
+            message: `${label} wasn't downloaded. You may have cancelled it, or your organization may restrict downloads from this report.`,
+            action: { label: "Copy table to clipboard", run: () => { void copyTableFallback(); } },
+          });
     } catch (error) {
-      const csvFallback = () => buildCSVContent(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, effectiveSettings, model.rowLevelNames);
       if (error instanceof ExportDownloadBlockedError) {
         setExportNotice({
           type: "warning",
           message: error.userMessage,
           action: error.reason === "tooLarge"
             ? undefined
-            : { label: "Copy data to clipboard", run: () => { void copyCsvFallback(error.canCopyToClipboard ? error.content.replace(/^\uFEFF/, "") : csvFallback()); } },
+            : { label: "Copy table to clipboard", run: () => { void copyTableFallback(); } },
         });
       } else {
         console.error(`MatrixPro: ${label} export failed`, error);
         setExportNotice({ type: "error", message: `${label} export failed: ${error instanceof Error ? error.message : String(error)}` });
       }
     }
-  }, [allowInteractions, copyCsvFallback, displayRows, model.flattenedColumns, model.rowLevelNames, quickCalcView, effectiveSettings]);
+  }, [allowInteractions, copyTableFallback]);
 
   const handleExportCSV = useCallback(() => {
     void runExport("CSV", () => exportToCSV(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, effectiveSettings, model.rowLevelNames, `${exportBaseName}.csv`));

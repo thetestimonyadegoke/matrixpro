@@ -38,6 +38,40 @@ export function tableToCSV(table: ExportTable): string {
   return lines.join("\r\n");
 }
 
+/**
+ * Tab-separated text of the table as displayed. Unlike CSV, this pastes into Excel and Google Sheets
+ * as a proper grid, so it is what the clipboard fallback uses when downloads are blocked.
+ */
+export function tableToTSV(table: ExportTable): string {
+  const lines: string[] = [];
+  lines.push([table.rowHeaderLabel, ...flatColumnLabels(table)].map(escapeTSV).join("\t"));
+  for (const row of table.rows) {
+    const label = row.isTotal ? row.label : `${"  ".repeat(row.indent)}${row.label}`;
+    lines.push([label, ...row.cells.map(cell => cell.text)].map(escapeTSV).join("\t"));
+  }
+  return lines.join("\r\n");
+}
+
+export function buildTSVContent(
+  rows: FlattenedNode[],
+  columns: FlattenedNode[],
+  cellMap: { get: (key: string) => CellValue | undefined },
+  measures: MeasureInfo[],
+  settings: VisualSettings,
+  rowLevelNames: string[] = []
+): string {
+  return tableToTSV(buildExportTable(rows, columns, cellMap, measures, settings, rowLevelNames));
+}
+
+function escapeTSV(value: string | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  let text = String(value);
+  if (FORMULA_TRIGGER.test(text.trimStart()) && !NUMERIC_TEXT.test(text.trim())) {
+    text = `'${text}`;
+  }
+  return /[\t"\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
 const FORMULA_TRIGGER = /^[=+\-@\t\r]/;
 const NUMERIC_TEXT = /^[-+]?[\d\s.,]*\d[\d\s.,]*%?$/;
 
