@@ -59,7 +59,7 @@ export const MatrixSkeleton: React.FC<MatrixSkeletonProps> = memo(({
   rowCount = 10,
   columnCount = 5,
 }) => {
-  const rowHeight = settings.theme.density === 'compact' ? 24 : 32;
+  const rowHeight = settings.theme.density === 'compact' ? 24 : settings.theme.density === 'spacious' ? 40 : 32;
   const columnWidth = settings.general.defaultColumnWidth;
   const headerHeight = 56;
   const rowHeaderWidth = Math.max(120, Math.min(480, settings.general.rowHeaderWidth || 150));

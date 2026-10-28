@@ -188,7 +188,7 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
       onMouseLeave={() => {
         tooltipService?.hide();
       }}
-      title={row.path.join(" > ")}
+      title={tooltipService ? undefined : row.path.join(" > ")}
     >
       <span className="row-drag-handle" title="Drag to reorder" aria-hidden="true"><IconGrip size={12} /></span>
 

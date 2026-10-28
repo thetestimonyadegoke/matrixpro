@@ -54,6 +54,7 @@ type VisualColumnRule = {
   sourceMeasureIndex?: number;
   frequency?: VisualColumnFrequency;
   position?: VisualColumnPosition;
+  ytdPlacement?: "perPeriod" | "start" | "end";
   positionIndex?: number;
   specificColumnKeys?: string[];
   hierarchyLevel?: number;
@@ -1232,6 +1233,26 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
                   <option value="specific">Specific</option>
                 </select>
               </Field>
+              {rule.frequency === "ytd" ? (
+                <Field label="YTD placement">
+                  <select
+                    className="mx-select is-sm"
+                    aria-label="YTD placement"
+                    value={rule.ytdPlacement === "start" || rule.ytdPlacement === "end" ? rule.ytdPlacement : rule.position === "beginning" ? "before" : "after"}
+                    onChange={e => {
+                      const v = e.target.value;
+                      updateVisualColumnRule(rule.id, v === "start" || v === "end"
+                        ? { ytdPlacement: v }
+                        : { ytdPlacement: "perPeriod", position: v === "before" ? "beginning" : "normal" });
+                    }}
+                  >
+                    <option value="after">After each period</option>
+                    <option value="before">Before each period</option>
+                    <option value="start">All at the start</option>
+                    <option value="end">All at the end</option>
+                  </select>
+                </Field>
+              ) : (
               <Field label="Position">
                 <select className="mx-select is-sm" aria-label="Position" value={rule.position} onChange={e => updateVisualColumnRule(rule.id, { position: e.target.value as any })}>
                   <option value="normal">Normal</option>
@@ -1239,6 +1260,7 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
                   <option value="end">End</option>
                 </select>
               </Field>
+              )}
             </div>
             <Field label="Style applies to">
               <Segmented

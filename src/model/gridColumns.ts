@@ -29,6 +29,8 @@ export type GridColumn = {
 
 export type VisualColumnFrequency = "all" | "yearly" | "quarterly" | "specific" | "ytd";
 export type VisualColumnPosition = "normal" | "beginning" | "end" | "specific";
+/** Where YTD columns go: beside each period, or collected as one block at either end of the matrix. */
+export type YtdPlacement = "perPeriod" | "start" | "end";
 export type VisualColumnDefinition = {
   id: string;
   enabled?: boolean;
@@ -37,6 +39,7 @@ export type VisualColumnDefinition = {
   sourceMeasureIndex?: number;
   frequency?: VisualColumnFrequency;
   position?: VisualColumnPosition;
+  ytdPlacement?: YtdPlacement;
   positionIndex?: number;
   specificColumnKeys?: string[];
   hierarchyLevel?: number;
@@ -292,6 +295,8 @@ export function buildGridColumns(
   });
 
   let baseResult: GridColumn[] = [];
+  const groupedYtdStart: GridColumn[] = [];
+  const groupedYtdEnd: GridColumn[] = [];
   for (let colIndex = 0; colIndex < visualLeafs.length; colIndex++) {
     const col = visualLeafs[colIndex];
     for (const m of orderedMeasureIndexes) {
@@ -303,7 +308,13 @@ export function buildGridColumns(
       if (!shouldShowMeasureAtColumn(measures[m], m, col, colIndex)) continue;
       const rule = ruleForMeasure(measures[m], m);
       const shouldInsertYtd = rule?.frequency === "ytd" && !col.isSubtotal && !col.isGrandTotal;
-      if (shouldInsertYtd && rule.position === "beginning") {
+      const ytdGroup = shouldInsertYtd && rule.ytdPlacement === "start" ? groupedYtdStart
+        : shouldInsertYtd && rule.ytdPlacement === "end" ? groupedYtdEnd
+        : null;
+      if (shouldInsertYtd && ytdGroup) {
+        ytdGroup.push(makeYtdGridColumn(col, colIndex, m));
+      }
+      if (shouldInsertYtd && !ytdGroup && rule.position === "beginning") {
         baseResult.push(makeYtdGridColumn(col, colIndex, m));
       }
       baseResult.push({
@@ -313,7 +324,7 @@ export function buildGridColumns(
         measureIndex: m,
         levelAwareField,
       });
-      if (shouldInsertYtd && rule.position !== "beginning") {
+      if (shouldInsertYtd && !ytdGroup && rule.position !== "beginning") {
         baseResult.push(makeYtdGridColumn(col, colIndex, m));
       }
     }
@@ -364,6 +375,11 @@ export function buildGridColumns(
       }
     }
     baseResult = sorted;
+  }
+
+  // Grouped YTD blocks go after any manual column order so they stay at the matrix edges.
+  if (groupedYtdStart.length > 0 || groupedYtdEnd.length > 0) {
+    baseResult = [...groupedYtdStart, ...baseResult, ...groupedYtdEnd];
   }
 
   let finalResult = baseResult;

@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState, useMemo, useEffect } from "react";
+import React, { useCallback, useRef, useState, useMemo, useEffect, useLayoutEffect } from "react";
 import powerbi from "powerbi-visuals-api";
 import { FlattenedNode } from "../model/tree";
 import { CellValue, MeasureInfo, getCellValue } from "../model/pivot";
@@ -174,6 +174,17 @@ export const Matrix: React.FC<MatrixProps> = ({
 
 
 
+  // Which element last moved the horizontal position. The body and the companion scrollbar mirror
+  // each other; without this, the lagging echo of one write overrides the other mid-animation
+  // (a click on the scrollbar track would spring back).
+  const hScrollSourceRef = useRef<"body" | "bar" | null>(null);
+  const hScrollSourceTimerRef = useRef<number>(0);
+  const claimHScroll = useCallback((source: "body" | "bar") => {
+    hScrollSourceRef.current = source;
+    window.clearTimeout(hScrollSourceTimerRef.current);
+    hScrollSourceTimerRef.current = window.setTimeout(() => { hScrollSourceRef.current = null; }, 160);
+  }, []);
+  useEffect(() => () => window.clearTimeout(hScrollSourceTimerRef.current), []);
   const [scrollTop, setScrollTop] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
 
@@ -520,9 +531,8 @@ export const Matrix: React.FC<MatrixProps> = ({
 
   // Compute row height based on density setting
   const densityRowHeight = useMemo(() => {
-    if (settings.theme.density === "compact") {
-      return 24;
-    }
+    if (settings.theme.density === "compact") return 24;
+    if (settings.theme.density === "spacious") return 40;
     return 32; // comfortable
   }, [settings.theme.density]);
 
@@ -598,12 +608,16 @@ export const Matrix: React.FC<MatrixProps> = ({
   );
 
   // Column header height based on merged header rows (hierarchy levels + measure row)
-  const columnHeaderHeight = useMemo(() => {
+  const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState(0);
+  const baseColumnHeaderHeight = useMemo(() => {
     if (measures.length === 0) return 0;
     const arrangement = ((settings.general as any).columnArrangement ?? "time-then-measure") as ColumnArrangement;
     const headerRows = buildMergedHeaders(columns, measures, arrangement, sortConfig, gridColumns);
     return headerRows.length * 28;
   }, [columns, measures, settings.general, sortConfig, gridColumns]);
+  // Header labels wrap onto extra lines, so the fixed per-level height can cut them off;
+  // never go below what the rendered rows actually need.
+  const columnHeaderHeight = baseColumnHeaderHeight === 0 ? 0 : Math.max(baseColumnHeaderHeight, measuredHeaderHeight);
 
   const colWidths = useMemo(() => {
     try {
@@ -1156,22 +1170,29 @@ export const Matrix: React.FC<MatrixProps> = ({
     const roundedTop = Math.round(scrollTop);
     const roundedLeft = Math.round(scrollLeft);
     setScrollTop(roundedTop);
-    setScrollLeft(roundedLeft);
-    if (horizontalScrollRef.current && horizontalScrollRef.current.scrollLeft !== roundedLeft) {
-      horizontalScrollRef.current.scrollLeft = roundedLeft;
+    // Ignore the body's echo of a position the scrollbar just set.
+    if (hScrollSourceRef.current !== "bar") {
+      setScrollLeft(roundedLeft);
+      if (horizontalScrollRef.current && horizontalScrollRef.current.scrollLeft !== roundedLeft) {
+        claimHScroll("body");
+        horizontalScrollRef.current.scrollLeft = roundedLeft;
+      }
     }
 
     scrollManagerRef.current?.handleScroll(scrollTop, scrollLeft);
-  }, []);
+  }, [claimHScroll]);
 
   const handleHorizontalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    // Ignore the scrollbar's echo of a position the body just set.
+    if (hScrollSourceRef.current === "body") return;
     const nextScrollLeft = e.currentTarget.scrollLeft;
     const container = scrollContainerRef.current;
     if (container && container.scrollLeft !== nextScrollLeft) {
+      claimHScroll("bar");
       container.scrollLeft = nextScrollLeft;
     }
     setScrollLeft(nextScrollLeft);
-  }, []);
+  }, [claimHScroll]);
 
   const setSyncedScrollLeft = useCallback((nextScrollLeft: number) => {
     const maxScrollLeft = Math.max(0, totalContentWidth - viewportWidth);
@@ -1357,6 +1378,23 @@ export const Matrix: React.FC<MatrixProps> = ({
   const totalContentHeight = rowContentHeight + SCROLL_BUFFER_BOTTOM;
   const hasVScroll = totalContentHeight > viewportHeight;
   const hasHScroll = totalContentWidth > viewportWidth;
+
+  const headerAreaRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const root = headerAreaRef.current;
+    if (!root) return;
+    let natural = 0;
+    root.querySelectorAll<HTMLElement>(".merged-header-row").forEach(row => { natural += row.offsetHeight; });
+    setMeasuredHeaderHeight(prev => (prev === natural ? prev : natural));
+  });
+
+  // The body's vertical scrollbar eats into its width, so it can scroll that much further than the
+  // companion bar unless the bar's range includes it (otherwise the last columns are unreachable).
+  const [vScrollbarPx, setVScrollbarPx] = useState(0);
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current;
+    if (el) setVScrollbarPx(Math.max(0, el.offsetWidth - el.clientWidth));
+  }, [hasVScroll, width, height]);
 
 
   useEffect(() => {
@@ -1671,7 +1709,7 @@ export const Matrix: React.FC<MatrixProps> = ({
           />
         </div>
       )}
-      <div className="matrix-header-area" style={{ height: columnHeaderHeight, position: "relative", zIndex: 1, background: shellStrongBackground }}>
+      <div ref={headerAreaRef} className="matrix-header-area" style={{ height: columnHeaderHeight, position: "relative", zIndex: 1, background: shellStrongBackground }}>
         <div
           className="matrix-col-headers"
           style={{ height: columnHeaderHeight }}
@@ -1909,7 +1947,7 @@ export const Matrix: React.FC<MatrixProps> = ({
           >
             <div
               className="matrix-horizontal-scrollbar-content"
-              style={{ width: Math.max(totalContentWidth, viewportWidth), height: 1 }}
+              style={{ width: Math.max(totalContentWidth, viewportWidth) + vScrollbarPx, height: 1 }}
             />
           </div>
         </div>
