@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
+import { VisualPortal } from "./overlayKit";
+import { IconBars, IconCheck, IconChevronRight, IconPlus, IconSettings } from "./icons";
 
 // ---------- public API ----------
 
@@ -60,47 +61,6 @@ export const CF_ACTION_IDS = {
   MANAGE_RULES: "manage-rules",
 } as const;
 
-// ---------- shared inline styles ----------
-
-const COLORS = {
-  text: "#111827",
-  textMuted: "#6b7280",
-  textLabel: "#9ca3af",
-  border: "#e5e7eb",
-  hover: "#f3f4f6",
-  surface: "#ffffff",
-  accent: "#2563eb",
-};
-
-const panelStyle: React.CSSProperties = {
-  background: COLORS.surface,
-  border: `1px solid ${COLORS.border}`,
-  borderRadius: 8,
-  boxShadow: "0 12px 32px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.06)",
-  padding: 6,
-  fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  fontSize: 13,
-  color: COLORS.text,
-  minWidth: 220,
-};
-
-const rowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  padding: "8px 10px",
-  borderRadius: 6,
-  cursor: "pointer",
-  userSelect: "none",
-};
-
-const sectionHeaderStyle: React.CSSProperties = {
-  fontSize: 13,
-  fontWeight: 600,
-  color: COLORS.text,
-  padding: "8px 10px 4px",
-};
-
 // ---------- main menu row ----------
 
 interface MainRow {
@@ -111,33 +71,35 @@ interface MainRow {
   action?: string;
 }
 
-// ---------- tiny inline thumbnail components ----------
+// ---------- previews (the colors here are the formats being offered) ----------
 
-const QuickThumb: React.FC<{ kind: "pos" | "neg" }> = ({ kind }) => (
-  <div
-    style={{
-      width: 36, height: 36, border: `2px solid ${kind === "pos" ? "#2563eb" : "#dc2626"}`,
-      borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: 18, fontWeight: 800, color: kind === "pos" ? "#2563eb" : "#dc2626",
-      background: "#fff",
-    }}
-  >
-    {kind === "pos" ? ">" : "<"}
-  </div>
-);
+const QuickThumb: React.FC<{ kind: "pos" | "neg" }> = ({ kind }) => {
+  const color = kind === "pos" ? "#2563eb" : "#dc2626";
+  return (
+    <span
+      style={{
+        width: 20, height: 20, border: `1.5px solid ${color}`, borderRadius: 4,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        fontSize: 12, fontWeight: 700, color,
+      }}
+    >
+      {kind === "pos" ? ">" : "<"}
+    </span>
+  );
+};
 
 const BarStrip: React.FC<{ colors: string[] }> = ({ colors }) => (
-  <div style={{ display: "flex", width: 180, height: 16, borderRadius: 3, overflow: "hidden", border: "1px solid rgba(0,0,0,0.05)" }}>
+  <span style={{ display: "flex", width: 168, height: 14, borderRadius: 3, overflow: "hidden" }}>
     {colors.map((c, i) => (
-      <div key={i} style={{ flex: 1, background: c }} />
+      <span key={i} style={{ flex: 1, background: c }} />
     ))}
-  </div>
+  </span>
 );
 
 const GradientStrip: React.FC<{ from: string; to: string; via?: string }> = ({ from, to, via }) => (
-  <div
+  <span
     style={{
-      width: 180, height: 16, borderRadius: 3, border: "1px solid rgba(0,0,0,0.05)",
+      display: "block", width: 168, height: 14, borderRadius: 3,
       background: via
         ? `linear-gradient(90deg, ${from}, ${via}, ${to})`
         : `linear-gradient(90deg, ${from}, ${to})`,
@@ -146,61 +108,58 @@ const GradientStrip: React.FC<{ from: string; to: string; via?: string }> = ({ f
 );
 
 const SolidBar: React.FC<{ color: string }> = ({ color }) => (
-  <div style={{ width: 160, height: 14, borderRadius: 2, background: color }} />
+  <span style={{ display: "block", width: 150, height: 12, borderRadius: 2, background: color }} />
 );
 
-// Tiny icon row renderers for Classification submenu
 const TextPreview: React.FC<{ tokens: { text: string; color: string }[] }> = ({ tokens }) => (
-  <div style={{ display: "flex", gap: 10, padding: "2px 0" }}>
+  <span style={{ display: "flex", gap: 10 }}>
     {tokens.map((t, i) => (
-      <span key={i} style={{ color: t.color, fontWeight: 700, fontSize: 14 }}>{t.text}</span>
+      <span key={i} style={{ color: t.color, fontWeight: 700, fontSize: 12 }}>{t.text}</span>
     ))}
-  </div>
+  </span>
 );
 
 const IconRow: React.FC<{ items: React.ReactNode[] }> = ({ items }) => (
-  <div style={{ display: "flex", gap: 12, alignItems: "center", padding: "4px 0" }}>
-    {items.map((el, i) => <span key={i}>{el}</span>)}
-  </div>
+  <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
+    {items.map((el, i) => <span key={i} style={{ display: "inline-flex" }}>{el}</span>)}
+  </span>
 );
 
-const Check = ({ color }: { color: string }) => <span style={{ color, fontSize: 16, fontWeight: 700 }}>✓</span>;
-const Excl = ({ color }: { color: string }) => <span style={{ color, fontSize: 16, fontWeight: 700 }}>!</span>;
-const Cross = ({ color }: { color: string }) => <span style={{ color, fontSize: 16, fontWeight: 700 }}>✕</span>;
-const Flag = ({ color }: { color: string }) => <span style={{ color, fontSize: 16 }}>⚑</span>;
-const ArrowUp = ({ color }: { color: string }) => <span style={{ color, fontSize: 16 }}>↑</span>;
-const ArrowRight = ({ color }: { color: string }) => <span style={{ color, fontSize: 16 }}>→</span>;
-const ArrowDown = ({ color }: { color: string }) => <span style={{ color, fontSize: 16 }}>↓</span>;
-const ArrowUR = ({ color }: { color: string }) => <span style={{ color, fontSize: 16 }}>↗</span>;
-const ArrowDR = ({ color }: { color: string }) => <span style={{ color, fontSize: 16 }}>↘</span>;
+const Glyph: React.FC<{ color: string; bold?: boolean; children: React.ReactNode }> = ({ color, bold, children }) => (
+  <span style={{ color, fontSize: 14, lineHeight: 1, fontWeight: bold ? 700 : 400 }}>{children}</span>
+);
+const Check = ({ color }: { color: string }) => <Glyph color={color} bold>✓</Glyph>;
+const Excl = ({ color }: { color: string }) => <Glyph color={color} bold>!</Glyph>;
+const Cross = ({ color }: { color: string }) => <Glyph color={color} bold>✕</Glyph>;
+const Flag = ({ color }: { color: string }) => <Glyph color={color}>⚑</Glyph>;
+const ArrowUp = ({ color }: { color: string }) => <Glyph color={color}>↑</Glyph>;
+const ArrowRight = ({ color }: { color: string }) => <Glyph color={color}>→</Glyph>;
+const ArrowDown = ({ color }: { color: string }) => <Glyph color={color}>↓</Glyph>;
+const ArrowUR = ({ color }: { color: string }) => <Glyph color={color}>↗</Glyph>;
+const ArrowDR = ({ color }: { color: string }) => <Glyph color={color}>↘</Glyph>;
 
-const RatingSquare: React.FC<{ filled: number }> = ({ filled }) => {
-  // filled: 0..1
-  const bg = filled >= 0.999 ? "#111827" : filled <= 0 ? "transparent" : undefined;
-  return (
-    <span style={{ display: "inline-block", width: 16, height: 16, border: "1.5px solid #111827", background: bg, position: "relative", overflow: "hidden" }}>
-      {filled > 0 && filled < 1 && (
-        <span style={{ position: "absolute", inset: 0, background: "#111827", width: `${filled * 100}%` }} />
-      )}
-    </span>
-  );
-};
+// Rating glyphs are monochrome: they follow the text color.
+const RatingSquare: React.FC<{ filled: number }> = ({ filled }) => (
+  <span style={{
+    display: "inline-block", width: 13, height: 13, border: "1.5px solid currentColor",
+    background: filled >= 0.999 ? "currentColor" : "transparent",
+  }} />
+);
 const RatingStar: React.FC<{ filled: boolean }> = ({ filled }) => (
-  <span style={{ fontSize: 16, color: "#111827" }}>{filled ? "★" : "☆"}</span>
+  <span style={{ fontSize: 14, lineHeight: 1 }}>{filled ? "★" : "☆"}</span>
 );
 const RatingCircle: React.FC<{ filled: number }> = ({ filled }) => {
-  // Quarter-filled pie via conic-gradient
   const angle = Math.round(filled * 360);
   return (
     <span
       style={{
-        display: "inline-block", width: 14, height: 14, borderRadius: "50%",
-        border: "1.5px solid #111827",
+        display: "inline-block", width: 13, height: 13, borderRadius: "50%",
+        border: "1.5px solid currentColor",
         background: filled >= 0.999
-          ? "#111827"
+          ? "currentColor"
           : filled <= 0
             ? "transparent"
-            : `conic-gradient(#111827 0deg ${angle}deg, transparent ${angle}deg 360deg)`,
+            : `conic-gradient(currentColor 0deg ${angle}deg, transparent ${angle}deg 360deg)`,
       }}
     />
   );
@@ -208,147 +167,144 @@ const RatingCircle: React.FC<{ filled: number }> = ({ filled }) => {
 
 // ---------- submenu renderers ----------
 
+const Heading: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="mx-popover-heading">{children}</div>
+);
+
 const QuickRuleSubmenu: React.FC<{ onSelect: (id: string) => void }> = ({ onSelect }) => (
-  <div style={{ ...panelStyle, minWidth: 180, padding: 8 }}>
+  <>
     <SubRow icon={<QuickThumb kind="pos" />} label="Positive" onClick={() => onSelect(CF_ACTION_IDS.QUICK_POSITIVE)} />
     <SubRow icon={<QuickThumb kind="neg" />} label="Negative" onClick={() => onSelect(CF_ACTION_IDS.QUICK_NEGATIVE)} />
-  </div>
+  </>
 );
 
 const ColorScalesSubmenu: React.FC<{ onSelect: (id: string) => void }> = ({ onSelect }) => (
-  <div style={{ ...panelStyle, minWidth: 240, padding: 10 }}>
-    <div style={sectionHeaderStyle}>Sequential</div>
-    <SubRow icon={<BarStrip colors={["#dbeafe", "#93c5fd", "#60a5fa", "#3b82f6", "#1d4ed8"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_SEQ_BLUE)} />
-    <SubRow icon={<BarStrip colors={["#ffedd5", "#fdba74", "#fb923c", "#ea580c", "#9a3412"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_SEQ_ORANGE)} />
-    <SubRow icon={<BarStrip colors={["#dcfce7", "#86efac", "#4ade80", "#16a34a", "#14532d"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_SEQ_GREEN)} />
+  <>
+    <Heading>Sequential</Heading>
+    <SubRow title="Sequential blue" icon={<BarStrip colors={["#dbeafe", "#93c5fd", "#60a5fa", "#3b82f6", "#1d4ed8"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_SEQ_BLUE)} />
+    <SubRow title="Sequential orange" icon={<BarStrip colors={["#ffedd5", "#fdba74", "#fb923c", "#ea580c", "#9a3412"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_SEQ_ORANGE)} />
+    <SubRow title="Sequential green" icon={<BarStrip colors={["#dcfce7", "#86efac", "#4ade80", "#16a34a", "#14532d"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_SEQ_GREEN)} />
 
-    <div style={sectionHeaderStyle}>Qualitative</div>
-    <SubRow icon={<BarStrip colors={["#10b981", "#7c3aed", "#ef4444", "#eab308", "#3b82f6", "#6b7280"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_QUAL_COOL)} />
-    <SubRow icon={<BarStrip colors={["#93c5fd", "#86efac", "#fdba74", "#c4b5fd", "#fca5a5", "#a8a29e"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_QUAL_EARTH)} />
+    <Heading>Qualitative</Heading>
+    <SubRow title="Qualitative cool" icon={<BarStrip colors={["#10b981", "#7c3aed", "#ef4444", "#eab308", "#3b82f6", "#6b7280"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_QUAL_COOL)} />
+    <SubRow title="Qualitative earth" icon={<BarStrip colors={["#93c5fd", "#86efac", "#fdba74", "#c4b5fd", "#fca5a5", "#a8a29e"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_QUAL_EARTH)} />
 
-    <div style={sectionHeaderStyle}>Diverging</div>
-    <SubRow icon={<BarStrip colors={["#b91c1c", "#f87171", "#fef3c7", "#86efac", "#166534"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_DIV_RWG)} />
-    <SubRow icon={<BarStrip colors={["#b91c1c", "#fca5a5", "#fef9c3", "#bae6fd", "#1d4ed8"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_DIV_RWB)} />
-    <SubRow icon={<BarStrip colors={["#854d0e", "#d97706", "#ecfeff", "#22d3ee", "#0e7490"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_DIV_BYG)} />
+    <Heading>Diverging</Heading>
+    <SubRow title="Red, white, green" icon={<BarStrip colors={["#b91c1c", "#f87171", "#fef3c7", "#86efac", "#166534"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_DIV_RWG)} />
+    <SubRow title="Red, white, blue" icon={<BarStrip colors={["#b91c1c", "#fca5a5", "#fef9c3", "#bae6fd", "#1d4ed8"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_DIV_RWB)} />
+    <SubRow title="Brown, cyan, teal" icon={<BarStrip colors={["#854d0e", "#d97706", "#ecfeff", "#22d3ee", "#0e7490"]} />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_DIV_BYG)} />
 
-    <div style={sectionHeaderStyle}>Continuous</div>
-    <SubRow icon={<GradientStrip from="#f97316" to="#be123c" />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_CONT_WARM)} />
+    <Heading>Continuous</Heading>
+    <SubRow title="Continuous warm" icon={<GradientStrip from="#f97316" to="#be123c" />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_CONT_WARM)} />
 
-    <div style={sectionHeaderStyle}>Continuous — Diverging</div>
-    <SubRow icon={<GradientStrip from="#ef4444" via="#ffffff" to="#6366f1" />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_CONT_DIV)} />
-  </div>
+    <Heading>Continuous diverging</Heading>
+    <SubRow title="Continuous diverging" icon={<GradientStrip from="#ef4444" via="#ffffff" to="#6366f1" />} onClick={() => onSelect(CF_ACTION_IDS.SCALE_CONT_DIV)} />
+  </>
 );
 
 const ClassificationSubmenu: React.FC<{ onSelect: (id: string) => void }> = ({ onSelect }) => (
-  <div style={{ ...panelStyle, minWidth: 240, padding: 10 }}>
-    <div style={sectionHeaderStyle}>Text</div>
+  <>
+    <Heading>Text</Heading>
     <SubRow
+      title="A, B, C"
       icon={<TextPreview tokens={[{ text: "A", color: "#16a34a" }, { text: "B", color: "#f97316" }, { text: "C", color: "#dc2626" }]} />}
       onClick={() => onSelect(CF_ACTION_IDS.CLASS_TEXT_ABC)}
     />
     <SubRow
+      title="High, medium, low"
       icon={<TextPreview tokens={[{ text: "HIGH", color: "#16a34a" }, { text: "MEDIUM", color: "#f97316" }, { text: "LOW", color: "#dc2626" }]} />}
       onClick={() => onSelect(CF_ACTION_IDS.CLASS_TEXT_LEVELS)}
     />
 
-    <div style={sectionHeaderStyle}>Icon Set</div>
-    <SubRow icon={<IconRow items={[<Check color="#16a34a" />, <Excl color="#f97316" />, <Cross color="#dc2626" />]} />}
+    <Heading>Icon set</Heading>
+    <SubRow title="Check, warning, cross" icon={<IconRow items={[<Check color="#16a34a" />, <Excl color="#f97316" />, <Cross color="#dc2626" />]} />}
       onClick={() => onSelect(CF_ACTION_IDS.CLASS_ICON_CHECK)} />
-    <SubRow icon={<IconRow items={[<Flag color="#dc2626" />, <Flag color="#f59e0b" />, <Flag color="#16a34a" />]} />}
+    <SubRow title="Flags" icon={<IconRow items={[<Flag color="#dc2626" />, <Flag color="#f59e0b" />, <Flag color="#16a34a" />]} />}
       onClick={() => onSelect(CF_ACTION_IDS.CLASS_ICON_FLAGS)} />
-    <SubRow icon={<IconRow items={[<ArrowUp color="#f59e0b" />, <ArrowRight color="#f59e0b" />, <ArrowDown color="#f59e0b" />]} />}
+    <SubRow title="3 arrows" icon={<IconRow items={[<ArrowUp color="#f59e0b" />, <ArrowRight color="#f59e0b" />, <ArrowDown color="#f59e0b" />]} />}
       onClick={() => onSelect(CF_ACTION_IDS.CLASS_ICON_ARROWS3)} />
-    <SubRow icon={<IconRow items={[<ArrowUp color="#16a34a" />, <ArrowUR color="#16a34a" />, <ArrowRight color="#f59e0b" />, <ArrowDR color="#dc2626" />, <ArrowDown color="#dc2626" />]} />}
+    <SubRow title="5 arrows" icon={<IconRow items={[<ArrowUp color="#16a34a" />, <ArrowUR color="#16a34a" />, <ArrowRight color="#f59e0b" />, <ArrowDR color="#dc2626" />, <ArrowDown color="#dc2626" />]} />}
       onClick={() => onSelect(CF_ACTION_IDS.CLASS_ICON_ARROWS5)} />
 
-    <div style={sectionHeaderStyle}>Rating</div>
-    <SubRow icon={<IconRow items={[<RatingSquare filled={0} />, <RatingSquare filled={1} />]} />}
+    <Heading>Rating</Heading>
+    <SubRow title="Squares" icon={<IconRow items={[<RatingSquare filled={0} />, <RatingSquare filled={1} />]} />}
       onClick={() => onSelect(CF_ACTION_IDS.CLASS_RATING_SQUARES)} />
-    <SubRow icon={<IconRow items={[<RatingStar filled={false} />, <RatingStar filled={true} />, <RatingStar filled={true} />]} />}
+    <SubRow title="Stars" icon={<IconRow items={[<RatingStar filled={false} />, <RatingStar filled={true} />, <RatingStar filled={true} />]} />}
       onClick={() => onSelect(CF_ACTION_IDS.CLASS_RATING_STARS)} />
-    <SubRow icon={<IconRow items={[<RatingCircle filled={0} />, <RatingCircle filled={0.25} />, <RatingCircle filled={0.5} />, <RatingCircle filled={0.75} />, <RatingCircle filled={1} />]} />}
+    <SubRow title="Circles" icon={<IconRow items={[<RatingCircle filled={0} />, <RatingCircle filled={0.25} />, <RatingCircle filled={0.5} />, <RatingCircle filled={0.75} />, <RatingCircle filled={1} />]} />}
       onClick={() => onSelect(CF_ACTION_IDS.CLASS_RATING_CIRCLES)} />
-  </div>
+  </>
 );
 
 const DataBarsSubmenu: React.FC<{ onSelect: (id: string) => void }> = ({ onSelect }) => (
-  <div style={{ ...panelStyle, minWidth: 200, padding: 8 }}>
-    <SubRow icon={<SolidBar color="#3b82f6" />} onClick={() => onSelect(CF_ACTION_IDS.BAR_BLUE)} />
-    <SubRow icon={<SolidBar color="#22c55e" />} onClick={() => onSelect(CF_ACTION_IDS.BAR_GREEN)} />
-    <SubRow icon={<SolidBar color="#fb7185" />} onClick={() => onSelect(CF_ACTION_IDS.BAR_RED)} />
-    <SubRow icon={<SolidBar color="#f59e0b" />} onClick={() => onSelect(CF_ACTION_IDS.BAR_ORANGE)} />
-    <SubRow icon={<SolidBar color="#ec4899" />} onClick={() => onSelect(CF_ACTION_IDS.BAR_PINK)} />
-  </div>
+  <>
+    <SubRow title="Blue bars" icon={<SolidBar color="#3b82f6" />} onClick={() => onSelect(CF_ACTION_IDS.BAR_BLUE)} />
+    <SubRow title="Green bars" icon={<SolidBar color="#22c55e" />} onClick={() => onSelect(CF_ACTION_IDS.BAR_GREEN)} />
+    <SubRow title="Red bars" icon={<SolidBar color="#fb7185" />} onClick={() => onSelect(CF_ACTION_IDS.BAR_RED)} />
+    <SubRow title="Orange bars" icon={<SolidBar color="#f59e0b" />} onClick={() => onSelect(CF_ACTION_IDS.BAR_ORANGE)} />
+    <SubRow title="Pink bars" icon={<SolidBar color="#ec4899" />} onClick={() => onSelect(CF_ACTION_IDS.BAR_PINK)} />
+  </>
 );
 
 const ActionAnalysisSubmenu: React.FC<{ onSelect: (id: string) => void }> = ({ onSelect }) => (
-  <div style={{ ...panelStyle, minWidth: 220, padding: 6 }}>
+  <>
     <SubRow
-      icon={<span style={{ display: "inline-block", width: 18, height: 18, background: "#3b82f6", borderRadius: "50%" }} />}
-      label="Action Dot"
+      icon={<span style={{ display: "inline-block", width: 12, height: 12, background: "#3b82f6", borderRadius: "50%" }} />}
+      label="Action dot"
       onClick={() => onSelect(CF_ACTION_IDS.ACTION_DOT)}
     />
     <SubRow
-      icon={<span style={{ display: "inline-block", width: 18, height: 18, background: "linear-gradient(135deg,#22c55e,#eab308,#dc2626)", borderRadius: 3 }} />}
-      label="Action Color"
+      icon={<span style={{ display: "inline-block", width: 14, height: 14, background: "linear-gradient(135deg,#22c55e,#eab308,#dc2626)", borderRadius: 3 }} />}
+      label="Action color"
       onClick={() => onSelect(CF_ACTION_IDS.ACTION_COLOR)}
     />
     <SubRow
-      icon={<span style={{ display: "inline-block", width: 18, height: 18, background: "radial-gradient(circle, #3b82f6 50%, transparent 52%)" }} />}
-      label="Bubble Chart"
+      icon={<span style={{ display: "inline-block", width: 14, height: 14, background: "radial-gradient(circle, #3b82f6 50%, transparent 52%)" }} />}
+      label="Bubble chart"
       onClick={() => onSelect(CF_ACTION_IDS.ACTION_BUBBLE_CHART)}
     />
     <SubRow
-      icon={<span style={{ display: "inline-block", width: 14, height: 14, background: "#3b82f6", borderRadius: "50%" }} />}
-      label="Bubble Only"
+      icon={<span style={{ display: "inline-block", width: 10, height: 10, background: "#3b82f6", borderRadius: "50%" }} />}
+      label="Bubble only"
       onClick={() => onSelect(CF_ACTION_IDS.ACTION_BUBBLE_ONLY)}
     />
-  </div>
+  </>
 );
 
 // ---------- sub-row primitive ----------
 
-const SubRow: React.FC<{ icon: React.ReactNode; label?: string; onClick: () => void }> = ({ icon, label, onClick }) => {
-  const [hover, setHover] = useState(false);
-  return (
-    <div
-      style={{ ...rowStyle, background: hover ? COLORS.hover : "transparent" }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onClick={onClick}
-    >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", minWidth: 36 }}>{icon}</div>
-      {label && <div style={{ flex: 1, fontSize: 13 }}>{label}</div>}
-    </div>
-  );
-};
+const SubRow: React.FC<{ icon: React.ReactNode; label?: string; title?: string; onClick: () => void }> = ({ icon, label, title, onClick }) => (
+  <button
+    type="button"
+    className="mx-popover-item"
+    title={title}
+    aria-label={label ? undefined : title}
+    onClick={onClick}
+  >
+    {label ? (
+      <>
+        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 20, flexShrink: 0 }}>{icon}</span>
+        <span className="mx-popover-label">{label}</span>
+      </>
+    ) : (
+      <span style={{ display: "inline-flex", alignItems: "center" }}>{icon}</span>
+    )}
+  </button>
+);
 
-// ---------- submenu portal wrapper ----------
+// ---------- main menu icons ----------
 
-interface SubmenuPortalProps {
-  anchor: DOMRect;
-  estimatedWidth: number;
-  children: React.ReactNode;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
-}
+const ColorScaleSwatch: React.FC = () => (
+  <span style={{ display: "block", width: 14, height: 10, borderRadius: 2, background: "linear-gradient(90deg,#dc2626,#fde68a,#16a34a)" }} />
+);
 
-const SubmenuPortal: React.FC<SubmenuPortalProps> = ({ anchor, estimatedWidth, children, onMouseEnter, onMouseLeave }) => {
-  const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1920;
-  const spaceRight = viewportWidth - anchor.right;
-  const left = spaceRight >= estimatedWidth + 8 ? anchor.right + 4 : Math.max(8, anchor.left - estimatedWidth - 4);
+const QuickGlyph: React.FC = () => (
+  <span style={{ fontSize: 13, fontWeight: 600, lineHeight: 1 }}>&gt;</span>
+);
 
-  return createPortal(
-    <div
-      style={{ position: "fixed", top: Math.max(8, anchor.top - 4), left, zIndex: 100001 }}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
-      {children}
-    </div>,
-    document.body
-  );
-};
+const DotGlyph: React.FC = () => (
+  <span style={{ display: "block", width: 8, height: 8, borderRadius: "50%", background: "currentColor" }} />
+);
 
 // ---------- main dropdown ----------
 
@@ -359,7 +315,7 @@ export const ConditionalFormattingDropdown: React.FC<ConditionalFormattingDropdo
   const [active, setActive] = useState<{ id: string; rect: DOMRect } | null>(null);
   const hoverTimeoutRef = useRef<number | null>(null);
 
-  // Close when clicking outside both main and submenu portals
+  // Close when clicking outside both main and submenu
   useEffect(() => {
     const onDocMouseDown = (e: MouseEvent) => {
       const target = e.target as Node;
@@ -398,32 +354,32 @@ export const ConditionalFormattingDropdown: React.FC<ConditionalFormattingDropdo
   const rows: MainRow[] = [
     {
       id: "quick-rule",
-      label: "Quick Rule",
-      icon: <MainIcon bg="#eff6ff" content={<span style={{ color: "#2563eb", fontWeight: 700 }}>⧉</span>} />,
+      label: "Quick rule",
+      icon: <QuickGlyph />,
       submenu: () => <QuickRuleSubmenu onSelect={emit} />,
     },
     {
       id: "color-scales",
-      label: "Color Scales",
-      icon: <ColorScalesMainIcon />,
+      label: "Color scales",
+      icon: <ColorScaleSwatch />,
       submenu: () => <ColorScalesSubmenu onSelect={emit} />,
     },
     {
       id: "classification",
       label: "Classification",
-      icon: <MainIcon bg="#f9fafb" content={<ClassificationMainGlyph />} />,
+      icon: <IconCheck size={14} />,
       submenu: () => <ClassificationSubmenu onSelect={emit} />,
     },
     {
       id: "data-bars",
-      label: "Data Bars",
-      icon: <DataBarsMainIcon />,
+      label: "Data bars",
+      icon: <IconBars size={14} />,
       submenu: () => <DataBarsSubmenu onSelect={emit} />,
     },
     {
       id: "action-analysis",
-      label: "Action Analysis",
-      icon: <MainIcon bg="#f3f4f6" content={<ActionAnalysisGlyph />} />,
+      label: "Action analysis",
+      icon: <DotGlyph />,
       submenu: () => <ActionAnalysisSubmenu onSelect={emit} />,
     },
   ];
@@ -431,14 +387,14 @@ export const ConditionalFormattingDropdown: React.FC<ConditionalFormattingDropdo
   const bottomRows: MainRow[] = [
     {
       id: "create-rule",
-      label: "Create Rule",
-      icon: <MainIcon bg="#eff6ff" content={<span style={{ color: "#2563eb", fontWeight: 700, fontSize: 14 }}>＋</span>} />,
+      label: "New rule…",
+      icon: <IconPlus size={14} />,
       action: CF_ACTION_IDS.CREATE_RULE,
     },
     {
       id: "manage-rules",
-      label: "Manage Rules",
-      icon: <MainIcon bg="#f3f4f6" content={<span style={{ color: "#374151", fontWeight: 700, fontSize: 14 }}>⚙</span>} />,
+      label: "Manage rules…",
+      icon: <IconSettings size={14} />,
       action: CF_ACTION_IDS.MANAGE_RULES,
     },
   ];
@@ -446,53 +402,58 @@ export const ConditionalFormattingDropdown: React.FC<ConditionalFormattingDropdo
   const viewportW = typeof window !== "undefined" ? window.innerWidth : 1920;
   const menuLeft = Math.min(anchor.left, viewportW - 260);
 
-  return createPortal(
-    <div
-      ref={mainRef}
-      style={{
-        ...panelStyle,
-        position: "fixed",
-        top: anchor.bottom + 4,
-        left: Math.max(8, menuLeft),
-        zIndex: 100000,
-        minWidth: 240,
-      }}
-    >
-      {rows.map((r) => (
-        <MainRowView
-          key={r.id}
-          row={r}
-          isActive={active?.id === r.id}
-          onEnter={(target) => openSub(r.id, target)}
-          onLeave={scheduleCloseSub}
-        />
-      ))}
-      <div style={{ height: 1, background: COLORS.border, margin: "6px 4px" }} />
-      {bottomRows.map((r) => (
-        <MainRowView
-          key={r.id}
-          row={r}
-          isActive={false}
-          onEnter={() => setActive(null)}
-          onLeave={() => {}}
-          onClick={() => r.action && (onSelect(r.action), onClose())}
-        />
-      ))}
+  // Submenu placement: to the right of the hovered row, or flipped left when it won't fit.
+  const submenuWidth = 280;
+  const subLeft = active
+    ? (viewportW - active.rect.right >= submenuWidth + 8
+      ? active.rect.right + 4
+      : Math.max(8, active.rect.left - submenuWidth - 4))
+    : 0;
+
+  return (
+    <VisualPortal>
+      <div
+        ref={mainRef}
+        className="mx-popover"
+        role="menu"
+        aria-label="Conditional formatting"
+        style={{ top: anchor.bottom + 4, left: Math.max(8, menuLeft), minWidth: 220 }}
+      >
+        {rows.map((r) => (
+          <MainRowView
+            key={r.id}
+            row={r}
+            isActive={active?.id === r.id}
+            onEnter={(target) => openSub(r.id, target)}
+            onLeave={scheduleCloseSub}
+          />
+        ))}
+        <div className="mx-popover-sep" />
+        {bottomRows.map((r) => (
+          <MainRowView
+            key={r.id}
+            row={r}
+            isActive={false}
+            onEnter={() => setActive(null)}
+            onLeave={() => {}}
+            onClick={() => r.action && (onSelect(r.action), onClose())}
+          />
+        ))}
+      </div>
 
       {active && (
-        <SubmenuPortal
-          anchor={active.rect}
-          estimatedWidth={280}
+        <div
+          data-cf-submenu="true"
+          className="mx-popover"
+          role="menu"
+          style={{ top: Math.max(8, active.rect.top - 6), left: subLeft, zIndex: 100001, minWidth: 180 }}
           onMouseEnter={cancelScheduledClose}
           onMouseLeave={scheduleCloseSub}
         >
-          <div data-cf-submenu="true">
-            {rows.find(r => r.id === active.id)?.submenu?.(onClose, emit)}
-          </div>
-        </SubmenuPortal>
+          {rows.find(r => r.id === active.id)?.submenu?.(onClose, emit)}
+        </div>
       )}
-    </div>,
-    document.body
+    </VisualPortal>
   );
 };
 
@@ -505,88 +466,27 @@ const MainRowView: React.FC<{
   onLeave: () => void;
   onClick?: () => void;
 }> = ({ row, isActive, onEnter, onLeave, onClick }) => {
-  const ref = useRef<HTMLDivElement>(null);
-  const [hover, setHover] = useState(false);
+  const ref = useRef<HTMLButtonElement>(null);
   return (
-    <div
+    <button
       ref={ref}
-      style={{
-        ...rowStyle,
-        background: isActive || hover ? COLORS.hover : "transparent",
-      }}
-      onMouseEnter={() => { setHover(true); if (ref.current) onEnter(ref.current); }}
-      onMouseLeave={() => { setHover(false); onLeave(); }}
+      type="button"
+      role="menuitem"
+      aria-haspopup={row.submenu ? "menu" : undefined}
+      aria-expanded={row.submenu ? isActive : undefined}
+      className={`mx-popover-item${isActive ? " is-active" : ""}`}
+      onMouseEnter={() => { if (ref.current) onEnter(ref.current); }}
+      onMouseLeave={onLeave}
       onClick={() => {
         if (onClick) onClick();
         else if (ref.current) onEnter(ref.current);
       }}
     >
-      <div style={{ width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {row.icon}
-      </div>
-      <div style={{ flex: 1, fontSize: 14, fontWeight: 400 }}>{row.label}</div>
+      <span className="mx-popover-icon">{row.icon}</span>
+      <span className="mx-popover-label">{row.label}</span>
       {row.submenu && (
-        <div style={{ color: COLORS.textMuted, fontSize: 12, paddingLeft: 6 }}>▸</div>
+        <span className="mx-popover-hint" style={{ display: "inline-flex" }}><IconChevronRight size={12} /></span>
       )}
-    </div>
+    </button>
   );
 };
-
-// ---------- main menu icons (left-side thumbnails) ----------
-
-const MainIcon: React.FC<{ bg: string; content: React.ReactNode }> = ({ bg, content }) => (
-  <div style={{
-    width: 28, height: 28, borderRadius: 6, background: bg, border: "1px solid rgba(0,0,0,0.06)",
-    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16,
-  }}>
-    {content}
-  </div>
-);
-
-const ColorScalesMainIcon: React.FC = () => (
-  <div style={{
-    width: 28, height: 28, borderRadius: 6, overflow: "hidden", border: "1px solid rgba(0,0,0,0.06)",
-    display: "flex", flexDirection: "column",
-  }}>
-    <div style={{ flex: 1, background: "linear-gradient(90deg,#dc2626,#fca5a5)" }} />
-    <div style={{ flex: 1, background: "linear-gradient(90deg,#fef3c7,#fde68a)" }} />
-    <div style={{ flex: 1, background: "linear-gradient(90deg,#86efac,#16a34a)" }} />
-  </div>
-);
-
-const ClassificationMainGlyph: React.FC = () => (
-  <div style={{
-    width: 20, height: 20,
-    display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 1,
-  }}>
-    {[0, 1, 2, 3].map(i => (
-      <div key={i} style={{ background: "#6b7280", borderRadius: 1 }} />
-    ))}
-  </div>
-);
-
-const DataBarsMainIcon: React.FC = () => (
-  <div style={{
-    width: 28, height: 28, borderRadius: 6, border: "1px solid rgba(0,0,0,0.06)",
-    padding: 4, display: "flex", flexDirection: "column", gap: 2, background: "#fff",
-  }}>
-    <div style={{ height: 3, width: "40%", background: "#3b82f6" }} />
-    <div style={{ height: 3, width: "70%", background: "#3b82f6" }} />
-    <div style={{ height: 3, width: "55%", background: "#3b82f6" }} />
-    <div style={{ height: 3, width: "85%", background: "#3b82f6" }} />
-  </div>
-);
-
-const ActionAnalysisGlyph: React.FC = () => (
-  <svg width={20} height={20} viewBox="0 0 20 20">
-    <circle cx={10} cy={10} r={3} fill="#374151" />
-    <circle cx={3} cy={4} r={1.5} fill="#6b7280" />
-    <circle cx={17} cy={4} r={1.5} fill="#6b7280" />
-    <circle cx={3} cy={16} r={1.5} fill="#6b7280" />
-    <circle cx={17} cy={16} r={1.5} fill="#6b7280" />
-    <line x1={10} y1={10} x2={3} y2={4} stroke="#9ca3af" strokeWidth={1} />
-    <line x1={10} y1={10} x2={17} y2={4} stroke="#9ca3af" strokeWidth={1} />
-    <line x1={10} y1={10} x2={3} y2={16} stroke="#9ca3af" strokeWidth={1} />
-    <line x1={10} y1={10} x2={17} y2={16} stroke="#9ca3af" strokeWidth={1} />
-  </svg>
-);

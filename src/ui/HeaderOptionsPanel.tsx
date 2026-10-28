@@ -1,6 +1,7 @@
 import React, { memo, useEffect, useMemo, useState } from "react";
 import { FlattenedNode } from "../model/tree";
 import { HeaderSettings, TitleSettings, VisualSettings } from "../settings/settings";
+import { ColorWell, Field, Overlay, Section, Segmented, Switch } from "./overlayKit";
 
 interface HeaderOptionsPanelProps {
   settings: VisualSettings;
@@ -15,21 +16,21 @@ interface HeaderOptionsPanelProps {
 }
 
 const TITLE_STYLE_OPTIONS: Array<{ value: TitleSettings["stylePreset"]; label: string }> = [
-  { value: "classic", label: "Studio Classic" },
-  { value: "editorial", label: "Editorial Masthead" },
-  { value: "hero", label: "SaaS Hero" },
-  { value: "capsule", label: "Capsule Nav" },
-  { value: "mono", label: "Terminal Mono" },
-  { value: "glow", label: "Aurora Glow" },
-  { value: "product", label: "Product Launch" },
-  { value: "executive", label: "Executive Slate" },
-  { value: "spotlight", label: "Spotlight Deck" },
-  { value: "glass", label: "Glass Console" },
-  { value: "pill", label: "Command Pill" },
-  { value: "dashboard", label: "Metrics Board" },
-  { value: "serif", label: "Serif Luxe" },
-  { value: "banner", label: "Launch Banner" },
-  { value: "minimal", label: "Minimal App" },
+  { value: "classic", label: "Studio classic" },
+  { value: "editorial", label: "Editorial masthead" },
+  { value: "hero", label: "SaaS hero" },
+  { value: "capsule", label: "Capsule nav" },
+  { value: "mono", label: "Terminal mono" },
+  { value: "glow", label: "Aurora glow" },
+  { value: "product", label: "Product launch" },
+  { value: "executive", label: "Executive slate" },
+  { value: "spotlight", label: "Spotlight deck" },
+  { value: "glass", label: "Glass console" },
+  { value: "pill", label: "Command pill" },
+  { value: "dashboard", label: "Metrics board" },
+  { value: "serif", label: "Serif luxe" },
+  { value: "banner", label: "Launch banner" },
+  { value: "minimal", label: "Minimal app" },
 ];
 
 function parseJSON<T>(raw: string, fallback: T): T {
@@ -58,8 +59,7 @@ export const HeaderOptionsPanel: React.FC<HeaderOptionsPanelProps> = memo(({
   const h = settings.headers;
   const a = settings.appearance;
   const compact = visualWidth < 980 || visualHeight < 620;
-  const drawerWidth = Math.max(440, Math.min(760, Math.round(visualWidth * 0.46)));
-  const titleHeight = compact ? 20 : 22;
+  const sheetWidth = compact ? 400 : Math.max(420, Math.min(480, Math.round(visualWidth * 0.36)));
 
   const [titleDraft, setTitleDraft] = useState(settings.title.text);
   const [backgroundImageDraft, setBackgroundImageDraft] = useState(a.backgroundImage || "");
@@ -131,298 +131,180 @@ export const HeaderOptionsPanel: React.FC<HeaderOptionsPanelProps> = memo(({
     onPersistProperty("manualData", "labelOverrides", JSON.stringify(next));
   };
 
-  const panelSection: React.CSSProperties = {
-    background: "rgba(255,255,255,0.72)",
-    border: "1px solid rgba(148, 163, 184, 0.18)",
-    borderRadius: compact ? 16 : 18,
-    padding: compact ? 14 : 18,
-    display: "grid",
-    gap: compact ? 12 : 14,
-    boxShadow: "0 14px 40px rgba(15, 23, 42, 0.08)",
-    backdropFilter: "blur(14px)",
-  };
-
-  const labelStyle: React.CSSProperties = {
-    fontSize: 10,
-    fontWeight: 700,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    color: "#64748b",
-    marginBottom: 6,
-    display: "block",
-  };
-
-  const textInputStyle: React.CSSProperties = {
-    width: "100%",
-    padding: compact ? "9px 11px" : "11px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(148, 163, 184, 0.28)",
-    background: "rgba(255,255,255,0.88)",
-    color: "#0f172a",
-    fontSize: compact ? 12 : 13,
-    outline: "none",
-    boxSizing: "border-box",
-  };
-
   const rangeRow = (label: string, value: number, min: number, max: number, onChange: (value: number) => void) => (
-    <div>
-      <label style={labelStyle}>{label}</label>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center" }}>
-        <input type="range" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} />
-        <span style={{ fontSize: 12, color: "#334155", fontWeight: 600 }}>{value}</span>
-      </div>
-    </div>
+    <Field inline label={label}>
+      <input
+        type="range"
+        aria-label={label}
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ flex: 1, minWidth: 0, accentColor: "var(--mx-accent)" }}
+      />
+      <span className="mx-num mx-muted" style={{ width: 28, textAlign: "right", fontSize: 12 }}>{value}</span>
+    </Field>
   );
 
   const colorRow = (label: string, objectName: string, propertyName: string, value: string, onCommit: (value: string) => void) => {
     const key = `${objectName}.${propertyName}`;
     const draft = colorDrafts[key] ?? value;
     return (
-      <div>
-        <label style={labelStyle}>{label}</label>
-        <div style={{ display: "grid", gridTemplateColumns: "42px 1fr", gap: 10, alignItems: "center" }}>
-          <input
-            type="color"
-            value={isHexColor(draft) ? draft : "#000000"}
-            onChange={(e) => {
-              const next = e.target.value;
-              setColorDrafts((current) => ({ ...current, [key]: next }));
-              onCommit(next);
-            }}
-            style={{ width: 42, height: 42, border: "none", background: "transparent", padding: 0, cursor: "pointer" }}
-          />
-          <input
-            type="text"
-            value={draft}
-            onChange={(e) => setColorDrafts((current) => ({ ...current, [key]: e.target.value }))}
-            onBlur={() => {
-              const next = (colorDrafts[key] ?? "").trim();
-              if (isHexColor(next)) onCommit(next);
-              else setColorDrafts((current) => ({ ...current, [key]: value }));
-            }}
-            style={textInputStyle}
-          />
-        </div>
-      </div>
+      <Field inline label={label}>
+        <ColorWell
+          label={label}
+          value={isHexColor(draft) ? draft : value}
+          onChange={(next) => {
+            setColorDrafts((current) => ({ ...current, [key]: next }));
+            onCommit(next);
+          }}
+        />
+        <input
+          type="text"
+          className="mx-input is-sm is-num"
+          aria-label={`${label} hex`}
+          value={draft}
+          onChange={(e) => setColorDrafts((current) => ({ ...current, [key]: e.target.value }))}
+          onBlur={() => {
+            const next = (colorDrafts[key] ?? "").trim();
+            if (isHexColor(next)) onCommit(next);
+            else setColorDrafts((current) => ({ ...current, [key]: value }));
+          }}
+          style={{ flex: 1, minWidth: 0 }}
+        />
+      </Field>
     );
   };
 
   const backgroundEffect = a.backgroundEffect || "none";
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Design Studio"
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "linear-gradient(180deg, rgba(15,23,42,0.18), rgba(15,23,42,0.34))",
-        zIndex: 5000,
-        display: "flex",
-        justifyContent: "flex-end",
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          width: `min(${drawerWidth}px, 100%)`,
-          height: "100%",
-          background: "linear-gradient(180deg, #eef4ff 0%, #f8fafc 48%, #f7fbff 100%)",
-          borderLeft: "1px solid rgba(148,163,184,0.22)",
-          boxShadow: "-24px 0 60px rgba(15, 23, 42, 0.18)",
-          display: "flex",
-          flexDirection: "column",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header style={{ padding: compact ? "16px 18px" : "18px 22px", borderBottom: "1px solid rgba(148,163,184,0.18)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <div style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "#64748b", fontWeight: 700 }}>Design Studio</div>
-            <h2 style={{ margin: "4px 0 0", fontSize: compact ? 20 : 22, lineHeight: 1.08, color: "#0f172a" }}>Visual, Headers & Canvas</h2>
-          </div>
-          <button onClick={onClose} style={{ border: "none", background: "rgba(255,255,255,0.7)", borderRadius: 12, width: 36, height: 36, fontSize: 20, color: "#475569", cursor: "pointer" }}>×</button>
-        </header>
+    <Overlay kind="sheet" title="Visual design" width={sheetWidth} onClose={onClose}>
+      <Section title="Title">
+        <Switch label="Show title" checked={settings.title.show} onChange={(v) => updateTitle("show", v)} />
+        <Field label="Text">
+          <input
+            type="text"
+            className="mx-input"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={() => updateTitle("text", titleDraft)}
+          />
+        </Field>
+        <Field inline label="Style">
+          <select className="mx-select" value={settings.title.stylePreset} onChange={(e) => updateTitle("stylePreset", e.target.value)}>
+            {TITLE_STYLE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </Field>
+        <Field inline label="Alignment">
+          <Segmented
+            size="sm"
+            ariaLabel="Title alignment"
+            value={settings.title.alignment}
+            onChange={(v) => updateTitle("alignment", v)}
+            options={[
+              { value: "left", label: "Left" },
+              { value: "center", label: "Center" },
+              { value: "right", label: "Right" },
+            ]}
+          />
+        </Field>
+        {rangeRow("Font size", settings.title.fontSize, 10, 32, (value) => updateTitle("fontSize", value))}
+        {rangeRow("Height", settings.title.height, 28, 88, (value) => updateTitle("height", value))}
+        {colorRow("Text color", "title", "color", settings.title.color, (value) => updateTitle("color", value))}
+        {colorRow("Background", "title", "backgroundColor", settings.title.backgroundColor, (value) => updateTitle("backgroundColor", value))}
+      </Section>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: compact ? 14 : 18, display: "grid", gap: compact ? 14 : 16 }}>
-          <section style={panelSection}>
-            <div style={{ display: "grid", gap: 4 }}>
-              <div style={{ fontSize: titleHeight, fontWeight: 700, color: "#0f172a" }}>Visual Title</div>
-              <div style={{ fontSize: 12, color: "#64748b" }}>Position the title above the ribbon and give it a stronger app-like treatment.</div>
-            </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 10, color: "#0f172a", fontSize: 13, fontWeight: 600 }}>
-              <input type="checkbox" checked={settings.title.show} onChange={(e) => updateTitle("show", e.target.checked)} />
-              Show visual title
-            </label>
-            <div>
-              <label style={labelStyle}>Title Text</label>
-              <input
-                type="text"
-                value={titleDraft}
-                onChange={(e) => setTitleDraft(e.target.value)}
-                onBlur={() => updateTitle("text", titleDraft)}
-                style={textInputStyle}
-              />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr", gap: 12 }}>
-              <div>
-                <label style={labelStyle}>Title Style</label>
-                <select value={settings.title.stylePreset} onChange={(e) => updateTitle("stylePreset", e.target.value)} style={textInputStyle}>
-                  {TITLE_STYLE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Alignment</label>
-                <select value={settings.title.alignment} onChange={(e) => updateTitle("alignment", e.target.value)} style={textInputStyle}>
-                  <option value="left">Left</option>
-                  <option value="center">Center</option>
-                  <option value="right">Right</option>
-                </select>
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr", gap: 12 }}>
-              {rangeRow("Title Size", settings.title.fontSize, 10, 32, (value) => updateTitle("fontSize", value))}
-              {rangeRow("Title Height", settings.title.height, 28, 88, (value) => updateTitle("height", value))}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr", gap: 12 }}>
-              {colorRow("Title Color", "title", "color", settings.title.color, (value) => updateTitle("color", value))}
-              {colorRow("Title Background", "title", "backgroundColor", settings.title.backgroundColor, (value) => updateTitle("backgroundColor", value))}
-            </div>
-          </section>
+      <hr className="mx-divider" />
 
-          <section style={panelSection}>
-            <div style={{ display: "grid", gap: 4 }}>
-              <div style={{ fontSize: titleHeight, fontWeight: 700, color: "#0f172a" }}>Header Labels</div>
-              <div style={{ fontSize: 12, color: "#64748b" }}>Rename selected labels directly from the visual.</div>
-            </div>
-            <div style={{ display: "grid", gap: 12 }}>
-              <div>
-                <label style={labelStyle}>Selected Row Header</label>
-                <input
-                  type="text"
-                  value={selectedRow ? (labelOverrides[selectedRow.key] || selectedRow.label) : ""}
-                  onChange={(e) => selectedRow && updateLabelOverride(selectedRow.key, e.target.value)}
-                  placeholder="Select a row header first"
-                  disabled={!selectedRow}
-                  style={{ ...textInputStyle, opacity: selectedRow ? 1 : 0.6 }}
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>Selected Column Header</label>
-                <input
-                  type="text"
-                  value={selectedColumnTarget?.label || ""}
-                  onChange={(e) => selectedColumnTarget && updateLabelOverride(selectedColumnTarget.overrideKey, e.target.value)}
-                  placeholder="Select a column or measure header first"
-                  disabled={!selectedColumnTarget}
-                  style={{ ...textInputStyle, opacity: selectedColumnTarget ? 1 : 0.6 }}
-                />
-                <div style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>{selectedColumnTarget?.scope || "No column header selected"}</div>
-              </div>
-            </div>
-          </section>
+      <Section title="Header labels" description="Rename the selected row or column header.">
+        <Field label="Row header">
+          <input
+            type="text"
+            className="mx-input"
+            value={selectedRow ? (labelOverrides[selectedRow.key] || selectedRow.label) : ""}
+            onChange={(e) => selectedRow && updateLabelOverride(selectedRow.key, e.target.value)}
+            placeholder="Select a row header first"
+            disabled={!selectedRow}
+          />
+        </Field>
+        <Field label="Column header" hint={selectedColumnTarget?.scope || "No column header selected"}>
+          <input
+            type="text"
+            className="mx-input"
+            value={selectedColumnTarget?.label || ""}
+            onChange={(e) => selectedColumnTarget && updateLabelOverride(selectedColumnTarget.overrideKey, e.target.value)}
+            placeholder="Select a column or measure header first"
+            disabled={!selectedColumnTarget}
+          />
+        </Field>
+      </Section>
 
-          <section style={panelSection}>
-            <div style={{ display: "grid", gap: 4 }}>
-              <div style={{ fontSize: titleHeight, fontWeight: 700, color: "#0f172a" }}>Canvas & Effects</div>
-              <div style={{ fontSize: 12, color: "#64748b" }}>Gradient, surface, blur and overlay settings for the visual shell.</div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr", gap: 12 }}>
-              <div>
-                <label style={labelStyle}>Background Effect</label>
-                <select value={backgroundEffect} onChange={(e) => updateAppearance("backgroundEffect", e.target.value)} style={textInputStyle}>
-                  <option value="none">None</option>
-                  <option value="gradient">Gradient</option>
-                  <option value="image">Image</option>
-                  <option value="hybrid">Gradient + Image</option>
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Layout Style</label>
-                <select value={a.layoutStyle || "standard"} onChange={(e) => updateAppearance("layoutStyle", e.target.value)} style={textInputStyle}>
-                  <option value="standard">Standard</option>
-                  <option value="floating">Floating Canvas</option>
-                  <option value="framed">Framed Studio</option>
-                  <option value="spotlight">Spotlight</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label style={labelStyle}>Background Image URL</label>
-              <input
-                type="text"
-                value={backgroundImageDraft}
-                onChange={(e) => setBackgroundImageDraft(e.target.value)}
-                onBlur={() => updateAppearance("backgroundImage", backgroundImageDraft)}
-                placeholder="https://... or data URL"
-                style={textInputStyle}
-              />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr", gap: 12 }}>
-              {colorRow("Canvas Surface", "appearance", "surfaceColor", a.surfaceColor, (value) => updateAppearance("surfaceColor", value))}
-              {colorRow("Header Surface", "appearance", "toolbarBackgroundColor", a.toolbarBackgroundColor, (value) => updateAppearance("toolbarBackgroundColor", value))}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr", gap: 12 }}>
-              {colorRow("Gradient Start", "appearance", "gradientStart", a.gradientStart || "#f8fbff", (value) => updateAppearance("gradientStart", value))}
-              {colorRow("Gradient End", "appearance", "gradientEnd", a.gradientEnd || "#e8f1ff", (value) => updateAppearance("gradientEnd", value))}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr", gap: 12 }}>
-              {colorRow("Overlay Color", "appearance", "overlayColor", a.overlayColor || "#0f172a", (value) => updateAppearance("overlayColor", value))}
-              {rangeRow("Overlay Opacity", a.overlayOpacity || 0, 0, 100, (value) => updateAppearance("overlayOpacity", value))}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr", gap: 12 }}>
-              {rangeRow("Gradient Angle", a.gradientAngle || 135, 0, 360, (value) => updateAppearance("gradientAngle", value))}
-              {rangeRow("Surface Opacity", a.surfaceOpacity || 92, 35, 100, (value) => updateAppearance("surfaceOpacity", value))}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr", gap: 12 }}>
-              {rangeRow("Backdrop Blur", a.backgroundBlur || 0, 0, 28, (value) => updateAppearance("backgroundBlur", value))}
-              <label style={{ display: "flex", alignItems: "center", gap: 10, color: "#0f172a", fontSize: 13, fontWeight: 600, paddingTop: 20 }}>
-                <input type="checkbox" checked={!!a.glassmorphism} onChange={(e) => updateAppearance("glassmorphism", e.target.checked)} />
-                Enable glass surface
-              </label>
-            </div>
-          </section>
+      <hr className="mx-divider" />
 
-          <section style={panelSection}>
-            <div style={{ display: "grid", gap: 4 }}>
-              <div style={{ fontSize: titleHeight, fontWeight: 700, color: "#0f172a" }}>Headers & Grid</div>
-              <div style={{ fontSize: 12, color: "#64748b" }}>Structural colors for row headers, column headers and grid borders.</div>
-            </div>
-            {rangeRow("Header Font Size", h.fontSize, 8, 24, (value) => updateHeader("fontSize", value))}
-            <label style={{ display: "flex", alignItems: "center", gap: 10, color: "#0f172a", fontSize: 13, fontWeight: 600 }}>
-              <input type="checkbox" checked={h.bold} onChange={(e) => updateHeader("bold", e.target.checked)} />
-              Bold all headers
-            </label>
-            <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr", gap: 12 }}>
-              {colorRow("Column Header Background", "headers", "backgroundColor", h.backgroundColor, (value) => updateHeader("backgroundColor", value))}
-              {colorRow("Header Text", "headers", "textColor", h.textColor, (value) => updateHeader("textColor", value))}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr", gap: 12 }}>
-              {colorRow("Row Parent Color", "headers", "rowHeaderParentColor", h.rowHeaderParentColor, (value) => updateHeader("rowHeaderParentColor", value))}
-              {colorRow("Row Child Color", "headers", "rowHeaderChildColor", h.rowHeaderChildColor, (value) => updateHeader("rowHeaderChildColor", value))}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr 1fr", gap: 12 }}>
-              {colorRow("Column Level 0", "headers", "colHeaderLevel0Color", h.colHeaderLevel0Color, (value) => updateHeader("colHeaderLevel0Color", value))}
-              {colorRow("Column Level 1", "headers", "colHeaderLevel1Color", h.colHeaderLevel1Color, (value) => updateHeader("colHeaderLevel1Color", value))}
-              {colorRow("Leaf Columns", "headers", "colHeaderLeafColor", h.colHeaderLeafColor, (value) => updateHeader("colHeaderLeafColor", value))}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr", gap: 12 }}>
-              {colorRow("Grid Border", "values", "borderColor", settings.values.borderColor || "#d0d0d0", (value) => onPersistProperty("values", "borderColor", value))}
-              <div>
-                <label style={labelStyle}>Border Style</label>
-                <select value={settings.values.borderStyle} onChange={(e) => onPersistProperty("values", "borderStyle", e.target.value)} style={textInputStyle}>
-                  <option value="none">None</option>
-                  <option value="all">Full Grid</option>
-                  <option value="horizontal">Horizontal Only</option>
-                  <option value="vertical">Vertical Only</option>
-                  <option value="outline">Outline Only</option>
-                </select>
-              </div>
-            </div>
-          </section>
-        </div>
-      </div>
-    </div>
+      <Section title="Canvas">
+        <Field inline label="Background">
+          <select className="mx-select" value={backgroundEffect} onChange={(e) => updateAppearance("backgroundEffect", e.target.value)}>
+            <option value="none">None</option>
+            <option value="gradient">Gradient</option>
+            <option value="image">Image</option>
+            <option value="hybrid">Gradient and image</option>
+          </select>
+        </Field>
+        <Field inline label="Layout">
+          <select className="mx-select" value={a.layoutStyle || "standard"} onChange={(e) => updateAppearance("layoutStyle", e.target.value)}>
+            <option value="standard">Standard</option>
+            <option value="floating">Floating canvas</option>
+            <option value="framed">Framed studio</option>
+            <option value="spotlight">Spotlight</option>
+          </select>
+        </Field>
+        <Field label="Background image URL">
+          <input
+            type="text"
+            className="mx-input"
+            value={backgroundImageDraft}
+            onChange={(e) => setBackgroundImageDraft(e.target.value)}
+            onBlur={() => updateAppearance("backgroundImage", backgroundImageDraft)}
+            placeholder="https://… or data URL"
+          />
+        </Field>
+        {colorRow("Canvas surface", "appearance", "surfaceColor", a.surfaceColor, (value) => updateAppearance("surfaceColor", value))}
+        {colorRow("Header surface", "appearance", "toolbarBackgroundColor", a.toolbarBackgroundColor, (value) => updateAppearance("toolbarBackgroundColor", value))}
+        {colorRow("Gradient start", "appearance", "gradientStart", a.gradientStart || "#f8fbff", (value) => updateAppearance("gradientStart", value))}
+        {colorRow("Gradient end", "appearance", "gradientEnd", a.gradientEnd || "#e8f1ff", (value) => updateAppearance("gradientEnd", value))}
+        {rangeRow("Gradient angle", a.gradientAngle || 135, 0, 360, (value) => updateAppearance("gradientAngle", value))}
+        {colorRow("Overlay", "appearance", "overlayColor", a.overlayColor || "#0f172a", (value) => updateAppearance("overlayColor", value))}
+        {rangeRow("Overlay opacity", a.overlayOpacity || 0, 0, 100, (value) => updateAppearance("overlayOpacity", value))}
+        {rangeRow("Surface opacity", a.surfaceOpacity || 92, 35, 100, (value) => updateAppearance("surfaceOpacity", value))}
+        {rangeRow("Backdrop blur", a.backgroundBlur || 0, 0, 28, (value) => updateAppearance("backgroundBlur", value))}
+        <Switch label="Glass surface" checked={!!a.glassmorphism} onChange={(v) => updateAppearance("glassmorphism", v)} />
+      </Section>
+
+      <hr className="mx-divider" />
+
+      <Section title="Headers and grid">
+        {rangeRow("Header font size", h.fontSize, 8, 24, (value) => updateHeader("fontSize", value))}
+        <Switch label="Bold headers" checked={h.bold} onChange={(v) => updateHeader("bold", v)} />
+        {colorRow("Header background", "headers", "backgroundColor", h.backgroundColor, (value) => updateHeader("backgroundColor", value))}
+        {colorRow("Header text", "headers", "textColor", h.textColor, (value) => updateHeader("textColor", value))}
+        {colorRow("Parent rows", "headers", "rowHeaderParentColor", h.rowHeaderParentColor, (value) => updateHeader("rowHeaderParentColor", value))}
+        {colorRow("Child rows", "headers", "rowHeaderChildColor", h.rowHeaderChildColor, (value) => updateHeader("rowHeaderChildColor", value))}
+        {colorRow("Column level 1", "headers", "colHeaderLevel0Color", h.colHeaderLevel0Color, (value) => updateHeader("colHeaderLevel0Color", value))}
+        {colorRow("Column level 2", "headers", "colHeaderLevel1Color", h.colHeaderLevel1Color, (value) => updateHeader("colHeaderLevel1Color", value))}
+        {colorRow("Leaf columns", "headers", "colHeaderLeafColor", h.colHeaderLeafColor, (value) => updateHeader("colHeaderLeafColor", value))}
+        {colorRow("Grid border", "values", "borderColor", settings.values.borderColor || "#d0d0d0", (value) => onPersistProperty("values", "borderColor", value))}
+        <Field inline label="Borders">
+          <select className="mx-select" value={settings.values.borderStyle} onChange={(e) => onPersistProperty("values", "borderStyle", e.target.value)}>
+            <option value="none">None</option>
+            <option value="all">Full grid</option>
+            <option value="horizontal">Horizontal only</option>
+            <option value="vertical">Vertical only</option>
+            <option value="outline">Outline only</option>
+          </select>
+        </Field>
+      </Section>
+    </Overlay>
   );
 });
 

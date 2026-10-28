@@ -14,7 +14,7 @@ import { copyTextToClipboard, ExportDownloadBlockedError, ExportOutcome } from "
 import { StatusMessage } from "./accessibility";
 import { TooltipServiceWrapper } from "../powerbi/tooltip";
 import { createQuickCalcView } from "../analytics/quickCalcs";
-import { Ribbon, RibbonTab, RowInsertAction, ToolbarMode } from "./Ribbon";
+import { Ribbon, RowInsertAction, ToolbarMode, normalizeToolbarMode, RIBBON_HEIGHT } from "./Ribbon";
 import { ExplorerPanel } from "./ExplorerPanel";
 import { CalcMeasureWizard } from "./CalcMeasureWizard";
 import { CalcRowWizard } from "./CalcRowWizard";
@@ -159,9 +159,7 @@ export const App: React.FC<AppProps> = ({
     return a.every(value => bSet.has(value));
   };
 
-  const [activeTab, setActiveTabOriginal] = useState<RibbonTab>((settings.uiState.activeTab as RibbonTab) || "home");
-  const [toolbarMode, setToolbarModeOriginal] = useState<ToolbarMode>((settings.uiState.toolbarMode as ToolbarMode) || "full");
-  const [toolbarPinned, setToolbarPinnedOriginal] = useState(settings.uiState.toolbarPinned ?? true);
+  const [toolbarMode, setToolbarModeOriginal] = useState<ToolbarMode>(() => normalizeToolbarMode(settings.uiState.toolbarMode));
   const [explorerOpen, setExplorerOpenOriginal] = useState(settings.uiState.explorerOpen ?? false);
   const [zoomLevel, setZoomLevelOriginal] = useState(settings.uiState.zoomLevel ?? 100);
 
@@ -196,14 +194,6 @@ export const App: React.FC<AppProps> = ({
     persistPropertyRaw(objectName, propertyName, value);
   }, [getPersistedValue, persistPropertyRaw]);
 
-  const setActiveTab = useCallback((tab: RibbonTab | ((prev: RibbonTab) => RibbonTab)) => {
-    setActiveTabOriginal(prev => {
-      const next = typeof tab === 'function' ? tab(prev) : tab;
-      onPersistProperty("uiState", "activeTab", next);
-      return next;
-    });
-  }, [onPersistProperty]);
-
   const setToolbarMode = useCallback((mode: ToolbarMode | ((prev: ToolbarMode) => ToolbarMode)) => {
     setToolbarModeOriginal(prev => {
       const next = typeof mode === 'function' ? mode(prev) : mode;
@@ -212,13 +202,6 @@ export const App: React.FC<AppProps> = ({
     });
   }, [onPersistProperty]);
 
-  const setToolbarPinned = useCallback((pinned: boolean | ((prev: boolean) => boolean)) => {
-    setToolbarPinnedOriginal(prev => {
-      const next = typeof pinned === 'function' ? pinned(prev) : pinned;
-      onPersistProperty("uiState", "toolbarPinned", next);
-      return next;
-    });
-  }, [onPersistProperty]);
 
   const setExplorerOpen = useCallback((open: boolean | ((prev: boolean) => boolean)) => {
     setExplorerOpenOriginal(prev => {
@@ -280,9 +263,7 @@ export const App: React.FC<AppProps> = ({
   });
 
   useEffect(() => {
-    setActiveTabOriginal((settings.uiState.activeTab as RibbonTab) || "home");
-    setToolbarModeOriginal((settings.uiState.toolbarMode as ToolbarMode) || "full");
-    setToolbarPinnedOriginal(settings.uiState.toolbarPinned ?? true);
+    setToolbarModeOriginal(normalizeToolbarMode(settings.uiState.toolbarMode));
     setZoomLevelOriginal(settings.uiState.zoomLevel ?? 100);
   }, [settings.uiState]);
 
@@ -1217,7 +1198,7 @@ export const App: React.FC<AppProps> = ({
   }, [onPersistProperty, settings.manualData.rowFormats]);
 
   const ribbonHeight = effectiveSettings.appearance.showToolbar
-    ? (toolbarMode === "full" ? 86 : toolbarMode === "minimal-tabs" ? 34 : 40)
+    ? RIBBON_HEIGHT
     : 0;
   const titleBarHeight = effectiveSettings.title.show ? Math.max(0, effectiveSettings.title.height || 0) : 0;
 
@@ -1230,15 +1211,8 @@ export const App: React.FC<AppProps> = ({
             allowInteractions={allowInteractions}
             hasData={model.hasData}
             hasValues={model.hasValues}
-            activeTab={activeTab}
             toolbarMode={toolbarMode}
-            toolbarPinned={toolbarPinned}
-            explorerOpen={explorerOpen}
-            zoomLevel={zoomLevel}
-            onChangeTab={setActiveTab}
             onToolbarModeChange={setToolbarMode}
-            onToolbarPinChange={setToolbarPinned}
-            onToggleExplorer={toggleExplorer}
             onPersistProperty={onPersistProperty}
             onExportCSV={handleExportCSV}
             onExportXLSX={handleExportXLSX}
@@ -1246,9 +1220,6 @@ export const App: React.FC<AppProps> = ({
             onExportJSON={handleExportJSON}
             onOpenThemeGallery={() => setThemeGalleryOpen(true)}
             onOpenHeaderFooter={() => setHeaderOptionsOpen(true)}
-            onZoomIn={handleZoomIn}
-            onZoomOut={handleZoomOut}
-            onZoomReset={handleZoomReset}
             onOpenSmartAnalysis={openSmartAnalysis}
             onOpenCalcMeasurePanel={openCalcMeasureWizard}
             onOpenCalcRowPanel={handleOpenCalcRowPanel}
@@ -1266,7 +1237,6 @@ export const App: React.FC<AppProps> = ({
             onOpenFilterPanel={() => setFilterPanelOpen(true)}
             onOpenLevelPanel={() => setLevelPanelOpen(true)}
             onAddQuickVariance={() => {}}
-            rows={[]}
             colFormatsJson="{}"
             rowFormatsJson="{}"
           />
@@ -1317,15 +1287,8 @@ export const App: React.FC<AppProps> = ({
           allowInteractions={allowInteractions}
           hasData={model.hasData}
           hasValues={model.hasValues}
-          activeTab={activeTab}
           toolbarMode={toolbarMode}
-          toolbarPinned={toolbarPinned}
-          explorerOpen={explorerOpen}
-          zoomLevel={zoomLevel}
-          onChangeTab={setActiveTab}
           onToolbarModeChange={setToolbarMode}
-          onToolbarPinChange={setToolbarPinned}
-          onToggleExplorer={toggleExplorer}
           onPersistProperty={onPersistProperty}
           onExportCSV={handleExportCSV}
           onExportXLSX={handleExportXLSX}
@@ -1347,9 +1310,6 @@ export const App: React.FC<AppProps> = ({
           selectedRowKeys={selectedRowKeysForFormat}
           onApplyColumnFormat={applyColumnFormat}
           onApplyRowFormat={applyRowFormat}
-          onZoomIn={handleZoomIn}
-          onZoomOut={handleZoomOut}
-          onZoomReset={handleZoomReset}
           onOpenBulkOperations={() => {
             (window as any).__openBulkOperations?.();
           }}
@@ -1365,7 +1325,6 @@ export const App: React.FC<AppProps> = ({
           onOpenFilterPanel={() => setFilterPanelOpen(true)}
           onOpenLevelPanel={() => setLevelPanelOpen(true)}
           onAddQuickVariance={() => handleQuickVariance("", 0)}
-          rows={displayRows}
           colFormatsJson={effectiveSettings.manualData.colFormats}
           rowFormatsJson={effectiveSettings.manualData.rowFormats}
         />
@@ -1531,13 +1490,10 @@ export const App: React.FC<AppProps> = ({
       <Footer
         rowCount={displayRows.length}
         zoomLevel={zoomLevel}
-        toolbarMode={toolbarMode}
         explorerOpen={explorerOpen}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
-        onZoomReset={handleZoomReset}
         onZoomSet={handleZoomSet}
-        onToolbarModeChange={setToolbarMode}
         onToggleExplorer={toggleExplorer}
         canUndo={undoStack.length > 0}
         canRedo={redoStack.length > 0}
@@ -1545,9 +1501,6 @@ export const App: React.FC<AppProps> = ({
         onRedo={handleRedo}
         onRefresh={handleRefresh}
         allowInteractions={allowInteractions}
-        titleVisible={effectiveSettings.title.show}
-        onToggleTitle={() => onPersistProperty("title", "show", !effectiveSettings.title.show)}
-        onEditTitle={() => setHeaderOptionsOpen(true)}
       />
 
       <ThemeGallery

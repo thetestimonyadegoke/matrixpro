@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { ThemePresetId } from "../settings/settings";
 import { THEMES, THEME_ORDER, ThemeSpec } from "./themes";
+import { Overlay } from "./overlayKit";
 
 export interface ThemeGalleryProps {
   open: boolean;
@@ -23,125 +24,39 @@ export const ThemeGallery: React.FC<ThemeGalleryProps> = ({
   if (!open) return null;
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Theme Gallery"
-      className="theme-gallery-overlay"
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(15, 23, 42, 0.45)",
-        zIndex: 1000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
+    <Overlay
+      kind="dialog"
+      title="Themes"
+      subtitle="Each preview uses the theme's own palette and type."
+      width={920}
+      onClose={onClose}
     >
       <div
-        className="theme-gallery-dialog"
-        onClick={(e) => e.stopPropagation()}
+        role="list"
         style={{
-          width: "min(920px, 92vw)",
-          maxHeight: "86vh",
-          background: "#ffffff",
-          borderRadius: 10,
-          boxShadow: "0 24px 48px rgba(15,23,42,0.22)",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+          gap: 12,
         }}
       >
-        <header
-          style={{
-            padding: "14px 20px",
-            borderBottom: "1px solid #e5e7eb",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <div>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Theme Gallery</h2>
-            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-              Choose a design — preview matrices reflect each theme's palette and typography
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            style={{
-              width: 28,
-              height: 28,
-              border: "none",
-              background: "transparent",
-              fontSize: 18,
-              color: "#6b7280",
-              cursor: "pointer",
-              borderRadius: 4,
-            }}
-          >
-            ×
-          </button>
-        </header>
-
-        <div
-          className="theme-gallery-grid"
-          style={{
-            padding: 16,
-            overflowY: "auto",
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-            gap: 14,
-            background: "#f9fafb",
-          }}
-        >
-          {THEME_ORDER.map((preset) => {
-            const spec = THEMES[preset];
-            const active = preset === currentPreset;
-            return (
-              <ThemeCard
-                key={preset}
-                preset={preset}
-                spec={spec}
-                active={active}
-                onSelect={() => {
-                  onApply(preset);
-                  onClose();
-                }}
-              />
-            );
-          })}
-        </div>
-
-        <footer
-          style={{
-            padding: "10px 20px",
-            borderTop: "1px solid #e5e7eb",
-            display: "flex",
-            justifyContent: "flex-end",
-            background: "#ffffff",
-          }}
-        >
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              padding: "6px 14px",
-              border: "1px solid #d1d5db",
-              background: "#ffffff",
-              borderRadius: 6,
-              cursor: "pointer",
-              fontSize: 13,
-            }}
-          >
-            Close
-          </button>
-        </footer>
+        {THEME_ORDER.map((preset) => {
+          const spec = THEMES[preset];
+          const active = preset === currentPreset;
+          return (
+            <ThemeCard
+              key={preset}
+              preset={preset}
+              spec={spec}
+              active={active}
+              onSelect={() => {
+                onApply(preset);
+                onClose();
+              }}
+            />
+          );
+        })}
       </div>
-    </div>
+    </Overlay>
   );
 };
 
@@ -162,47 +77,26 @@ const ThemeCard: React.FC<ThemeCardProps> = ({ preset: _preset, spec, active, on
   return (
     <button
       type="button"
+      role="listitem"
       onClick={onSelect}
       aria-pressed={active}
+      className={"mx-item is-clickable" + (active ? " is-selected" : "")}
       style={{
+        font: "inherit",
         textAlign: "left",
-        padding: 10,
-        background: "#ffffff",
-        border: active ? `2px solid ${spec.accent}` : "1px solid #e5e7eb",
-        borderRadius: 8,
-        cursor: "pointer",
-        boxShadow: active ? `0 0 0 3px ${hexWithAlpha(spec.accent, 0.2)}` : "none",
-        transition: "border-color 120ms ease, box-shadow 120ms ease",
-        display: "flex",
         flexDirection: "column",
+        alignItems: "stretch",
+        padding: 10,
         gap: 8,
       }}
     >
       <MiniMatrix spec={spec} />
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{spec.label}</div>
-          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>{spec.description}</div>
+      <div className="mx-row is-between">
+        <div className="mx-item-main">
+          <span className="mx-item-title">{spec.label}</span>
+          <span className="mx-item-meta">{spec.description}</span>
         </div>
-        {active && (
-          <span
-            aria-label="selected"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 20,
-              height: 20,
-              borderRadius: "50%",
-              background: spec.accent,
-              color: "#ffffff",
-              fontSize: 12,
-              fontWeight: 700,
-            }}
-          >
-            ✓
-          </span>
-        )}
+        {active && <span className="mx-badge is-accent">Current</span>}
       </div>
     </button>
   );
@@ -244,7 +138,7 @@ const MiniMatrix: React.FC<{ spec: ThemeSpec }> = ({ spec }) => {
       style={{
         borderRadius: 6,
         overflow: "hidden",
-        border: spec.borderStyle === "none" ? "1px solid #e5e7eb" : `1px ${spec.borderStyle} ${spec.gridColor}`,
+        border: spec.borderStyle === "none" ? "1px solid var(--mx-ov-line)" : `1px ${spec.borderStyle} ${spec.gridColor}`,
         background: spec.rowBandEven,
         fontFamily: spec.fontFamily,
       }}
@@ -297,21 +191,3 @@ const MiniMatrix: React.FC<{ spec: ThemeSpec }> = ({ spec }) => {
     </div>
   );
 };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a #rrggbb colour to rgba(r,g,b,a). Non-hex inputs are returned
- * unchanged — caller is responsible for providing a reasonable fallback.
- */
-function hexWithAlpha(hex: string, alpha: number): string {
-  const m = /^#([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return hex;
-  const n = parseInt(m[1], 16);
-  const r = (n >> 16) & 0xff;
-  const g = (n >> 8) & 0xff;
-  const b = n & 0xff;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}

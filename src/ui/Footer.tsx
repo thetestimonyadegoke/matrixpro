@@ -1,16 +1,13 @@
-import React, { useState, useRef, useEffect } from "react";
-import { ToolbarMode } from "./Ribbon";
+import React, { useState, useEffect } from "react";
+import { IconUndo, IconRedo, IconExplorer } from "./icons";
 
 interface FooterProps {
   rowCount: number;
   zoomLevel: number;
-  toolbarMode: ToolbarMode;
   explorerOpen: boolean;
   onZoomIn: () => void;
   onZoomOut: () => void;
-  onZoomReset: () => void;
   onZoomSet: (level: number) => void;
-  onToolbarModeChange: (mode: ToolbarMode) => void;
   onToggleExplorer: () => void;
   canUndo: boolean;
   canRedo: boolean;
@@ -18,30 +15,16 @@ interface FooterProps {
   onRedo: () => void;
   onRefresh: () => void;
   allowInteractions: boolean;
-  titleVisible: boolean;
-  onToggleTitle: () => void;
-  onEditTitle: () => void;
 }
 
+/** Status bar: what you're looking at on the left, how you're looking at it on the right. */
 export const Footer: React.FC<FooterProps> = ({
-  rowCount, zoomLevel, toolbarMode, explorerOpen,
-  onZoomIn, onZoomOut, onZoomReset, onZoomSet, onToolbarModeChange, onToggleExplorer,
+  rowCount, zoomLevel, explorerOpen,
+  onZoomIn, onZoomOut, onZoomSet, onToggleExplorer,
   canUndo, canRedo, onUndo, onRedo, onRefresh, allowInteractions,
-  titleVisible, onToggleTitle, onEditTitle,
 }) => {
-  const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [zoomEditing, setZoomEditing] = useState(false);
   const [zoomInput, setZoomInput] = useState(String(zoomLevel));
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!modeMenuOpen) return undefined;
-    const onDoc = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setModeMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [modeMenuOpen]);
 
   useEffect(() => {
     if (!zoomEditing) setZoomInput(String(zoomLevel));
@@ -56,181 +39,59 @@ export const Footer: React.FC<FooterProps> = ({
     setZoomEditing(false);
   };
 
-  // Keep the typed value within the valid 50–200 range as the user types so the
-  // input can never momentarily display an out-of-range value before blur.
-  const onZoomInputChange = (raw: string) => {
-    if (raw === "") {
-      setZoomInput("");
-      return;
-    }
-    const parsed = parseInt(raw, 10);
-    if (isNaN(parsed)) return;
-    setZoomInput(String(Math.max(50, Math.min(200, parsed))));
-  };
-
-  const modeLabels: Record<ToolbarMode, string> = {
-    "full": "Full Toolbar",
-    "minimal": "Minimal",
-    "minimal-tabs": "Minimal + Tabs",
-  };
-
-  const footerStyle: React.CSSProperties = {
-    height: 28,
-    flexShrink: 0,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "0 10px",
-    background: "var(--mx-surface-subtle, #f9fafb)",
-    borderTop: "1px solid var(--mx-border, #e5e7eb)",
-    fontSize: 11,
-    color: "var(--mx-text-muted, #4b5563)",
-    fontFamily: "var(--mx-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif)",
-    position: "relative",
-    zIndex: 50,
-    boxSizing: "border-box"
-  };
-
-  const iconBtn: React.CSSProperties = {
-    background: "transparent", border: "none", cursor: "pointer",
-    padding: "2px 6px", borderRadius: 3, color: "var(--mx-text-muted, #4b5563)",
-    fontSize: 13, lineHeight: 1, display: "inline-flex", alignItems: "center",
-  };
-
-  const actionBtn: React.CSSProperties = {
-    ...iconBtn,
-    border: "1px solid var(--mx-border, #d1d5db)",
-    background: "var(--mx-surface, #ffffff)",
-    color: "var(--mx-text, #374151)",
-    fontWeight: 700,
-    gap: 4,
-  };
-
   return (
-    <div style={footerStyle} className="mx-footer">
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <span>Total rows: <strong style={{ color: "var(--mx-text, #111827)" }}>{rowCount.toLocaleString()}</strong></span>
-        <span style={{ color: "var(--mx-border, #d1d5db)" }}>|</span>
-        <button
-          onClick={onToggleTitle}
-          disabled={!allowInteractions}
-          style={{ ...iconBtn, fontWeight: titleVisible ? 600 : 400, color: titleVisible ? "var(--mx-accent, #2563eb)" : "var(--mx-text-muted, #4b5563)" }}
-          title={titleVisible ? "Hide visual title" : "Show visual title"}
-        >
-          {titleVisible ? "Title On" : "Title Off"}
+    <div className="mx-footer" role="status">
+      <div className="mx-footer-side">
+        <span className="mx-footer-count">{rowCount.toLocaleString()} {rowCount === 1 ? "row" : "rows"}</span>
+        <span className="mx-footer-sep" aria-hidden="true" />
+        <button type="button" className="mx-footer-btn" onClick={onUndo} disabled={!canUndo || !allowInteractions} title="Undo (Ctrl+Z)" aria-label="Undo">
+          <IconUndo size={14} />
         </button>
-        <button
-          onClick={onEditTitle}
-          disabled={!allowInteractions}
-          style={{ ...iconBtn, opacity: allowInteractions ? 1 : 0.4 }}
-          title="Edit title and header settings"
-        >
-          Edit Title
+        <button type="button" className="mx-footer-btn" onClick={onRedo} disabled={!canRedo || !allowInteractions} title="Redo (Ctrl+Y)" aria-label="Redo">
+          <IconRedo size={14} />
         </button>
-        <span style={{ color: "var(--mx-border, #d1d5db)" }}>|</span>
-        <button
-          onClick={onUndo}
-          disabled={!canUndo || !allowInteractions}
-          style={{ ...actionBtn, opacity: canUndo && allowInteractions ? 1 : 0.4, cursor: canUndo && allowInteractions ? "pointer" : "not-allowed" }}
-          title="Undo last matrix change (Ctrl+Z)"
-        >
-          ↶ Undo
-        </button>
-        <button
-          onClick={onRedo}
-          disabled={!canRedo || !allowInteractions}
-          style={{ ...actionBtn, opacity: canRedo && allowInteractions ? 1 : 0.4, cursor: canRedo && allowInteractions ? "pointer" : "not-allowed" }}
-          title="Redo matrix change (Ctrl+Y)"
-        >
-          ↷ Redo
-        </button>
-        <button
-          onClick={onRefresh}
-          disabled={!allowInteractions}
-          style={{ ...actionBtn, color: "#0f766e", opacity: allowInteractions ? 1 : 0.4 }}
-          title="Refresh visual layout and recompute matrix leaves"
-        >
-          ↻ Refresh
-        </button>
-        <span style={{ color: "var(--mx-border, #d1d5db)" }}>|</span>
-        <button
-          onClick={onToggleExplorer}
-          style={{ ...iconBtn, fontWeight: explorerOpen ? 600 : 400, color: explorerOpen ? "var(--mx-accent, #2563eb)" : "var(--mx-text-muted, #4b5563)" }}
-          title="Toggle Explorer"
-        >
-          {explorerOpen ? "◨" : "◧"} Explorer
+        <button type="button" className="mx-footer-btn" onClick={onRefresh} disabled={!allowInteractions} title="Recalculate layout" aria-label="Recalculate layout">
+          <span aria-hidden="true" style={{ fontSize: 13, lineHeight: 1 }}>↻</span>
         </button>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }} ref={menuRef}>
-        {/* Toolbar mode switcher */}
-        <div style={{ position: "relative" }}>
-          <button
-            onClick={() => setModeMenuOpen(v => !v)}
-            style={iconBtn}
-            title="Change toolbar mode"
-          >
-            ⚙ {modeLabels[toolbarMode]} ▾
-          </button>
-          {modeMenuOpen && (
-            <div style={{
-              position: "absolute", bottom: "100%", right: 0, marginBottom: 4,
-              background: "var(--mx-surface, #fff)", border: "1px solid var(--mx-border, #d1d5db)", borderRadius: 6,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.15)", minWidth: 170, padding: 4,
-              zIndex: 9999,
-            }}>
-              {(Object.keys(modeLabels) as ToolbarMode[]).map(m => (
-                <button
-                  key={m}
-                  onClick={() => { onToolbarModeChange(m); setModeMenuOpen(false); }}
-                  style={{
-                    display: "block", width: "100%", textAlign: "left",
-                    padding: "6px 12px", background: toolbarMode === m ? "#eff6ff" : "transparent",
-                    color: toolbarMode === m ? "#1d4ed8" : "#374151",
-                    border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12,
-                    fontWeight: toolbarMode === m ? 600 : 400,
-                  }}
-                >
-                  {toolbarMode === m ? "✓ " : "  "}{modeLabels[m]}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <span style={{ color: "var(--mx-border, #d1d5db)" }}>|</span>
-
-        {/* Zoom controls */}
+      <div className="mx-footer-side">
         <button
-          onClick={onZoomOut}
-          disabled={zoomLevel <= 50}
-          style={{ ...iconBtn, fontSize: 14, fontWeight: 700, opacity: zoomLevel <= 50 ? 0.4 : 1 }}
-          title="Zoom out"
-        >−</button>
+          type="button"
+          className={`mx-footer-btn has-label ${explorerOpen ? "is-active" : ""}`}
+          onClick={onToggleExplorer}
+          aria-pressed={explorerOpen}
+          title="Show or hide the field explorer"
+        >
+          <IconExplorer size={14} />
+          <span>Fields</span>
+        </button>
+        <span className="mx-footer-sep" aria-hidden="true" />
+        <button type="button" className="mx-footer-btn" onClick={onZoomOut} disabled={zoomLevel <= 50} title="Zoom out" aria-label="Zoom out">−</button>
         {zoomEditing ? (
           <input
             type="number"
+            className="mx-footer-zoom-input"
             value={zoomInput}
-            onChange={(e) => onZoomInputChange(e.target.value)}
+            min={50}
+            max={200}
+            onChange={(e) => setZoomInput(e.target.value)}
             onBlur={commitZoom}
             onKeyDown={(e) => { if (e.key === "Enter") commitZoom(); if (e.key === "Escape") setZoomEditing(false); }}
             autoFocus
-            style={{ width: 50, fontSize: 11, padding: "2px 4px", border: "1px solid var(--mx-accent, #2563eb)", borderRadius: 3, textAlign: "center" }}
+            aria-label="Zoom percent"
           />
         ) : (
           <button
+            type="button"
+            className="mx-footer-btn mx-footer-zoom"
             onClick={() => { setZoomInput(String(zoomLevel)); setZoomEditing(true); }}
-            style={{ ...iconBtn, minWidth: 50, justifyContent: "center", border: "1px solid var(--mx-border, #d1d5db)", borderRadius: 3, fontSize: 11 }}
-            title="Click to reset (double-click to edit)"
-            onDoubleClick={onZoomReset}
-          >{zoomLevel}%</button>
+            title="Type a zoom level"
+          >
+            {zoomLevel}%
+          </button>
         )}
-        <button
-          onClick={onZoomIn}
-          disabled={zoomLevel >= 200}
-          style={{ ...iconBtn, fontSize: 14, fontWeight: 700, opacity: zoomLevel >= 200 ? 0.4 : 1 }}
-          title="Zoom in"
-        >+</button>
+        <button type="button" className="mx-footer-btn" onClick={onZoomIn} disabled={zoomLevel >= 200} title="Zoom in" aria-label="Zoom in">+</button>
       </div>
     </div>
   );

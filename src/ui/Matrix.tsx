@@ -2,7 +2,7 @@ import React, { useCallback, useRef, useState, useMemo, useEffect } from "react"
 import powerbi from "powerbi-visuals-api";
 import { FlattenedNode } from "../model/tree";
 import { CellValue, MeasureInfo, getCellValue } from "../model/pivot";
-import { VisualSettings } from "../settings/settings";
+import { VisualSettings, defaultSettings } from "../settings/settings";
 import { SortConfig } from "../model/sorting";
 import { SelectionState, SelectionManagerWrapper } from "../powerbi/selection";
 import {
@@ -221,19 +221,6 @@ export const Matrix: React.FC<MatrixProps> = ({
     }
   }, [showFormulaBar]);
 
-  // Manual edit history for undo/redo
-  const [editHistory, setEditHistory] = useState<string[]>([]);
-  const [editHistoryIndex, setEditHistoryIndex] = useState<number>(-1);
-
-  // Initialize history with current edits snapshot on first render
-  useEffect(() => {
-    if (editHistoryIndex === -1) {
-      const initial = settings.manualData.edits || "{}";
-      setEditHistory([initial]);
-      setEditHistoryIndex(0);
-    }
-  }, [settings.manualData.edits, editHistoryIndex]);
-
   // Drag & Drop State
   const [draggedRowKey, setDraggedRowKey] = useState<string | null>(null);
   const [dragOverRowKey, setDragOverRowKey] = useState<string | null>(null);
@@ -321,55 +308,17 @@ export const Matrix: React.FC<MatrixProps> = ({
       edits[key] = newValue;
     }
 
-    const nextJson = JSON.stringify(edits);
-
-    // Push new snapshot onto history, trimming any redo branch
-    setEditHistory(prev => {
-      if (editHistoryIndex === -1) {
-        const base = [prevJson, nextJson];
-        setEditHistoryIndex(1);
-        return base;
-      }
-      const trimmed = prev.slice(0, editHistoryIndex + 1);
-      const next = [...trimmed, nextJson];
-      setEditHistoryIndex(next.length - 1);
-      return next;
-    });
-
-    onPersistProperty("manualData", "edits", nextJson);
+    // Undo/redo for edits is handled by the host's property history (Ctrl+Z, footer).
+    onPersistProperty("manualData", "edits", JSON.stringify(edits));
     setActiveCell(null);
     setFormulaBarEditMode(false);
-  }, [activeCell, onPersistProperty, settings.manualData.edits, editHistoryIndex]);
+  }, [activeCell, onPersistProperty, settings.manualData.edits]);
 
   const handleCancelEdit = useCallback(() => {
     setActiveCell(null);
     setFormulaBarEditMode(false);
     onRowSelectionForFormatChange?.([]);
   }, [onRowSelectionForFormatChange]);
-
-  const handleUndo = useCallback(() => {
-    setEditHistoryIndex(prevIdx => {
-      if (prevIdx <= 0) {
-        return prevIdx;
-      }
-      const newIdx = prevIdx - 1;
-      const targetJson = editHistory[newIdx] ?? "{}";
-      onPersistProperty("manualData", "edits", targetJson);
-      return newIdx;
-    });
-  }, [editHistory, onPersistProperty]);
-
-  const handleRedo = useCallback(() => {
-    setEditHistoryIndex(prevIdx => {
-      if (prevIdx < 0 || prevIdx >= editHistory.length - 1) {
-        return prevIdx;
-      }
-      const newIdx = prevIdx + 1;
-      const targetJson = editHistory[newIdx] ?? (settings.manualData.edits || "{}");
-      onPersistProperty("manualData", "edits", targetJson);
-      return newIdx;
-    });
-  }, [editHistory, onPersistProperty, settings.manualData.edits]);
 
   const handleRowDragStart = useCallback((e: React.DragEvent, rowKey: string) => {
     rowDropCommittedRef.current = false;
@@ -615,9 +564,11 @@ export const Matrix: React.FC<MatrixProps> = ({
 
 
 
-  const FORMULA_BAR_HEIGHT = 52;
+  // The cell strip is always present while editing is allowed, so selecting a
+  // cell never shifts the grid.
+  const FORMULA_BAR_HEIGHT = 34;
   const HORIZONTAL_SCROLLBAR_HEIGHT = 24;
-  const formulaBarHeight = showFormulaBar ? FORMULA_BAR_HEIGHT : 0;
+  const formulaBarHeight = allowInteractions ? FORMULA_BAR_HEIGHT : 0;
 
   const minRowHeightPx = useMemo(() => {
     const headerFontPx = Math.max(8, Math.round(settings.headers.fontSize || 0));
@@ -763,7 +714,8 @@ export const Matrix: React.FC<MatrixProps> = ({
   const handleColumnReorder = useCallback((dragKey: string, targetKey: string) => {
     const order = gridColumns.map(c => c.key);
     const from = order.indexOf(dragKey);
-    const to = order.indexOf(targetKey);
+    // "__end__" drops after the last column; otherwise insert before targetKey.
+    const to = targetKey === "__end__" ? order.length : order.indexOf(targetKey);
     if (from < 0 || to < 0 || from === to) return;
     const [moved] = order.splice(from, 1);
     order.splice(from < to ? to - 1 : to, 0, moved);
@@ -1406,8 +1358,6 @@ export const Matrix: React.FC<MatrixProps> = ({
   const hasVScroll = totalContentHeight > viewportHeight;
   const hasHScroll = totalContentWidth > viewportWidth;
 
-  const canUndo = editHistoryIndex > 0;
-  const canRedo = editHistoryIndex >= 0 && editHistoryIndex < editHistory.length - 1;
 
   useEffect(() => {
     const maxScrollTop = Math.max(0, totalContentHeight - viewportHeight);
@@ -1626,7 +1576,7 @@ export const Matrix: React.FC<MatrixProps> = ({
       borderRadius: settings.appearance.cornerRadius,
       overflow: "hidden",
       position: "relative",
-      backgroundColor: settings.appearance.surfaceColor,
+      backgroundColor: settings.appearance.surfaceColor === defaultSettings.appearance.surfaceColor ? "var(--mx-surface)" : settings.appearance.surfaceColor,
       boxShadow:
         layoutStyle === "floating" ? "0 24px 70px rgba(15, 23, 42, 0.18)" :
         layoutStyle === "framed" ? "inset 0 0 0 1px rgba(255,255,255,0.14), 0 18px 48px rgba(15, 23, 42, 0.14)" :
@@ -1653,59 +1603,71 @@ export const Matrix: React.FC<MatrixProps> = ({
   }, [settings.appearance, toAlphaColor]);
 
   const surfaceAlpha = Math.max(0, Math.min(1, (settings.appearance.surfaceOpacity ?? 92) / 100));
+  // While the canvas surface is still the default, follow the theme's surface token so dark
+  // and tinted presets reach the grid; a color the user picked is used as-is.
+  const surfaceIsDefault = settings.appearance.surfaceColor === defaultSettings.appearance.surfaceColor;
+  const surfaceTone = (alpha: number, fallback: string) => surfaceIsDefault
+    ? `color-mix(in srgb, var(--mx-surface) ${Math.round(alpha * 100)}%, transparent)`
+    : toAlphaColor(settings.appearance.surfaceColor, alpha, fallback);
   const shellBackground = settings.appearance.glassmorphism
-    ? toAlphaColor(settings.appearance.surfaceColor, Math.max(0.08, surfaceAlpha - 0.34), "rgba(255,255,255,0.12)")
-    : toAlphaColor(settings.appearance.surfaceColor, surfaceAlpha, settings.appearance.surfaceColor);
+    ? surfaceTone(Math.max(0.08, surfaceAlpha - 0.34), "rgba(255,255,255,0.12)")
+    : surfaceTone(surfaceAlpha, settings.appearance.surfaceColor);
   const shellStrongBackground = settings.appearance.glassmorphism
-    ? toAlphaColor(settings.appearance.surfaceColor, Math.max(0.12, surfaceAlpha - 0.2), "rgba(255,255,255,0.16)")
-    : toAlphaColor(settings.appearance.surfaceColor, Math.min(1, surfaceAlpha + 0.04), settings.appearance.surfaceColor);
+    ? surfaceTone(Math.max(0.12, surfaceAlpha - 0.2), "rgba(255,255,255,0.16)")
+    : surfaceTone(Math.min(1, surfaceAlpha + 0.04), settings.appearance.surfaceColor);
   const gridCellBackground = surfaceAlpha < 0.98
     ? "transparent"
-    : toAlphaColor(settings.appearance.surfaceColor, 0.86, settings.appearance.surfaceColor);
+    : surfaceTone(0.86, settings.appearance.surfaceColor);
   const rowBandBackground = surfaceAlpha < 0.98
-    ? toAlphaColor(settings.appearance.surfaceColor, Math.min(0.18, surfaceAlpha * 0.28), "transparent")
+    ? surfaceTone(Math.min(0.18, surfaceAlpha * 0.28), "transparent")
     : "var(--mx-surface-subtle)";
+  const quietGrandTotal = settings.totals.grandTotalBackgroundColor === defaultSettings.totals.grandTotalBackgroundColor;
+  const quietSubtotal = settings.totals.subtotalBackgroundColor === defaultSettings.totals.subtotalBackgroundColor;
+  // An untouched default resolves to the theme token here on the container (custom properties
+  // defined on the root would resolve before the theme class applies); an edited value wins.
+  const themed = (value: string, fallback: string, token: string) => (value === fallback ? `var(${token})` : value);
   const structuralStyleVars = useMemo(() => ({
-    "--mx-gt-bg": settings.totals.grandTotalBackgroundColor,
-    "--mx-gt-fg": settings.totals.grandTotalTextColor,
+    // Untouched default fills give way to the quiet look: totals are marked by
+    // weight and rule lines (see .mx-quiet-totals) instead of gray bands.
+    "--mx-gt-bg": quietGrandTotal ? "transparent" : settings.totals.grandTotalBackgroundColor,
+    "--mx-grandtotal-bg": quietGrandTotal ? "transparent" : settings.totals.grandTotalBackgroundColor,
+    "--mx-gt-fg": themed(settings.totals.grandTotalTextColor, defaultSettings.totals.grandTotalTextColor, "--mx-text"),
     "--mx-gt-fw": settings.totals.grandTotalBold ? 700 : 400,
-    "--mx-st-bg": settings.totals.subtotalBackgroundColor,
-    "--mx-st-fg": settings.totals.subtotalTextColor,
+    "--mx-st-bg": quietSubtotal ? "transparent" : settings.totals.subtotalBackgroundColor,
+    "--mx-subtotal-bg": quietSubtotal ? "transparent" : settings.totals.subtotalBackgroundColor,
+    "--mx-st-fg": themed(settings.totals.subtotalTextColor, defaultSettings.totals.subtotalTextColor, "--mx-text"),
     "--mx-st-fw": settings.totals.subtotalBold ? 700 : 400,
     "--mx-row-parent-fw": settings.headers.rowHeaderParentBold ? 700 : 400,
-    "--mx-row-parent-color": settings.headers.rowHeaderParentColor,
-    "--mx-row-child-color": settings.headers.rowHeaderChildColor,
-    "--mx-col-l0-color": settings.headers.colHeaderLevel0Color,
-    "--mx-col-l1-color": settings.headers.colHeaderLevel1Color,
-    "--mx-col-leaf-color": settings.headers.colHeaderLeafColor,
-    "--mx-header-bg": settings.headers.backgroundColor,
-    "--mx-header-fg": settings.headers.textColor,
+    "--mx-row-parent-color": themed(settings.headers.rowHeaderParentColor, defaultSettings.headers.rowHeaderParentColor, "--mx-text"),
+    "--mx-row-child-color": themed(settings.headers.rowHeaderChildColor, defaultSettings.headers.rowHeaderChildColor, "--mx-text-secondary"),
+    "--mx-col-l0-color": themed(settings.headers.colHeaderLevel0Color, defaultSettings.headers.colHeaderLevel0Color, "--mx-text"),
+    "--mx-col-l1-color": themed(settings.headers.colHeaderLevel1Color, defaultSettings.headers.colHeaderLevel1Color, "--mx-text-secondary"),
+    "--mx-col-leaf-color": themed(settings.headers.colHeaderLeafColor, defaultSettings.headers.colHeaderLeafColor, "--mx-text-secondary"),
+    "--mx-header-bg": themed(settings.headers.backgroundColor, defaultSettings.headers.backgroundColor, "--mx-surface-subtle"),
+    "--mx-header-fg": themed(settings.headers.textColor, defaultSettings.headers.textColor, "--mx-text"),
     "--mx-cell-bg": gridCellBackground,
     "--mx-row-odd": rowBandBackground,
     "--mx-row-header-bg": shellStrongBackground,
-  } as React.CSSProperties), [gridCellBackground, rowBandBackground, shellStrongBackground, settings.headers, settings.totals]);
+  } as React.CSSProperties), [gridCellBackground, rowBandBackground, shellStrongBackground, settings.headers, settings.totals, quietGrandTotal, quietSubtotal]);
 
   return (
-    <div className={`matrix-container ${formulaBarEditMode ? "formula-edit-mode" : ""} ${(settings.appearance as any).glassmorphism ? "is-glassmorphic" : ""}`} style={{ height, ...designStyles, ...structuralStyleVars }} onClick={handleBackgroundClick} onScroll={handleContainerScroll}>
+    <div className={`matrix-container ${quietGrandTotal || quietSubtotal ? "mx-quiet-totals" : ""} ${formulaBarEditMode ? "formula-edit-mode" : ""} ${(settings.appearance as any).glassmorphism ? "is-glassmorphic" : ""}`} style={{ height, ...designStyles, ...structuralStyleVars }} onClick={handleBackgroundClick} onScroll={handleContainerScroll}>
       <div style={{ position: "absolute", inset: 0, ...glassEffect, pointerEvents: "none", zIndex: 0 }} />
-      {showFormulaBar && (
+      {allowInteractions && (
         <div
-          className="matrix-formula-shell"
-          style={{ minHeight: FORMULA_BAR_HEIGHT, height: FORMULA_BAR_HEIGHT, flexShrink: 0, position: "relative", zIndex: 3, background: shellStrongBackground, display: "flex", visibility: "visible", opacity: 1 }}
+          className={`matrix-formula-shell ${showFormulaBar ? "has-cell" : "is-idle"}`}
+          style={{ height: FORMULA_BAR_HEIGHT, background: shellStrongBackground }}
         >
           <FormulaBar
             ref={formulaBarRef}
             value={activeCell?.value || ""}
             activeCellLabel={activeCell?.label || ""}
+            disabled={!showFormulaBar}
             onCommit={handleCommitEdit}
             onCancel={handleCancelEdit}
             context={intelliSenseContextObj}
             onEditModeChange={setFormulaBarEditMode}
             onInsertReference={() => { }}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-            canUndo={canUndo}
-            canRedo={canRedo}
           />
         </div>
       )}

@@ -73,6 +73,7 @@ export const IntelliSenseDropdown: React.FC<IntelliSenseDropdownProps> = ({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [hoveredFunction, setHoveredFunction] = useState<FunctionSignature | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const keyboardNavigationRef = useRef(false);
 
   const intelliSense = useMemo(() => new FormulaIntelliSense(context), [context]);
@@ -91,7 +92,7 @@ export const IntelliSenseDropdown: React.FC<IntelliSenseDropdownProps> = ({
   useEffect(() => {
     if (keyboardNavigationRef.current && listRef.current && suggestions.length > 0) {
       const listEl = listRef.current;
-      const items = Array.from(listEl.querySelectorAll(".intellisense-item"));
+      const items = Array.from(listEl.querySelectorAll("[data-suggestion]"));
       const selectedEl = items[selectedIndex] as HTMLElement;
       if (selectedEl) selectedEl.scrollIntoView({ block: "nearest" });
       keyboardNavigationRef.current = false;
@@ -119,8 +120,14 @@ export const IntelliSenseDropdown: React.FC<IntelliSenseDropdownProps> = ({
   );
 
   useEffect(() => {
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    // Overlay shells stop keydown propagation at the panel (so typing never
+    // reaches grid shortcuts), which would starve a bubbling document
+    // listener. Inside an overlay, listen in the capture phase instead; the
+    // preventDefault on Escape then keeps the dialog open while suggestions
+    // are dismissed. Elsewhere (formula bar) the original bubbling order stays.
+    const capture = !!popoverRef.current?.closest(".mx-ov");
+    document.addEventListener("keydown", handleKeyDown, capture);
+    return () => document.removeEventListener("keydown", handleKeyDown, capture);
   }, [handleKeyDown]);
 
   const handleMouseEnter = useCallback((suggestion: Suggestion) => {
@@ -134,39 +141,33 @@ export const IntelliSenseDropdown: React.FC<IntelliSenseDropdownProps> = ({
 
   if (suggestions.length === 0 || !anchorRect) return null;
 
-  const dropdownStyle: React.CSSProperties = {
-    position: "fixed",
+  // Position follows the editor; the surface comes from .mx-popover. The list
+  // scrolls on its own so the signature help stays pinned underneath.
+  const popoverStyle: React.CSSProperties = {
     left: anchorRect.left,
     top: anchorRect.bottom + 4,
     zIndex: 100003,
     minWidth: 260,
     maxWidth: 380,
-    background: "#ffffff",
-    border: "1px solid rgba(226, 232, 240, 0.8)",
-    borderRadius: 12,
-    boxShadow: "0 10px 30px -5px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05)",
+    padding: 0,
     overflow: "hidden",
     display: "flex",
     flexDirection: "column",
-    animation: "fadeIn 0.1s ease-out",
   };
 
   const firstOtherIdx = groupedSuggestions.calculated.length;
+  const hasCalculated = groupedSuggestions.calculated.length > 0;
 
   return (
-    <div className="intellisense-dropdown" style={dropdownStyle}>
-      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }`}</style>
-      <div className="intellisense-list" ref={listRef} style={{ maxHeight: 280, overflowY: "auto", padding: "4px 0" }}>
-        {groupedSuggestions.calculated.length > 0 && (
-          <div style={{ padding: "8px 12px 4px", fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1.2 }}>Calculated Rows</div>
-        )}
+    <div ref={popoverRef} className="mx-popover" style={popoverStyle} role="listbox" aria-label="Formula suggestions">
+      <div ref={listRef} style={{ maxHeight: 280, overflowY: "auto", padding: 6 }}>
+        {hasCalculated && <div className="mx-popover-heading">Calculated rows</div>}
         {groupedSuggestions.calculated.map((suggestion, i) => (
           <IntelliSenseItem key={`calc-${i}`} suggestion={suggestion} selected={selectedIndex === i} onSelect={() => onSelect(suggestion)} onHover={() => handleMouseEnter(suggestion)} />
         ))}
 
-        {groupedSuggestions.others.length > 0 && (
-          <div style={{ padding: "8px 12px 4px", fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1.2, borderTop: groupedSuggestions.calculated.length > 0 ? "1px solid #f1f5f9" : "none", marginTop: groupedSuggestions.calculated.length > 0 ? 4 : 0 }}>Suggestions</div>
-        )}
+        {hasCalculated && groupedSuggestions.others.length > 0 && <div className="mx-popover-sep" />}
+        {hasCalculated && groupedSuggestions.others.length > 0 && <div className="mx-popover-heading">Suggestions</div>}
         {groupedSuggestions.others.map((suggestion, i) => {
           const index = i + firstOtherIdx;
           return <IntelliSenseItem key={`other-${i}`} suggestion={suggestion} selected={selectedIndex === index} onSelect={() => onSelect(suggestion)} onHover={() => handleMouseEnter(suggestion)} />;
@@ -174,14 +175,11 @@ export const IntelliSenseDropdown: React.FC<IntelliSenseDropdownProps> = ({
       </div>
 
       {hoveredFunction && (
-        <div style={{ borderTop: "1px solid #f1f5f9", padding: "12px 16px", background: "#f8fafc", fontSize: 12 }}>
-          <div style={{ fontWeight: 800, color: "#0f172a", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ color: "#2563eb" }}><FunctionIcon /></span>
-            {hoveredFunction.signature}
-          </div>
-          <div style={{ color: "#64748b", marginBottom: 8, lineHeight: 1.4 }}>{hoveredFunction.description}</div>
-          <div style={{ fontSize: 11, color: "#94a3b8", paddingTop: 8, borderTop: "1px dashed #e2e8f0" }}>
-            Returns: <code style={{ color: "#0891b2", background: "#ecfeff", padding: "1px 4px", borderRadius: 4, fontWeight: 700 }}>{hoveredFunction.returnType}</code>
+        <div className="mx-stack is-tight" style={{ padding: "10px 12px", borderTop: "1px solid var(--mx-ov-line)", background: "var(--mx-surface-subtle)" }}>
+          <code className="mx-code" style={{ alignSelf: "flex-start", fontWeight: 600, color: "var(--mx-text)" }}>{hoveredFunction.signature}</code>
+          <div className="mx-muted" style={{ lineHeight: 1.45 }}>{hoveredFunction.description}</div>
+          <div className="mx-muted" style={{ fontSize: 11 }}>
+            Returns <code className="mx-code">{hoveredFunction.returnType}</code>
           </div>
         </div>
       )}
@@ -198,62 +196,19 @@ const IntelliSenseItem: React.FC<{
   const Icon = TYPE_ICONS[suggestion.type] || MeasureIcon;
   return (
     <div
-      className={`intellisense-item ${selected ? "selected" : ""}`}
+      className={`mx-popover-item${selected ? " is-active" : ""}`}
+      data-suggestion=""
+      role="option"
+      aria-selected={selected}
       onClick={onSelect}
       onMouseEnter={onHover}
-      style={{
-        padding: "6px 12px",
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        cursor: "pointer",
-        background: selected ? "#2563eb" : "transparent",
-        color: selected ? "#ffffff" : "#334155",
-        fontSize: 13,
-        transition: "all 0.1s ease",
-      }}
     >
-      <span style={{
-        width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center",
-        borderRadius: 6, background: selected ? "rgba(255,255,255,0.2)" : getIconBg(suggestion.type),
-        color: selected ? "#ffffff" : getIconColor(suggestion.type),
-        flexShrink: 0,
-      }}>
-        <Icon />
-      </span>
-      <span style={{ flex: 1, fontWeight: selected ? 700 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-        {suggestion.label}
-      </span>
-      {!selected && suggestion.detail && (
-        <span style={{ fontSize: 10, color: "#94a3b8", fontStyle: "italic", flexShrink: 0 }}>{suggestion.detail}</span>
-      )}
+      <span className="mx-popover-icon" title={suggestion.type}><Icon /></span>
+      <span className="mx-popover-label">{suggestion.label}</span>
+      {suggestion.detail && <span className="mx-popover-hint">{suggestion.detail}</span>}
     </div>
   );
 };
-
-function getIconBg(type: string): string {
-  switch (type) {
-    case "measure": return "#dcfce7";
-    case "calculatedMeasure": return "#dbeafe";
-    case "column": return "#fef3c7";
-    case "row": return "#fae8ff";
-    case "function": return "#f1f5f9";
-    case "shortcut": return "#ecfeff";
-    default: return "#f3f4f6";
-  }
-}
-
-function getIconColor(type: string): string {
-  switch (type) {
-    case "measure": return "#16a34a";
-    case "calculatedMeasure": return "#2563eb";
-    case "column": return "#d97706";
-    case "row": return "#a21caf";
-    case "function": return "#475569";
-    case "shortcut": return "#0891b2";
-    default: return "#64748b";
-  }
-}
 
 // ─── Editor Component ─────────────────────────────────────────────────────────
 
@@ -337,7 +292,8 @@ export const FormulaEditor: React.FC<FormulaEditorProps> = ({
     <div className={`formula-editor ${className}`} style={{ position: "relative" }}>
       <textarea
         ref={textareaRef}
-        style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: "1px solid #e2e8f0", borderRadius: 10, outline: "none", background: "#f8fafc", fontFamily: "'Cascadia Code', 'Consolas', monospace", minHeight: rows * 20 }}
+        className="mx-textarea is-code"
+        style={{ minHeight: rows * 20 + 16 }}
         value={value}
         onChange={handleChange}
         onKeyDown={handleEditorKeyDown}

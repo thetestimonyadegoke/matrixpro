@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useCallback, useState } from "react";
+import { VisualPortal } from "./overlayKit";
 
 export type ContextMenuType = "cell" | "rowHeader" | "columnHeader" | "total";
 
@@ -26,7 +27,14 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   items,
   onClose,
 }) => {
-  const menuRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  // The menu mounts one render late (VisualPortal resolves its host first), so
+  // track the element in state to run positioning once it actually exists.
+  const [menuEl, setMenuEl] = useState<HTMLDivElement | null>(null);
+  const setMenuRef = useCallback((el: HTMLDivElement | null) => {
+    menuRef.current = el;
+    setMenuEl(el);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -47,7 +55,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
     };
   }, [onClose]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!menuRef.current) return;
     const rect = menuRef.current.getBoundingClientRect();
     const viewportWidth = window.innerWidth;
@@ -77,8 +85,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
     menuRef.current.style.left = `${Math.max(8, adjustedX)}px`;
     menuRef.current.style.top = `${Math.max(8, adjustedY)}px`;
     menuRef.current.style.opacity = "1";
-    menuRef.current.style.transform = "scale(1)";
-  }, [x, y]);
+  }, [x, y, menuEl]);
 
   const handleItemClick = useCallback((item: ContextMenuItem) => {
     if (item.disabled || item.divider) return;
@@ -87,7 +94,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   }, [onClose]);
 
   const renderIcon = (name: string) => {
-    const common = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+    const common = { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
     switch (name) {
       case "Copy": return <svg {...common}><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>;
       case "Row": return <svg {...common}><path d="M3 6h18M3 12h18M3 18h18" /></svg>;
@@ -117,42 +124,39 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   };
 
   return (
-    <div
-      ref={menuRef}
-      className="context-menu"
-      style={{
-        left: x,
-        top: y,
-        maxHeight: "min(80vh, 600px)",
-        overflowY: "auto",
-        overscrollBehavior: "contain",
-        opacity: 0,
-        transform: "scale(0.95)",
-        transition: "opacity 0.15s ease, transform 0.15s cubic-bezier(0, 0, 0.2, 1)",
-        boxShadow: "0 10px 30px -5px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.05)",
-        borderRadius: "12px",
-        padding: "6px",
-      }}
-      role="menu"
-      aria-label="Context menu"
-    >
-      {items.map((item, index) => {
-        if (item.divider) return <div key={index} className="context-menu-divider" />;
-        return (
-          <button
-            key={item.id}
-            className={`context-menu-item ${item.disabled ? "disabled" : ""}`}
-            onClick={() => handleItemClick(item)}
-            disabled={item.disabled}
-            role="menuitem"
-            type="button"
-          >
-            {item.icon && <span className="context-menu-icon">{renderIcon(item.icon)}</span>}
-            <span className="context-menu-label">{item.label}</span>
-          </button>
-        );
-      })}
-    </div>
+    <VisualPortal>
+      <div
+        ref={setMenuRef}
+        className="mx-popover"
+        style={{
+          left: x,
+          top: y,
+          maxHeight: "min(80vh, 600px)",
+          overscrollBehavior: "contain",
+          opacity: 0,
+        }}
+        role="menu"
+        aria-label="Context menu"
+      >
+        {items.map((item, index) => {
+          if (item.divider) return <div key={index} className="mx-popover-sep" role="separator" />;
+          const danger = item.icon === "Delete";
+          return (
+            <button
+              key={item.id}
+              className={`mx-popover-item${danger ? " is-danger" : ""}`}
+              onClick={() => handleItemClick(item)}
+              disabled={item.disabled}
+              role="menuitem"
+              type="button"
+            >
+              {item.icon && <span className="mx-popover-icon" aria-hidden="true">{renderIcon(item.icon)}</span>}
+              <span className="mx-popover-label">{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </VisualPortal>
   );
 };
 
@@ -168,20 +172,20 @@ export function buildCellMenuItems(
   onDrillThrough?: () => void
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [
-    { id: "copy", label: "Copy Value", icon: "Copy", action: onCopy },
-    { id: "copyRow", label: "Copy Row", icon: "Row", action: onCopyRow },
+    { id: "copy", label: "Copy value", icon: "Copy", action: onCopy },
+    { id: "copyRow", label: "Copy row", icon: "Row", action: onCopyRow },
     { id: "divider1", label: "", divider: true },
-    { id: "addNote", label: "Add/Edit Note", icon: "Note", action: onAddNote },
-    { id: "revert", label: "Revert to Model Value", icon: "Undo", action: onRevert, disabled: !hasEdit },
+    { id: "addNote", label: "Add or edit note", icon: "Note", action: onAddNote },
+    { id: "revert", label: "Revert to model value", icon: "Undo", action: onRevert, disabled: !hasEdit },
     { id: "divider2", label: "", divider: true },
-    { id: "createCalc", label: "Create Calculated Measure...", icon: "Calc", action: onOpenCalcWizard },
-    { id: "addVariance", label: "Variance vs Previous", icon: "Delta", action: onAddVariance },
+    { id: "createCalc", label: "Create calculated measure…", icon: "Calc", action: onOpenCalcWizard },
+    { id: "addVariance", label: "Variance vs previous", icon: "Delta", action: onAddVariance },
     { id: "divider3", label: "", divider: true },
-    { id: "export", label: "Export Selection", icon: "Export", action: onExport },
+    { id: "export", label: "Export selection", icon: "Export", action: onExport },
   ];
   if (onDrillThrough) {
     items.push({ id: "divider4", label: "", divider: true });
-    items.push({ id: "drillThrough", label: "Drill Through...", icon: "Open", action: onDrillThrough });
+    items.push({ id: "drillThrough", label: "Drill through…", icon: "Open", action: onDrillThrough });
   }
   return items;
 }
@@ -203,27 +207,27 @@ export function buildRowHeaderMenuItems(
   onDrillThrough?: () => void
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [
-    { id: "expandAll", label: "Expand All Under This", icon: "Expand", action: onExpandAll },
-    { id: "collapseAll", label: "Collapse All Under This", icon: "Collapse", action: onCollapseAll },
+    { id: "expandAll", label: "Expand all under this", icon: "Expand", action: onExpandAll },
+    { id: "collapseAll", label: "Collapse all under this", icon: "Collapse", action: onCollapseAll },
     { id: "divider1", label: "", divider: true },
-    { id: "addCalcRow", label: "Add Calculated Row...", icon: "Add", action: onAddCalcRow },
-    { id: "renameRow", label: "Rename Row", icon: "Edit", action: onRenameRow },
-    { id: "moveToGroup", label: "Move to Group...", icon: "Group", action: onMoveToGroup },
-    { id: "hideRow", label: "Hide Row/Hierarchy", icon: "Hide", action: onHide },
-    { id: "toggleExpandIcon", label: expandIconHidden ? "Show Expand/Collapse Icon" : "Hide Expand/Collapse Icon", icon: "Settings", action: onToggleExpandIcon },
+    { id: "addCalcRow", label: "Add calculated row…", icon: "Add", action: onAddCalcRow },
+    { id: "renameRow", label: "Rename row", icon: "Edit", action: onRenameRow },
+    { id: "moveToGroup", label: "Move to group…", icon: "Group", action: onMoveToGroup },
+    { id: "hideRow", label: "Hide row or hierarchy", icon: "Hide", action: onHide },
+    { id: "toggleExpandIcon", label: expandIconHidden ? "Show expand/collapse icon" : "Hide expand/collapse icon", icon: "Settings", action: onToggleExpandIcon },
     { id: "divider2", label: "", divider: true },
-    { id: "lockRow", label: isLocked ? "Unlock Row" : "Lock Row", icon: isLocked ? "Unlock" : "Lock", action: onLockRow },
+    { id: "lockRow", label: isLocked ? "Unlock row" : "Lock row", icon: isLocked ? "Unlock" : "Lock", action: onLockRow },
   ];
 
   if (isCalculated) {
     items.push({ id: "dividerCalc", label: "", divider: true });
-    items.push({ id: "editCalcRow", label: "Edit Calculated Row", icon: "Settings", action: onEditRow });
-    items.push({ id: "deleteCalcRow", label: "Delete Calculated Row", icon: "Delete", action: onDeleteRow });
+    items.push({ id: "editCalcRow", label: "Edit calculated row", icon: "Settings", action: onEditRow });
+    items.push({ id: "deleteCalcRow", label: "Delete calculated row", icon: "Delete", action: onDeleteRow });
   }
 
   if (onDrillThrough) {
     items.push({ id: "divider3", label: "", divider: true });
-    items.push({ id: "drillThrough", label: "Drill Through...", icon: "Open", action: onDrillThrough });
+    items.push({ id: "drillThrough", label: "Drill through…", icon: "Open", action: onDrillThrough });
   }
 
   return items;
@@ -241,21 +245,21 @@ export function buildColumnHeaderMenuItems(
   onHideColumn?: () => void
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [
-    { id: "sortAsc", label: "Sort Ascending", icon: "Up", action: onSortAsc },
-    { id: "sortDesc", label: "Sort Descending", icon: "Down", action: onSortDesc },
+    { id: "sortAsc", label: "Sort ascending", icon: "Up", action: onSortAsc },
+    { id: "sortDesc", label: "Sort descending", icon: "Down", action: onSortDesc },
     { id: "divider1", label: "", divider: true },
-    { id: "renameColumn", label: "Rename Header", icon: "Edit", action: onRenameColumn },
+    { id: "renameColumn", label: "Rename header", icon: "Edit", action: onRenameColumn },
     { id: "dividerRename", label: "", divider: true },
-    { id: "moveLeft", label: "Move Left", icon: "Left", action: onMoveLeft },
-    { id: "moveRight", label: "Move Right", icon: "Right", action: onMoveRight },
+    { id: "moveLeft", label: "Move left", icon: "Left", action: onMoveLeft },
+    { id: "moveRight", label: "Move right", icon: "Right", action: onMoveRight },
     { id: "divider2", label: "", divider: true },
-    { id: "pin", label: isPinned ? "Unpin Column" : "Pin/Freeze", icon: "Pin", action: onPin },
-    { id: "addVariance", label: "Add Variance Column", icon: "Delta", action: onAddVariance },
+    { id: "pin", label: isPinned ? "Unpin column" : "Pin column", icon: "Pin", action: onPin },
+    { id: "addVariance", label: "Add variance column", icon: "Delta", action: onAddVariance },
   ];
 
   if (onHideColumn) {
     items.push({ id: "divider3", label: "", divider: true });
-    items.push({ id: "hideColumn", label: "Hide Column", icon: "Hide", action: onHideColumn });
+    items.push({ id: "hideColumn", label: "Hide column", icon: "Hide", action: onHideColumn });
   }
 
   return items;

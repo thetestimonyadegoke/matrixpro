@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from "react";
+import { Button, Field, Overlay, Switch } from "./overlayKit";
 
 export type BulkOperationType = "setValue" | "clear" | "add" | "multiply" | "percentageChange" | "formula";
 
@@ -22,19 +23,21 @@ export const BulkOperationsPanel: React.FC<BulkOperationsPanelProps> = ({
   const [applyToLocked, setApplyToLocked] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  const handleApply = useCallback(() => {
+  const runApply = useCallback((toLocked: boolean, confirmed: boolean) => {
     if (operation === "clear" || value.trim() || operation === "formula") {
-      if (hasLockedCells && !applyToLocked && !showConfirm) {
+      if (hasLockedCells && !toLocked && !confirmed) {
         setShowConfirm(true);
         return;
       }
-      onApply(operation, value, { applyToLocked });
+      onApply(operation, value, { applyToLocked: toLocked });
       setShowConfirm(false);
       if (operation !== "formula") {
         setValue("");
       }
     }
-  }, [operation, value, applyToLocked, hasLockedCells, onApply, showConfirm]);
+  }, [operation, value, hasLockedCells, onApply]);
+
+  const handleApply = useCallback(() => runApply(applyToLocked, showConfirm), [runApply, applyToLocked, showConfirm]);
 
   const handleClose = useCallback(() => {
     setShowConfirm(false);
@@ -46,148 +49,122 @@ export const BulkOperationsPanel: React.FC<BulkOperationsPanelProps> = ({
   if (!isOpen) return null;
 
   const operationLabels: Record<BulkOperationType, string> = {
-    setValue: "Set Value",
-    clear: "Clear Values",
-    add: "Add to Existing",
+    setValue: "Set value",
+    clear: "Clear values",
+    add: "Add to existing",
     multiply: "Multiply by",
-    percentageChange: "Percentage Change",
-    formula: "Apply Formula",
+    percentageChange: "Percentage change",
+    formula: "Apply formula",
   };
 
   const operationDescriptions: Record<BulkOperationType, string> = {
-    setValue: "Replace all selected cell values with the specified value",
-    clear: "Remove all values from selected cells",
-    add: "Add the specified value to existing cell values",
-    multiply: "Multiply existing cell values by the specified factor",
-    percentageChange: "Apply percentage change (e.g., 10 for +10%, -5 for -5%)",
-    formula: "Apply a formula to all selected cells (use CELL() to reference current cell value)",
+    setValue: "Replace every selected value with this value.",
+    clear: "Remove the values from the selected cells.",
+    add: "Add this value to each existing value.",
+    multiply: "Multiply each existing value by this factor.",
+    percentageChange: "Change each value by this percentage (10 for +10%, -5 for -5%).",
+    formula: "Apply a formula to every selected cell.",
   };
 
   const needsValueInput = operation !== "clear";
   const isFormula = operation === "formula";
+  const cellCount = selectedCells.length;
 
   return (
-    <div className="bulk-operations-overlay" onClick={handleClose}>
-      <div className="bulk-operations-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="bulk-operations-header">
-          <h3>Bulk Data Operations</h3>
-          <button className="bulk-operations-close" onClick={handleClose}>×</button>
-        </div>
+    <Overlay
+      title="Bulk edit"
+      subtitle={<span className="mx-num">{cellCount} cell{cellCount !== 1 ? "s" : ""} selected</span>}
+      width={440}
+      onClose={handleClose}
+      footer={
+        <>
+          <Button onClick={handleClose}>Cancel</Button>
+          <Button
+            variant="primary"
+            onClick={handleApply}
+            disabled={needsValueInput && !value.trim()}
+          >
+            Apply to {cellCount} cells
+          </Button>
+        </>
+      }
+    >
+      <div className="mx-stack">
+        <Field label="Operation" hint={operationDescriptions[operation]} htmlFor="mx-bulk-op">
+          <select
+            id="mx-bulk-op"
+            className="mx-select"
+            value={operation}
+            onChange={(e) => {
+              setOperation(e.target.value as BulkOperationType);
+              setShowConfirm(false);
+            }}
+          >
+            {(Object.keys(operationLabels) as BulkOperationType[]).map((op) => (
+              <option key={op} value={op}>
+                {operationLabels[op]}
+              </option>
+            ))}
+          </select>
+        </Field>
 
-        <div className="bulk-operations-body">
-          <div className="bulk-operations-selection-info">
-            <span className="bulk-operations-badge">{selectedCells.length}</span>
-            <span>cells selected</span>
+        {needsValueInput && (
+          <Field label={isFormula ? "Formula" : "Value"} htmlFor="mx-bulk-value">
+            <input
+              id="mx-bulk-value"
+              type={isFormula ? "text" : "number"}
+              className={isFormula ? "mx-input" : "mx-input is-num"}
+              style={isFormula ? { fontFamily: "ui-monospace, \"Cascadia Code\", Consolas, monospace" } : undefined}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={isFormula ? "=CELL()*1.1" : "Enter a value"}
+              data-autofocus
+              autoFocus
+            />
+          </Field>
+        )}
+
+        {isFormula && (
+          <div className="mx-note" style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 10px", alignItems: "center" }}>
+            <code className="mx-code">CELL()</code>
+            <span>Current cell value</span>
+            <code className="mx-code">ROW()</code>
+            <span>Row index</span>
+            <code className="mx-code">COL()</code>
+            <span>Column index</span>
           </div>
+        )}
 
-          <div className="bulk-operations-section">
-            <label className="bulk-operations-label">Operation</label>
-            <select
-              className="bulk-operations-select"
-              value={operation}
-              onChange={(e) => {
-                setOperation(e.target.value as BulkOperationType);
-                setShowConfirm(false);
-              }}
-            >
-              {(Object.keys(operationLabels) as BulkOperationType[]).map((op) => (
-                <option key={op} value={op}>
-                  {operationLabels[op]}
-                </option>
-              ))}
-            </select>
-            <p className="bulk-operations-description">
-              {operationDescriptions[operation]}
-            </p>
+        {hasLockedCells && (
+          <Switch
+            label="Apply to locked cells"
+            checked={applyToLocked}
+            onChange={(checked) => {
+              setApplyToLocked(checked);
+              setShowConfirm(false);
+            }}
+          />
+        )}
+
+        {showConfirm && (
+          <div className="mx-note is-danger mx-stack is-tight" role="alert">
+            <span>Some selected cells are locked. Apply anyway?</span>
+            <div className="mx-row" style={{ justifyContent: "flex-end", gap: 6 }}>
+              <Button size="sm" variant="ghost" onClick={() => setShowConfirm(false)}>Cancel</Button>
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => {
+                  setApplyToLocked(true);
+                  runApply(true, true);
+                }}
+              >
+                Apply to all
+              </Button>
+            </div>
           </div>
-
-          {needsValueInput && (
-            <div className="bulk-operations-section">
-              <label className="bulk-operations-label">
-                {isFormula ? "Formula" : "Value"}
-                {isFormula && (
-                  <span className="bulk-operations-hint">
-                    Use CELL() to reference current cell value
-                  </span>
-                )}
-              </label>
-              <input
-                type={isFormula ? "text" : "number"}
-                className="bulk-operations-input"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                placeholder={isFormula ? "=CELL()*1.1" : "Enter value..."}
-                autoFocus
-              />
-              {isFormula && (
-                <div className="bulk-operations-formula-help">
-                  <span className="bulk-operations-formula-tag">CELL()</span>
-                  <span>Current cell value</span>
-                  <span className="bulk-operations-formula-tag">ROW()</span>
-                  <span>Row index</span>
-                  <span className="bulk-operations-formula-tag">COL()</span>
-                  <span>Column index</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {hasLockedCells && (
-            <div className="bulk-operations-section">
-              <label className="bulk-operations-checkbox">
-                <input
-                  type="checkbox"
-                  checked={applyToLocked}
-                  onChange={(e) => {
-                    setApplyToLocked(e.target.checked);
-                    setShowConfirm(false);
-                  }}
-                />
-                <span>Apply to locked cells</span>
-              </label>
-            </div>
-          )}
-
-          {showConfirm && (
-            <div className="bulk-operations-confirm">
-              <p>Some selected cells are locked. Apply operation anyway?</p>
-              <div className="bulk-operations-confirm-actions">
-                <button
-                  className="bulk-operations-btn bulk-operations-btn-secondary"
-                  onClick={() => setShowConfirm(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="bulk-operations-btn bulk-operations-btn-primary"
-                  onClick={() => {
-                    setApplyToLocked(true);
-                    handleApply();
-                  }}
-                >
-                  Apply to All
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="bulk-operations-actions">
-            <button
-              className="bulk-operations-btn bulk-operations-btn-secondary"
-              onClick={handleClose}
-            >
-              Cancel
-            </button>
-            <button
-              className="bulk-operations-btn bulk-operations-btn-primary"
-              onClick={handleApply}
-              disabled={needsValueInput && !value.trim()}
-            >
-              Apply to {selectedCells.length} Cells
-            </button>
-          </div>
-        </div>
+        )}
       </div>
-    </div>
+    </Overlay>
   );
 };

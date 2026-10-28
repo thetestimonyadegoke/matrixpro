@@ -21,6 +21,8 @@ export interface FormulaBarProps {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  /** No cell is selected: show a quiet hint instead of an editor. */
+  disabled?: boolean;
 }
 
 export const FormulaBar = forwardRef<FormulaBarRef, FormulaBarProps>(({
@@ -36,6 +38,7 @@ export const FormulaBar = forwardRef<FormulaBarRef, FormulaBarProps>(({
   onRedo,
   canUndo,
   canRedo,
+  disabled,
 }, ref) => {
   const [internalValue, setInternalValue] = useState(value);
   const [isEditing, setIsEditing] = useState(false);
@@ -112,26 +115,27 @@ export const FormulaBar = forwardRef<FormulaBarRef, FormulaBarProps>(({
     blur: () => editorRef.current?.blur(),
   }), [insertCellReference]);
 
+  if (disabled) {
+    return (
+      <div className="matrix-formula-bar is-idle">
+        <div className="formula-bar-address is-empty" aria-hidden="true">—</div>
+        <div className="formula-bar-fx" aria-hidden="true">fx</div>
+        <div className="formula-bar-hint">Select a cell to see its value, or type a formula like <code>=[Sales] * 1.1</code></div>
+      </div>
+    );
+  }
+
+  const dirty = internalValue !== value;
+
   return (
     <div
-      className="matrix-formula-bar"
-      style={{
-        display: "flex",
-        visibility: "visible",
-        opacity: 1,
-        width: "100%",
-        height: "100%",
-        minHeight: 40,
-        flexShrink: 0,
-      }}
+      className={`matrix-formula-bar ${isEditing ? "is-editing" : ""}`}
       onClick={handleFocus}
     >
-      <div className="formula-bar-address">
-        {activeCellLabel || "A1"}
+      <div className="formula-bar-address" title={activeCellLabel}>
+        {activeCellLabel}
       </div>
-      <div className="formula-bar-fx">
-        fx
-      </div>
+      <div className="formula-bar-fx" aria-hidden="true">fx</div>
       <div className="formula-bar-input-wrapper">
         <FormulaEditor
           value={internalValue}
@@ -140,7 +144,7 @@ export const FormulaBar = forwardRef<FormulaBarRef, FormulaBarProps>(({
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           context={context}
-          placeholder="Enter value or formula (e.g. = [Measure] * 2)"
+          placeholder="Value or formula, e.g. =[Sales] * 1.1"
           rows={1}
           className="formula-bar-editor"
           textareaRef={editorRef}
@@ -148,56 +152,40 @@ export const FormulaBar = forwardRef<FormulaBarRef, FormulaBarProps>(({
       </div>
       <div className="formula-bar-actions">
         {onUndo && (
-          <button
-            className="formula-bar-btn undo"
-            onClick={(e) => {
-              e.stopPropagation();
-              onUndo();
-            }}
-            disabled={canUndo === false}
-            title="Undo last edit"
-          >
-            ⟲
-          </button>
+          <button type="button" className="formula-bar-btn" onClick={(e) => { e.stopPropagation(); onUndo(); }} disabled={canUndo === false} title="Undo">⟲</button>
         )}
         {onRedo && (
-          <button
-            className="formula-bar-btn redo"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRedo();
-            }}
-            disabled={canRedo === false}
-            title="Redo edit"
-          >
-            ⟳
-          </button>
+          <button type="button" className="formula-bar-btn" onClick={(e) => { e.stopPropagation(); onRedo(); }} disabled={canRedo === false} title="Redo">⟳</button>
         )}
-        {internalValue !== value && (
+        {dirty ? (
           <>
             <button
+              type="button"
               className="formula-bar-btn cancel"
               onClick={(e) => {
                 e.stopPropagation();
                 onCancel();
                 setIsEditing(false);
               }}
-              title="Cancel (Esc)"
+              title="Discard (Esc)"
             >
-              ✕
+              Cancel
             </button>
             <button
+              type="button"
               className="formula-bar-btn commit"
               onClick={(e) => {
                 e.stopPropagation();
                 onCommit(internalValue);
                 setIsEditing(false);
               }}
-              title="Commit (Enter)"
+              title="Apply (Enter)"
             >
-              ✓
+              Apply
             </button>
           </>
+        ) : (
+          <span className="formula-bar-keys" aria-hidden="true">Enter to apply · Esc to close</span>
         )}
       </div>
     </div>

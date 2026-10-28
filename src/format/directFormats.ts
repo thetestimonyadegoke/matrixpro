@@ -215,11 +215,13 @@ export function composeCellStyle(
   if (isGrandTotal) {
     if (settings.totals.grandTotalBold) fontWeight = 700;
     if (settings.totals.grandTotalTextColor !== defaultSettings.totals.textColor) color = settings.totals.grandTotalTextColor;
-    if (settings.totals.grandTotalBackgroundColor !== defaultSettings.totals.backgroundColor) backgroundColor = settings.totals.grandTotalBackgroundColor;
+    if (settings.totals.grandTotalBackgroundColor !== defaultSettings.totals.backgroundColor
+      && settings.totals.grandTotalBackgroundColor !== defaultSettings.totals.grandTotalBackgroundColor) backgroundColor = settings.totals.grandTotalBackgroundColor;
   } else if (isSubtotal) {
     if (settings.totals.subtotalBold) fontWeight = 700;
     if (settings.totals.subtotalTextColor !== defaultSettings.totals.textColor) color = settings.totals.subtotalTextColor;
-    if (settings.totals.subtotalBackgroundColor !== defaultSettings.totals.backgroundColor) backgroundColor = settings.totals.subtotalBackgroundColor;
+    if (settings.totals.subtotalBackgroundColor !== defaultSettings.totals.backgroundColor
+      && settings.totals.subtotalBackgroundColor !== defaultSettings.totals.subtotalBackgroundColor) backgroundColor = settings.totals.subtotalBackgroundColor;
   }
 
   // Conditional formatting provides a base that explicit manual choices can override.

@@ -1,6 +1,7 @@
 /**
  * CalcRowForm — the Inforiver-style right-pane form for authoring a single
- * Calculated Row. Consumed by `CalcRowPanel.tsx` (the Manage Rows modal shell).
+ * Calculated Row. Currently not mounted anywhere (CalcRowPanel has its own
+ * inline editor); kept for reuse and restyled on the overlay kit.
  *
  * Fields (top-to-bottom):
  *   1. Title                                 (text, required)
@@ -25,6 +26,7 @@ import {
   RowQuickFormat,
   RowScalingFactor,
 } from "../settings/settings";
+import { Button, Field, Switch } from "./overlayKit";
 
 export interface CalcRowFormValues {
   title: string;
@@ -325,264 +327,173 @@ export const CalcRowForm: React.FC<CalcRowFormProps> = ({
   ]);
 
   return (
-    <div className="calc-row-form">
-      {/* 1. Title */}
-      <div className="calc-row-form-field">
-        <label className="calc-row-form-label" htmlFor="calcrow-title">
-          Title <span className="required">*</span>
-        </label>
+    <div className="mx-stack">
+      <Field label="Title" htmlFor="calcrow-title">
         <input
           id="calcrow-title"
           type="text"
-          className="calc-row-form-input"
+          className="mx-input"
           value={title}
           onChange={(e) => {
             setTitle(e.target.value);
             setError(null);
           }}
-          placeholder="e.g., Gross Profit"
+          placeholder="e.g. Gross profit"
+          aria-required="true"
           autoFocus
         />
-      </div>
+      </Field>
 
-      {/* 2. Formula */}
-      <div className="calc-row-form-field" style={{ position: "relative" }}>
-        <label className="calc-row-form-label" htmlFor="calcrow-formula">
-          Formula <span className="required">*</span>
-        </label>
-        <textarea
-          id="calcrow-formula"
-          ref={formulaRef}
-          className="calc-row-form-textarea calc-row-form-formula"
-          value={formula}
-          onChange={handleFormulaChange}
-          onKeyDown={handleFormulaKeyDown}
-          rows={4}
-          placeholder="[Revenue] - [COGS]"
-          spellCheck={false}
-        />
-        {intelliSense.visible && intelliSense.items.length > 0 && (
-          <div
-            className="calc-row-intellisense-dropdown"
-            style={{
-              position: "absolute",
-              top: intelliSense.top + 28, // below the label
-              left: intelliSense.left,
-              zIndex: 1000,
-              background: "#ffffff",
-              border: "1px solid #d1d5db",
-              borderRadius: 6,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-              maxHeight: 200,
-              overflowY: "auto",
-              minWidth: 200,
-            }}
-            onMouseDown={(e) => e.preventDefault()} // prevent blur on click
-          >
-            {intelliSense.items.map((item, idx) => (
-              <div
-                key={`${item.kind}-${item.label}`}
-                className={`calc-row-intellisense-item${idx === intelliSense.activeIndex ? " active" : ""}`}
-                style={{
-                  padding: "6px 12px",
-                  cursor: "pointer",
-                  background: idx === intelliSense.activeIndex ? "#eff6ff" : "transparent",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontSize: 13,
-                }}
-                onMouseEnter={() => setIntelliSense(prev => ({ ...prev, activeIndex: idx }))}
-                onClick={() => applyCompletion(item)}
-              >
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    padding: "1px 5px",
-                    borderRadius: 3,
-                    background: item.kind === "row" ? "#dbeafe" : item.kind === "measure" ? "#dcfce7" : "#fef9c3",
-                    color: item.kind === "row" ? "#1d4ed8" : item.kind === "measure" ? "#15803d" : "#854d0e",
-                  }}
+      <Field
+        label="Formula"
+        htmlFor="calcrow-formula"
+        hint={<>Type <span className="mx-kbd">[</span> to insert a row, measure or function. <span className="mx-kbd">↑</span> <span className="mx-kbd">↓</span> to move, <span className="mx-kbd">Enter</span> to insert, <span className="mx-kbd">Esc</span> to dismiss.</>}
+      >
+        <div style={{ position: "relative" }}>
+          <textarea
+            id="calcrow-formula"
+            ref={formulaRef}
+            className="mx-textarea is-code"
+            value={formula}
+            onChange={handleFormulaChange}
+            onKeyDown={handleFormulaKeyDown}
+            rows={4}
+            placeholder="[Revenue] - [COGS]"
+            spellCheck={false}
+            aria-required="true"
+          />
+          {intelliSense.visible && intelliSense.items.length > 0 && (
+            <div
+              className="mx-popover"
+              role="listbox"
+              style={{
+                position: "absolute",
+                top: intelliSense.top,
+                left: intelliSense.left,
+                zIndex: 1000,
+                maxHeight: 200,
+              }}
+              onMouseDown={(e) => e.preventDefault()} // prevent blur on click
+            >
+              {intelliSense.items.map((item, idx) => (
+                <div
+                  key={`${item.kind}-${item.label}`}
+                  role="option"
+                  aria-selected={idx === intelliSense.activeIndex}
+                  className={`mx-popover-item${idx === intelliSense.activeIndex ? " is-active" : ""}`}
+                  onMouseEnter={() => setIntelliSense(prev => ({ ...prev, activeIndex: idx }))}
+                  onClick={() => applyCompletion(item)}
                 >
-                  {item.kind === "row" ? "ROW" : item.kind === "measure" ? "MSRE" : "FN"}
-                </span>
-                <span>{item.label}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="calc-row-form-hint">
-          Type <strong>[</strong> to autocomplete row names, measures, or functions.
-          Use ↑↓ to navigate, Enter/Tab to insert, Esc to dismiss.
+                  <span className="mx-popover-label">{item.label}</span>
+                  <span className="mx-popover-hint">{item.kind === "row" ? "Row" : item.kind === "measure" ? "Measure" : "Function"}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      </div>
+      </Field>
 
-      {/* 3. Bind for Cross filter & RLS */}
-      <div className="calc-row-form-field">
-        <label className="calc-row-form-label" htmlFor="calcrow-binding-mode">
-          Bind for Cross filter &amp; RLS
-        </label>
-        <select
-          id="calcrow-binding-mode"
-          className="calc-row-form-select"
-          value={bindingMode}
-          onChange={(e) =>
-            setBindingMode(e.target.value as RowBinding["mode"])
-          }
-        >
-          {BINDING_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-
-        {bindingMode === "existing" && (
+      <Field label="Bind for cross-filter and RLS" htmlFor="calcrow-binding-mode">
+        <div className="mx-stack is-tight">
           <select
-            className="calc-row-form-select calc-row-form-subfield"
-            value={bindingExistingKey}
-            onChange={(e) => setBindingExistingKey(e.target.value)}
+            id="calcrow-binding-mode"
+            className="mx-select"
+            value={bindingMode}
+            onChange={(e) =>
+              setBindingMode(e.target.value as RowBinding["mode"])
+            }
           >
-            <option value="">— Select a row —</option>
-            {selectableRows.map((row) => (
-              <option key={row.key} value={row.key}>
-                {"—".repeat(row.indent)}
-                {row.label}
+            {BINDING_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
               </option>
             ))}
           </select>
-        )}
 
-        {bindingMode === "new" && (
-          <input
-            type="text"
-            className="calc-row-form-input calc-row-form-subfield"
-            value={bindingNewKey}
-            onChange={(e) => setBindingNewKey(e.target.value)}
-            placeholder="New binding key (e.g., gross_profit)"
-          />
-        )}
+          {bindingMode === "existing" && (
+            <select
+              className="mx-select"
+              aria-label="Row to bind to"
+              value={bindingExistingKey}
+              onChange={(e) => setBindingExistingKey(e.target.value)}
+            >
+              <option value="">Select a row</option>
+              {selectableRows.map((row) => (
+                <option key={row.key} value={row.key}>
+                  {"—".repeat(row.indent)}
+                  {row.label}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {bindingMode === "new" && (
+            <input
+              type="text"
+              className="mx-input"
+              aria-label="New binding key"
+              value={bindingNewKey}
+              onChange={(e) => setBindingNewKey(e.target.value)}
+              placeholder="New binding key, e.g. gross_profit"
+            />
+          )}
+        </div>
+      </Field>
+
+      <div className="mx-grid-2">
+        <Field label="Scale" htmlFor="calcrow-scaling">
+          <select
+            id="calcrow-scaling"
+            className="mx-select"
+            value={scalingFactor}
+            onChange={(e) => setScalingFactor(e.target.value as RowScalingFactor)}
+          >
+            {SCALING_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Quick format" htmlFor="calcrow-quickformat">
+          <select
+            id="calcrow-quickformat"
+            className="mx-select"
+            value={quickFormat}
+            onChange={(e) => setQuickFormat(e.target.value as RowQuickFormat)}
+          >
+            {QUICK_FORMAT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </Field>
       </div>
 
-      {/* 4. Scaling Factor */}
-      <div className="calc-row-form-field">
-        <label className="calc-row-form-label" htmlFor="calcrow-scaling">
-          Scaling Factor
-        </label>
-        <select
-          id="calcrow-scaling"
-          className="calc-row-form-select"
-          value={scalingFactor}
-          onChange={(e) => setScalingFactor(e.target.value as RowScalingFactor)}
-        >
-          {SCALING_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+      <div className="mx-stack is-tight">
+        <Switch label="Override column formatting" checked={overrideColumnFormat} onChange={setOverrideColumnFormat} />
+        <Switch label="Include in total" checked={includeInTotal} onChange={setIncludeInTotal} />
+        <Switch label="Evaluate columns before rows" checked={evaluateColumnsBeforeRows} onChange={setEvaluateColumnsBeforeRows} />
       </div>
 
-      {/* 5. Quick Format */}
-      <div className="calc-row-form-field">
-        <label className="calc-row-form-label" htmlFor="calcrow-quickformat">
-          Quick Format
-        </label>
-        <select
-          id="calcrow-quickformat"
-          className="calc-row-form-select"
-          value={quickFormat}
-          onChange={(e) => setQuickFormat(e.target.value as RowQuickFormat)}
-        >
-          {QUICK_FORMAT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* 5b. Override column formatting */}
-      <div className="calc-row-form-field calc-row-form-toggle-row">
-        <label className="calc-row-form-label" htmlFor="calcrow-override-col-fmt">
-          Override column formatting
-        </label>
-        <label className="calc-row-form-switch">
-          <input
-            id="calcrow-override-col-fmt"
-            type="checkbox"
-            checked={overrideColumnFormat}
-            onChange={(e) => setOverrideColumnFormat(e.target.checked)}
-          />
-          <span className="calc-row-form-slider" />
-        </label>
-      </div>
-
-      {/* 6. Include in total */}
-      <div className="calc-row-form-field calc-row-form-toggle-row">
-        <label className="calc-row-form-label" htmlFor="calcrow-include-total">
-          Include in total
-        </label>
-        <label className="calc-row-form-switch">
-          <input
-            id="calcrow-include-total"
-            type="checkbox"
-            checked={includeInTotal}
-            onChange={(e) => setIncludeInTotal(e.target.checked)}
-          />
-          <span className="calc-row-form-slider" />
-        </label>
-      </div>
-
-      {/* 7. Evaluate Columns Before Rows */}
-      <div className="calc-row-form-field calc-row-form-toggle-row">
-        <label className="calc-row-form-label" htmlFor="calcrow-eval-cols">
-          Evaluate Columns Before Rows
-        </label>
-        <label className="calc-row-form-switch">
-          <input
-            id="calcrow-eval-cols"
-            type="checkbox"
-            checked={evaluateColumnsBeforeRows}
-            onChange={(e) => setEvaluateColumnsBeforeRows(e.target.checked)}
-          />
-          <span className="calc-row-form-slider" />
-        </label>
-      </div>
-
-      {/* 8. Description */}
-      <div className="calc-row-form-field">
-        <label className="calc-row-form-label" htmlFor="calcrow-description">
-          Description
-        </label>
+      <Field label="Description" htmlFor="calcrow-description">
         <textarea
           id="calcrow-description"
-          className="calc-row-form-textarea"
+          className="mx-textarea"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={3}
-          placeholder="Optional notes or context"
+          placeholder="Optional"
         />
-      </div>
+      </Field>
 
-      {error && <div className="calc-row-form-error">{error}</div>}
+      {error && <div className="mx-note is-danger" role="alert">{error}</div>}
 
-      <div className="calc-row-form-footer">
-        <button
-          type="button"
-          className="calc-row-form-btn calc-row-form-btn-secondary"
-          onClick={onCancel}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="calc-row-form-btn calc-row-form-btn-primary"
-          onClick={handleSave}
-        >
-          Save
-        </button>
+      <div className="mx-row" style={{ justifyContent: "flex-end" }}>
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button variant="primary" onClick={handleSave}>Save</Button>
       </div>
     </div>
   );

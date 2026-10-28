@@ -2,6 +2,7 @@ import React, { useState, useCallback } from "react";
 import { FlattenedNode } from "../model/tree";
 import { FormulaEditor } from "./IntelliSenseDropdown";
 import { IntelliSenseContext } from "../intellisense/FormulaIntelliSense";
+import { Button, Field, Overlay, Segmented } from "./overlayKit";
 
 export interface CalcRowWizardProps {
   rows: FlattenedNode[];
@@ -26,8 +27,8 @@ const STYLE_OPTIONS = [
   { value: "normal", label: "Normal" },
   { value: "bold", label: "Bold" },
   { value: "underline", label: "Underline" },
-  { value: "doubleUnderline", label: "Double Underline" },
-  { value: "sectionHeader", label: "Section Header" },
+  { value: "doubleUnderline", label: "Double underline" },
+  { value: "sectionHeader", label: "Section header" },
 ];
 
 const NUMBER_FORMAT_OPTIONS = [
@@ -105,208 +106,164 @@ export const CalcRowWizard: React.FC<CalcRowWizardProps> = ({
   // Filter to show only leaf rows or rows at same level
   const selectableRows = rows.filter(r => !r.isGrandTotal);
 
+  const pickedOrder = (rowKey: string) => selectedRows.indexOf(rowKey) + 1;
+
   return (
-    <div className="calc-wizard-overlay" onClick={onClose}>
-      <div className="calc-wizard-modal calc-wizard-wide" onClick={e => e.stopPropagation()}>
-        <div className="calc-wizard-header">
-          <h2>{isEditing ? "Edit Calculated Row" : "New Calculated Row"}</h2>
-          <button className="calc-wizard-close" onClick={onClose} type="button" aria-label="Close">
-            ×
-          </button>
-        </div>
+    <Overlay
+      kind="dialog"
+      title={isEditing ? "Edit calculated row" : "New calculated row"}
+      subtitle="A row computed from other rows."
+      width={600}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleSave}>{isEditing ? "Save changes" : "Add row"}</Button>
+        </>
+      }
+    >
+      <div className="mx-stack">
+        <Field label="Name" htmlFor="crw-name">
+          <input
+            id="crw-name"
+            type="text"
+            className="mx-input"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="e.g. Gross profit"
+            aria-required="true"
+            data-autofocus
+          />
+        </Field>
 
-        <div className="calc-wizard-body">
-          <div className="calc-wizard-section">
-            <label className="calc-wizard-label">
-              Row Name <span className="required">*</span>
-            </label>
-            <input
-              type="text"
-              className="calc-wizard-input"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="e.g., Gross Profit, Net Income"
-              autoFocus
-            />
-          </div>
+        <Field label="Calculation">
+          <Segmented
+            block
+            ariaLabel="Formula type"
+            value={formulaType}
+            onChange={setFormulaType}
+            options={[
+              { value: "sum", label: "Sum of rows" },
+              { value: "subtract", label: "First minus others", title: "A − B − C …" },
+              { value: "custom", label: "Custom formula" },
+            ]}
+          />
+        </Field>
 
-          <div className="calc-wizard-section">
-            <label className="calc-wizard-label">Formula Type</label>
-            <div className="calc-wizard-radio-group">
-              <label className="calc-wizard-radio">
-                <input
-                  type="radio"
-                  name="formulaType"
-                  value="sum"
-                  checked={formulaType === "sum"}
-                  onChange={() => setFormulaType("sum")}
-                />
-                <span>Sum of selected rows</span>
-              </label>
-              <label className="calc-wizard-radio">
-                <input
-                  type="radio"
-                  name="formulaType"
-                  value="subtract"
-                  checked={formulaType === "subtract"}
-                  onChange={() => setFormulaType("subtract")}
-                />
-                <span>First row minus others (A - B - C...)</span>
-              </label>
-              <label className="calc-wizard-radio">
-                <input
-                  type="radio"
-                  name="formulaType"
-                  value="custom"
-                  checked={formulaType === "custom"}
-                  onChange={() => setFormulaType("custom")}
-                />
-                <span>Custom expression</span>
-              </label>
-            </div>
-          </div>
-
-          {formulaType !== "custom" && (
-            <div className="calc-wizard-section">
-              <label className="calc-wizard-label">
-                Select Rows {formulaType === "subtract" ? "(first row is base)" : ""}
-              </label>
-              <div className="calc-wizard-row-list">
-                {selectableRows.length === 0 ? (
-                  <span className="calc-wizard-empty">No rows available</span>
-                ) : (
-                  selectableRows.map(row => (
-                    <label
-                      key={row.key}
-                      className={`calc-wizard-row-item ${selectedRows.includes(row.key) ? "selected" : ""}`}
-                      style={{ paddingLeft: 8 + row.indent * 16 }}
-                    >
+        {formulaType !== "custom" && (
+          <Field
+            label="Source rows"
+            hint={formulaType === "subtract" ? "The first row you tick is the base; later rows are subtracted from it." : undefined}
+          >
+            {selectableRows.length === 0 ? (
+              <p className="mx-muted" style={{ margin: 0 }}>No rows available</p>
+            ) : (
+              <div
+                role="group"
+                aria-label="Source rows"
+                style={{ maxHeight: 220, overflowY: "auto", padding: "4px 8px", border: "1px solid var(--mx-ov-field-line)", borderRadius: "var(--mx-control-radius, 6px)" }}
+              >
+                {selectableRows.map(row => {
+                  const order = pickedOrder(row.key);
+                  return (
+                    <label key={row.key} className="mx-check" style={{ paddingLeft: row.indent * 16 }}>
                       <input
                         type="checkbox"
-                        checked={selectedRows.includes(row.key)}
+                        checked={order > 0}
                         onChange={() => toggleRowSelection(row.key)}
                       />
-                      <span className="calc-wizard-row-label">{row.label}</span>
-                      {row.isSubtotal && <span className="calc-wizard-row-tag">Subtotal</span>}
+                      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.label}</span>
+                      {row.isSubtotal && <span className="mx-badge">Subtotal</span>}
+                      {formulaType === "subtract" && order > 0 && (
+                        <span className={`mx-badge${order === 1 ? " is-accent" : ""}`}>{order === 1 ? "Base" : `− ${order - 1}`}</span>
+                      )}
                     </label>
-                  ))
-                )}
+                  );
+                })}
               </div>
-            </div>
-          )}
+            )}
+          </Field>
+        )}
 
-          {formulaType === "custom" && (
-            <div className="calc-wizard-section">
-              <label className="calc-wizard-label">Custom Formula</label>
-              <FormulaEditor
-                value={customFormula}
-                onChange={val => {
-                  setCustomFormula(val);
-                  setError(null);
-                }}
-                context={intelliSenseContext || {
-                  measures: [],
-                  calculatedMeasures: [],
-                  columns: [],
-                  rows: [],
-                  rowHierarchyLevels: [],
-                  columnHierarchyLevels: [],
-                }}
-                placeholder="e.g., [Revenue] - [COGS] - [Operating Expenses]"
-              />
-              <div className="calc-wizard-hint">
-                Reference rows by name in brackets: [Row Name]
-              </div>
-            </div>
-          )}
+        {formulaType === "custom" && (
+          <Field label="Formula" hint="Reference rows by name in brackets, e.g. [Revenue]. Ctrl+Space shows suggestions.">
+            <FormulaEditor
+              value={customFormula}
+              onChange={val => {
+                setCustomFormula(val);
+                setError(null);
+              }}
+              context={intelliSenseContext || {
+                measures: [],
+                calculatedMeasures: [],
+                columns: [],
+                rows: [],
+                rowHierarchyLevels: [],
+                columnHierarchyLevels: [],
+              }}
+              placeholder="e.g. [Revenue] - [COGS] - [Operating expenses]"
+            />
+          </Field>
+        )}
 
-          <div className="calc-wizard-row">
-            <div className="calc-wizard-section calc-wizard-half">
-              <label className="calc-wizard-label">Placement</label>
-              <select
-                className="calc-wizard-select"
-                value={placement}
-                onChange={e => setPlacement(e.target.value as "before" | "after" | "child")}
-              >
-                <option value="before">Insert before</option>
-                <option value="after">Insert after</option>
-                <option value="child">Insert as child of</option>
-              </select>
-            </div>
+        <div className="mx-divider" />
 
-            <div className="calc-wizard-section calc-wizard-half">
-              <label className="calc-wizard-label">Target Row</label>
-              <select
-                className="calc-wizard-select"
-                value={targetRowKey}
-                onChange={e => setTargetRowKey(e.target.value)}
-              >
-                {selectableRows.map(row => (
-                  <option key={row.key} value={row.key}>
-                    {"—".repeat(row.indent)}{row.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="calc-wizard-section">
-            <label className="calc-wizard-label">Row Style</label>
-            <select
-              className="calc-wizard-select"
-              value={style}
-              onChange={e => setStyle(e.target.value as typeof style)}
-            >
-              {STYLE_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
+        <div className="mx-grid-2">
+          <Field label="Position">
+            <Segmented
+              block
+              ariaLabel="Placement"
+              value={placement}
+              onChange={setPlacement}
+              options={[
+                { value: "before", label: "Before" },
+                { value: "after", label: "After" },
+                { value: "child", label: "Inside", title: "Insert as child of the target row" },
+              ]}
+            />
+          </Field>
+          <Field label="Target row" htmlFor="crw-target">
+            <select id="crw-target" className="mx-select" value={targetRowKey} onChange={e => setTargetRowKey(e.target.value)}>
+              {selectableRows.map(row => (
+                <option key={row.key} value={row.key}>
+                  {"—".repeat(row.indent)}{row.label}
                 </option>
               ))}
             </select>
-          </div>
-
-          <div className="calc-wizard-row">
-            <div className="calc-wizard-section calc-wizard-half">
-              <label className="calc-wizard-label">Number Format</label>
-              <select
-                className="calc-wizard-select"
-                value={numberFormat}
-                onChange={e => setNumberFormat(e.target.value)}
-              >
-                {NUMBER_FORMAT_OPTIONS.map(opt => (
-                  <option key={opt.value || "general"} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="calc-wizard-section calc-wizard-half">
-              <label className="calc-wizard-label">Decimals</label>
-              <input
-                type="number"
-                min={0}
-                max={8}
-                className="calc-wizard-input"
-                value={decimals}
-                onChange={e => setDecimals(Math.max(0, Math.min(8, Number(e.target.value) || 0)))}
-              />
-            </div>
-          </div>
-
-          {error && <div className="calc-wizard-error">{error}</div>}
+          </Field>
         </div>
 
-        <div className="calc-wizard-footer">
-          <button type="button" className="calc-wizard-btn secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="button" className="calc-wizard-btn primary" onClick={handleSave}>
-            {isEditing ? "Save Changes" : "Add Row"}
-          </button>
+        <div className="mx-grid-3">
+          <Field label="Style" htmlFor="crw-style">
+            <select id="crw-style" className="mx-select" value={style} onChange={e => setStyle(e.target.value as typeof style)}>
+              {STYLE_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Number format" htmlFor="crw-format">
+            <select id="crw-format" className="mx-select" value={numberFormat} onChange={e => setNumberFormat(e.target.value)}>
+              {NUMBER_FORMAT_OPTIONS.map(opt => (
+                <option key={opt.value || "general"} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Decimals" htmlFor="crw-decimals">
+            <input
+              id="crw-decimals"
+              type="number"
+              min={0}
+              max={8}
+              className="mx-input is-num"
+              value={decimals}
+              onChange={e => setDecimals(Math.max(0, Math.min(8, Number(e.target.value) || 0)))}
+            />
+          </Field>
         </div>
+
+        {error && <div className="mx-note is-danger" role="alert">{error}</div>}
       </div>
-    </div>
+    </Overlay>
   );
 };
 

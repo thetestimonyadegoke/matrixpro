@@ -4,6 +4,7 @@ import { validateFormula, ParseError } from "../calculations/formulaParser";
 import { FormulaEngine } from "../calculations/FormulaEngine";
 import { FlattenedNode } from "../model/tree";
 import { FormulaEditor } from "./IntelliSenseDropdown";
+import { Button, Field, Overlay, Section, Segmented } from "./overlayKit";
 
 type MeasureAggregationType = "none" | "formula" | "sum" | "first" | "last" | "average" | "min" | "max";
 
@@ -167,131 +168,101 @@ export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
   }, [formula, rows, columns, measures, cellMap]);
 
   return (
-    <div className="calc-wizard-overlay" onClick={onClose}>
-      <div className="calc-wizard-modal" onClick={e => e.stopPropagation()}>
-        <div className="calc-wizard-header">
-          <h2>{initialMeasure ? "Edit Calculated Measure" : "New Calculated Measure"}</h2>
-          <button className="calc-wizard-close" onClick={onClose} type="button" aria-label="Close">
-            ×
-          </button>
-        </div>
-
-        <div className="calc-wizard-body">
-          <div className="calc-wizard-section">
-            <label className="calc-wizard-label">
-              Name <span className="required">*</span>
-            </label>
+    <Overlay
+      kind="dialog"
+      title={initialMeasure ? "Edit calculated measure" : "New calculated measure"}
+      subtitle="A measure computed from other measures in each cell."
+      width={560}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleSave}>{initialMeasure ? "Save changes" : "Add measure"}</Button>
+        </>
+      }
+    >
+      <div className="mx-stack">
+        <div className="mx-grid-2">
+          <Field label="Name" htmlFor="cmw-name">
             <input
+              id="cmw-name"
               type="text"
-              className="calc-wizard-input"
+              className="mx-input"
               value={name}
               onChange={e => setName(e.target.value)}
-              placeholder="e.g., Gross Margin %"
-              autoFocus
+              placeholder="e.g. Gross margin %"
+              aria-required="true"
+              data-autofocus
             />
-          </div>
-
-          <div className="calc-wizard-section">
-            <label className="calc-wizard-label">Description</label>
+          </Field>
+          <Field label="Description" htmlFor="cmw-desc">
             <input
+              id="cmw-desc"
               type="text"
-              className="calc-wizard-input"
+              className="mx-input"
               value={description}
               onChange={e => setDescription(e.target.value)}
-              placeholder="Optional description"
+              placeholder="Optional"
             />
-          </div>
+          </Field>
+        </div>
 
-          <div className="calc-wizard-section">
-            <label className="calc-wizard-label">
-              Formula <span className="required">*</span>
-            </label>
-            <div className="calc-wizard-formula-area">
-              <FormulaEditor
-                value={formula}
-                onChange={val => {
-                  setFormula(val);
-                  setError(null);
-                }}
-                context={{
-                  measures: measures,
-                  calculatedMeasures: measures.map(m => ({ name: m.name, formula: "" })),
-                  columns: columns,
-                  rows: rows,
-                  rowHierarchyLevels: [],
-                  columnHierarchyLevels: [],
-                }}
-                placeholder="e.g., ([Revenue] - [Cost]) / [Revenue]"
-              />
-              <div className="calc-wizard-quick-btns">
-                {QUICK_FUNCTIONS.map(fn => (
-                  <button
-                    key={fn.label}
-                    type="button"
-                    className="calc-wizard-quick-btn"
-                    onClick={() => insertFunction(fn.insert)}
-                  >
-                    {fn.label}
-                  </button>
-                ))}
-              </div>
+        <Field label="Formula" hint="Type [ to reference a measure, or press Ctrl+Space for suggestions.">
+          <div className="mx-stack is-tight">
+            <FormulaEditor
+              value={formula}
+              onChange={val => {
+                setFormula(val);
+                setError(null);
+              }}
+              context={{
+                measures: measures,
+                calculatedMeasures: measures.map(m => ({ name: m.name, formula: "" })),
+                columns: columns,
+                rows: rows,
+                rowHierarchyLevels: [],
+                columnHierarchyLevels: [],
+              }}
+              placeholder="e.g. ([Revenue] - [Cost]) / [Revenue]"
+            />
+            <div className="mx-row is-wrap" style={{ gap: 4 }}>
+              {QUICK_FUNCTIONS.map(fn => (
+                <Button key={fn.label} variant="ghost" size="sm" onClick={() => insertFunction(fn.insert)} title={`Insert ${fn.insert.trim()}`}>
+                  <span className="mx-code" style={{ background: "transparent", padding: 0 }}>{fn.label}</span>
+                </Button>
+              ))}
             </div>
           </div>
+        </Field>
 
-          <div className="calc-wizard-section">
-            <label className="calc-wizard-label">Available Measures</label>
-            <div className="calc-wizard-measures">
-              {measures.length === 0 ? (
-                <span className="calc-wizard-empty">No measures available</span>
-              ) : (
-                measures.map((m, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    className="calc-wizard-measure-btn"
-                    onClick={() => insertMeasureRef(m.name)}
-                    title={`Insert [${m.name}]`}
-                  >
-                    {m.name}
-                  </button>
-                ))
-              )}
+        <Section title="Measures" description="Click to insert a reference.">
+          {measures.length === 0 ? (
+            <p className="mx-muted" style={{ margin: 0 }}>No measures available</p>
+          ) : (
+            <div className="mx-row is-wrap" style={{ gap: 4 }}>
+              {measures.map((m, i) => (
+                <Button key={i} size="sm" onClick={() => insertMeasureRef(m.name)} title={`Insert [${m.name}]`}>
+                  {m.name}
+                </Button>
+              ))}
             </div>
-          </div>
+          )}
+        </Section>
 
-          <div className="calc-wizard-row">
-            <div className="calc-wizard-section calc-wizard-half">
-              <label className="calc-wizard-label">Format</label>
-              <select
-                className="calc-wizard-select"
-                value={format}
-                onChange={e => setFormat(e.target.value)}
-              >
-                {FORMAT_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+        <div className="mx-divider" />
 
-            <div className="calc-wizard-section calc-wizard-half">
-              <label className="calc-wizard-label">Calculation Timing</label>
-              <select
-                className="calc-wizard-select"
-                value={aggregation}
-                onChange={e => setAggregation(e.target.value as "afterTotals" | "beforeTotals")}
-              >
-                <option value="afterTotals">Compute after totals</option>
-                <option value="beforeTotals">Sum of computed cells</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="calc-wizard-section">
-            <label className="calc-wizard-label">Aggregation Type</label>
+        <div className="mx-grid-2">
+          <Field label="Format" htmlFor="cmw-format">
+            <select id="cmw-format" className="mx-select" value={format} onChange={e => setFormat(e.target.value)}>
+              {FORMAT_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Aggregation" htmlFor="cmw-agg">
             <select
-              className="calc-wizard-select"
+              id="cmw-agg"
+              className="mx-select"
               value={aggregationType}
               onChange={e => setAggregationType(e.target.value as MeasureAggregationType)}
             >
@@ -299,35 +270,38 @@ export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
-          </div>
+          </Field>
+        </div>
 
-          {previewValues.length > 0 && (
-            <div className="calc-wizard-section">
-              <label className="calc-wizard-label">Preview</label>
-              <div className="calc-wizard-preview">
-                {previewValues.map((pv, i) => (
-                  <div key={i} className="calc-wizard-preview-row">
-                    <span className="calc-wizard-preview-label">{pv.row}</span>
-                    <span className="calc-wizard-preview-value">{pv.value}</span>
-                  </div>
-                ))}
-              </div>
+        <Field label="Totals">
+          <Segmented
+            block
+            ariaLabel="Calculation timing"
+            value={aggregation}
+            onChange={setAggregation}
+            options={[
+              { value: "afterTotals", label: "Compute after totals", title: "Evaluate the formula on the totalled values" },
+              { value: "beforeTotals", label: "Sum of computed cells", title: "Evaluate per cell, then add up the results" },
+            ]}
+          />
+        </Field>
+
+        {previewValues.length > 0 && (
+          <Section title="Preview">
+            <div className="mx-stack is-tight">
+              {previewValues.map((pv, i) => (
+                <div key={i} className="mx-row is-between">
+                  <span className="mx-muted" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pv.row}</span>
+                  <span className="mx-num">{pv.value}</span>
+                </div>
+              ))}
             </div>
-          )}
+          </Section>
+        )}
 
-          {error && <div className="calc-wizard-error">{error}</div>}
-        </div>
-
-        <div className="calc-wizard-footer">
-          <button type="button" className="calc-wizard-btn secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="button" className="calc-wizard-btn primary" onClick={handleSave}>
-            {initialMeasure ? "Save Changes" : "Add Measure"}
-          </button>
-        </div>
+        {error && <div className="mx-note is-danger" role="alert">{error}</div>}
       </div>
-    </div>
+    </Overlay>
   );
 };
 

@@ -3,6 +3,7 @@ import { FlattenedNode } from "../model/tree";
 import { VisualSettings } from "../settings/settings";
 import { TooltipServiceWrapper } from "../powerbi/tooltip";
 import { Sparkline } from "./InCell/Sparkline";
+import { IconChevronRight, IconGrip } from "./icons";
 
 export interface RowHeaderProps {
   row: FlattenedNode;
@@ -116,10 +117,6 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
     typeof style.color === "string" && style.color && style.color !== "inherit"
       ? style.color
       : undefined;
-  const manualLabelBackground =
-    typeof style.backgroundColor === "string" && style.backgroundColor !== "transparent"
-      ? style.backgroundColor
-      : undefined;
 
   if (row.calcRowKind === "blank") {
     return (
@@ -193,7 +190,7 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
       }}
       title={row.path.join(" > ")}
     >
-      <span className="row-drag-handle" title="Drag to reorder">::</span>
+      <span className="row-drag-handle" title="Drag to reorder" aria-hidden="true"><IconGrip size={12} /></span>
 
       {showLevelIndicator && (
         <span className="level-indicator" aria-hidden="true">
@@ -207,9 +204,10 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
       )}
       {shouldReserveExpandSlot && (
         <span
-          className={`expand-toggle ${isOutlineMode ? "compact" : ""} ${(!row.hasChildren || hideExpandIcon) ? "placeholder" : ""}`}
+          className={`expand-toggle ${isOutlineMode ? "compact" : ""} ${(!row.hasChildren || hideExpandIcon) ? "placeholder" : ""} ${row.isExpanded ? "is-expanded" : ""}`}
           role="button"
-          tabIndex={0}
+          tabIndex={row.hasChildren && !hideExpandIcon ? 0 : -1}
+          aria-expanded={row.hasChildren && !hideExpandIcon ? row.isExpanded : undefined}
           title={row.isExpanded ? "Collapse" : "Expand"}
           onClick={(e) => {
             e.stopPropagation();
@@ -223,7 +221,7 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
             }
           }}
         >
-          {!row.hasChildren || hideExpandIcon ? "" : (row.isExpanded ? "-" : "+")}
+          {!row.hasChildren || hideExpandIcon ? null : <IconChevronRight size={12} />}
         </span>
       )}
       <span 
@@ -231,7 +229,9 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
         style={{
           fontWeight: row.isGrandTotal ? "var(--mx-gt-fw)" : (row.isSubtotal ? "var(--mx-st-fw)" : (row.hasChildren ? "var(--mx-row-parent-fw)" : "inherit")),
           color: manualTextColor || (row.isGrandTotal ? "var(--mx-gt-fg)" : (row.isSubtotal ? "var(--mx-st-fg)" : (row.hasChildren ? "var(--mx-row-parent-color)" : "var(--mx-row-child-color)"))),
-          backgroundColor: manualLabelBackground || (row.isGrandTotal ? "var(--mx-gt-bg)" : (row.isSubtotal ? "var(--mx-st-bg)" : "transparent")),
+          // The header itself paints the row background; repeating it here would
+          // double translucent fills (banding, selection) into a darker block.
+          backgroundColor: "transparent",
         }}
       >
         {displayLabel}

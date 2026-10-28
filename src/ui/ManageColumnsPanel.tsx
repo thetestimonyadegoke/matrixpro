@@ -22,6 +22,8 @@ import {
   upsertFieldConfig,
   upsertRowFieldConfig,
 } from "../model/levelAwareColumns";
+import { Button, ColorWell, EmptyNote, Field, IconButton, Overlay, Section, Segmented, Switch, Tabs } from "./overlayKit";
+import { IconArrowDown, IconArrowUp, IconGrip, IconPlus, IconTrash } from "./icons";
 
 export interface ManageColumnsPanelProps {
   columns: FlattenedNode[];
@@ -100,10 +102,10 @@ const PLACEMENT_OPTIONS: Array<{ value: LevelAwarePlacement; label: string }> = 
 ];
 
 const ROW_FIELD_ROLE_OPTIONS: Array<{ value: RowFieldRole; label: string }> = [
-  { value: "hierarchy", label: "Hierarchy Level" },
-  { value: "detail", label: "Detail Column" },
-  { value: "hiddenKey", label: "Hidden Key" },
-  { value: "groupingOnly", label: "Grouping Only" },
+  { value: "hierarchy", label: "Hierarchy level" },
+  { value: "detail", label: "Detail column" },
+  { value: "hiddenKey", label: "Hidden key" },
+  { value: "groupingOnly", label: "Grouping only" },
 ];
 
 const ROW_FIELD_DISPLAY_OPTIONS: Array<{ value: RowFieldDisplayAt; label: string }> = [
@@ -130,7 +132,7 @@ const ROW_FIELD_AGG_OPTIONS: Array<{ value: RowFieldAggregation; label: string }
   { value: "count", label: "Count" },
   { value: "countDistinct", label: "Count distinct" },
   { value: "concatenate", label: "Concatenate" },
-  { value: "sameElseMultiple", label: "Show if same else Multiple" },
+  { value: "sameElseMultiple", label: "Show if same, else “Multiple”" },
 ];
 
 // â”€â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -144,123 +146,26 @@ function parseJSON<T>(raw: string, fallback: T): T {
   }
 }
 
-// â”€â”€â”€ small presentational pieces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const cx = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(" ");
 
-const EyeOpen = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-);
+const TABS: Array<{ value: TabId; label: string }> = [
+  { value: "measures", label: "Measures" },
+  { value: "columns", label: "Columns" },
+  { value: "visualColumns", label: "Visual columns" },
+  { value: "levelAware", label: "Level aware" },
+  { value: "rows", label: "Rows" },
+  { value: "design", label: "Design" },
+];
 
-const EyeOff = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-    <line x1="1" y1="1" x2="23" y2="23" />
-  </svg>
-);
+type DesignTemplateId = "vendor" | "billing" | "customers" | "glassPills" | "columnCards";
 
-
-
-const ui = {
-  bg: "#f8fbff",
-  panel: "linear-gradient(180deg, #eef4ff 0%, #f8fafc 48%, #f7fbff 100%)",
-  panelSoft: "rgba(255, 255, 255, 0.72)",
-  surface: "rgba(255,255,255,0.82)",
-  surfaceHover: "rgba(255,255,255,0.96)",
-  surfaceActive: "rgba(237, 246, 255, 0.96)",
-  border: "rgba(148, 163, 184, 0.18)",
-  borderStrong: "rgba(148, 163, 184, 0.24)",
-  text: "#0f172a",
-  textMuted: "#64748b",
-  accent: "#0ea5e9",
-  accentStrong: "#0284c7",
-  accentSoft: "rgba(14,165,233,0.12)",
-  danger: "#e11d48",
-  dangerSoft: "rgba(225,29,72,0.10)",
-  shadow: "-24px 0 60px rgba(15, 23, 42, 0.18)",
-  shadowSoft: "0 14px 40px rgba(15, 23, 42, 0.08)",
-  glow: "0 0 18px rgba(14,165,233,0.18)",
-};
-
-const overlayStyles: React.CSSProperties = {
-  position: "fixed", inset: 0, zIndex: 7600,
-  background: "linear-gradient(180deg, rgba(15,23,42,0.18), rgba(15,23,42,0.34))",
-  backdropFilter: "blur(12px) saturate(112%)",
-  display: "flex", alignItems: "stretch", justifyContent: "flex-end",
-  fontFamily: "'Segoe UI Variable Display', 'Segoe UI', sans-serif",
-  animation: "matrix-fade-in 0.3s ease-out",
-};
-
-const actionBtn: React.CSSProperties = {
-  height: 34,
-  padding: "0 14px",
-  borderRadius: 12,
-  fontSize: 12,
-  fontWeight: 700,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 8,
-  cursor: "pointer",
-  transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-  whiteSpace: "nowrap",
-};
-
-const miniBtn: React.CSSProperties = {
-  height: 26,
-  padding: "0 8px",
-  borderRadius: 8,
-  border: `1px solid ${ui.border}`,
-  background: "rgba(255,255,255,0.72)",
-  color: ui.textMuted,
-  fontSize: 10,
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
-const Toggle = ({ checked, onChange }: { checked: boolean, onChange: () => void }) => (
-  <div 
-    onClick={(e) => { e.stopPropagation(); onChange(); }}
-    style={{
-      width: 44, height: 24, borderRadius: 12,
-      minWidth: 44,
-      flex: "0 0 44px",
-      boxSizing: "border-box",
-      background: checked ? "linear-gradient(135deg, #00E5FF 0%, #0077FF 100%)" : "rgba(255,255,255,0.1)",
-      position: "relative", cursor: "pointer",
-      transition: "all 0.3s ease",
-      display: "flex", alignItems: "center",
-      padding: 3,
-      boxShadow: checked ? "0 0 12px rgba(0, 229, 255, 0.4)" : "none",
-    }}
-  >
-    <div style={{
-      width: 18, height: 18, borderRadius: "50%",
-      background: "#fff",
-      boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
-      transform: checked ? "translateX(20px)" : "translateX(0)",
-      transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    }} />
-  </div>
-);
-
-const SearchIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-);
-
-const TrashIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-);
-
-const PlusIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-);
-
-const DragHandle = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ color: "rgba(255, 255, 255, 0.2)" }}><circle cx="9" cy="5" r="2"/><circle cx="15" cy="5" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="19" r="2"/><circle cx="15" cy="19" r="2"/></svg>
-);
+const DESIGN_TEMPLATES: Array<[DesignTemplateId, string, string]> = [
+  ["vendor", "Vendor activity", "Directory rows with progress bars and soft pills"],
+  ["billing", "Billing history", "Invoice-style rows with status and action columns"],
+  ["customers", "Customer table", "Spacious app-style directory rows"],
+  ["glassPills", "Glass pills", "Floating glass rows with pill labels"],
+  ["columnCards", "Column cards", "Rounded vertical-card matrix"],
+];
 
 // --- component ---------------------------------------------------------------
 
@@ -280,7 +185,6 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
   onDeleteCalcMeasure,
   onDeleteCalcRow,
 }) => {
-  const compact = visualWidth < 980 || visualHeight < 620;
   const panelWidth = Math.max(520, Math.min(820, Math.round(visualWidth * 0.58)));
   const [activeTab, setActiveTab] = useState<TabId>("measures");
   const [search, setSearch] = useState("");
@@ -756,7 +660,7 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
     );
   }, [persistVisualColumnRules, requestDeleteConfirmation, visualColumnRules]);
 
-  const applyDesignTemplate = useCallback((template: "vendor" | "billing" | "customers" | "glassPills" | "columnCards") => {
+  const applyDesignTemplate = useCallback((template: DesignTemplateId) => {
     const write = (objectName: string, values: Record<string, any>) => {
       Object.entries(values).forEach(([propertyName, value]) => onPersistProperty(objectName, propertyName, value));
     };
@@ -1001,746 +905,553 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
   };
 
 
-  // â”€â”€ tab button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const TabBtn = ({ id, label }: { id: TabId; label: string }) => {
-    const active = activeTab === id;
+  // ── presentation ─────────────────────────────────────────────────────────
+  const switchTab = (id: TabId) => {
+    setActiveTab(id);
+    setSearch("");
+    setShowHiddenOnly(false);
+    setEditingWidth(null);
+  };
+
+  const isVisibilityTab = activeTab === "measures" || activeTab === "columns" || activeTab === "rows";
+  const hiddenSet = activeTab === "rows" ? hiddenRowKeysState : hiddenColsState;
+  const allItemsHidden = items.length > 0 && items.every(i => hiddenSet.has(i.id));
+  const noun = activeTab === "measures" ? "measure" : activeTab === "columns" ? "column" : "row";
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+  const renderList = () => {
+    if (items.length === 0) {
+      return (
+        <EmptyNote
+          title={search ? "No matches" : showHiddenOnly ? `No hidden ${noun}s` : `No ${noun}s`}
+          hint={search ? "Try a different search." : showHiddenOnly ? `Every ${noun} is visible.` : undefined}
+        />
+      );
+    }
     return (
-      <div
-        onClick={() => { setActiveTab(id); setSearch(""); setShowHiddenOnly(false); setEditingWidth(null); }}
-        style={{
-          margin: "0 0 4px",
-          padding: compact ? "8px 0" : "9px 0",
-          cursor: "pointer", 
-          fontSize: compact ? 11 : 12,
-          borderRadius: 0,
-          border: "none",
-          borderBottom: `1px solid ${active ? "rgba(14,165,233,0.28)" : "transparent"}`,
-          background: "transparent",
-          color: active ? ui.accent : ui.textMuted,
-          fontWeight: active ? 800 : 600,
-          display: "flex", alignItems: "center", gap: 12,
-          transition: "all 0.2s",
-        }}
-        onMouseEnter={e => {
-          if (!active) e.currentTarget.style.color = ui.text;
-        }}
-        onMouseLeave={e => {
-          if (!active) e.currentTarget.style.color = ui.textMuted;
-        }}
+      <ul className="mx-list">
+        {items.map((item: any) => {
+          const isHidden = hiddenSet.has(item.id);
+          const displayLabel = labelOverrides[item.id] || item.label;
+          const opensWizard = activeTab === "measures" && item.isCalculatedMeasure && item.measure?.id;
+          return (
+            <li
+              key={item.id}
+              draggable
+              onDragStart={e => handleDragStart(e, item.id)}
+              onDragOver={e => handleDragOver(e, item.id)}
+              onDrop={e => handleDrop(e, item.id)}
+              onDragEnd={handleDragEnd}
+              className={cx("mx-item", draggedId === item.id && "is-dragging", dragOverId === item.id && "is-drop-target")}
+              style={{
+                flexWrap: "wrap",
+                marginLeft: activeTab === "columns" && item.level ? Math.min(28, item.level * 10) : 0,
+              }}
+            >
+              <span className="mx-item-grip" aria-hidden="true"><IconGrip size={14} /></span>
+              <div className="mx-item-main" style={{ minWidth: 140, opacity: isHidden ? 0.5 : 1 }}>
+                {renamingId === item.id ? (
+                  <input
+                    className="mx-input is-sm"
+                    autoFocus
+                    aria-label="Name"
+                    value={renameInput}
+                    onChange={e => setRenameInput(e.target.value)}
+                    onBlur={() => saveRename(item.id, renameInput)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") saveRename(item.id, renameInput);
+                      if (e.key === "Escape") {
+                        // Cancel the rename without closing the whole sheet.
+                        e.preventDefault();
+                        setRenamingId(null);
+                      }
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="mx-item-title"
+                    title={opensWizard ? "Edit calculated measure" : "Rename"}
+                    style={{ padding: 0, border: 0, background: "none", fontFamily: "inherit", textAlign: "left", cursor: "pointer", maxWidth: "100%" }}
+                    onClick={() => {
+                      if (opensWizard) {
+                        onOpenCalcMeasureWizard?.(item.measure.id);
+                        return;
+                      }
+                      setRenamingId(item.id);
+                      setRenameInput(labelOverrides[item.id] || item.label);
+                    }}
+                  >
+                    {displayLabel}
+                  </button>
+                )}
+                <span className="mx-item-meta">{item.sub}</span>
+              </div>
+              <div className="mx-item-actions" style={{ flexWrap: "wrap", justifyContent: "flex-end", gap: 4, flexShrink: 1, minWidth: 0 }}>
+                {activeTab === "columns" && (item.col?.isSubtotal || item.col?.isGrandTotal) && (
+                  <select
+                    className="mx-select is-sm"
+                    style={{ width: "auto" }}
+                    aria-label="Total position"
+                    title="Place this total at the beginning or end of its hierarchy"
+                    value={totalPositions[item.col.key] || "inherit"}
+                    onChange={(e) => updateTotalPosition(item.col.key, e.target.value as "inherit" | "beginning" | "end")}
+                  >
+                    <option value="inherit">Default position</option>
+                    <option value="beginning">Beginning</option>
+                    <option value="end">End</option>
+                  </select>
+                )}
+                {(activeTab === "measures" || activeTab === "columns") && (
+                  <>
+                    {activeTab === "measures" && (
+                      <select
+                        className="mx-select is-sm mx-num"
+                        style={{ width: "auto" }}
+                        aria-label="Position"
+                        title="Move measure to position across every column"
+                        value={Math.max(0, buildOrder().indexOf(item.id))}
+                        onChange={(e) => moveItemToPosition(item.id, parseInt(e.target.value, 10))}
+                      >
+                        {measureItems.map((measureItem, index) => (
+                          <option key={measureItem.id} value={index}>{index + 1}</option>
+                        ))}
+                      </select>
+                    )}
+                    {item.measure && (
+                      <select
+                        className="mx-select is-sm"
+                        style={{ width: "auto" }}
+                        aria-label="Aggregation"
+                        title="Aggregation"
+                        value={getAggregationValue(item.measure.index)}
+                        onChange={(e) => saveAggregation(item.measure.index, e.target.value as AggregationType)}
+                      >
+                        {AGGREGATION_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    )}
+                    {opensWizard && (
+                      <Button size="sm" variant="ghost" title="Edit calculated measure" onClick={(e) => { e.stopPropagation(); onOpenCalcMeasureWizard?.(item.measure.id); }}>
+                        Edit
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      title="Convert to visual column"
+                      onClick={() => {
+                        if (activeTab === "measures" && item.measure) addVisualRuleForMeasure(item.measure);
+                        if (activeTab === "columns" && item.col && item.measure) addVisualRuleForColumnMeasure(item.col, item.measure);
+                        else if (activeTab === "columns" && item.col) addVisualRulesForColumn(item.col);
+                      }}
+                    >
+                      Visual
+                    </Button>
+                    {activeTab === "measures" && item.measure && hasVisualRuleForMeasure(item.measure) && (
+                      <Button size="sm" variant="ghost" title="Delete the visual column rules for this measure" onClick={(e) => { e.stopPropagation(); deleteVisualRulesForMeasure(item.measure); }}>
+                        Remove visual
+                      </Button>
+                    )}
+                    {opensWizard && onDeleteCalcMeasure && (
+                      <IconButton label="Delete calculated measure" tone="danger" icon={<IconTrash size={14} />} onClick={(e) => { e.stopPropagation(); handleDeleteItem(item); }} />
+                    )}
+                  </>
+                )}
+              </div>
+              <span title={isHidden ? `Show ${noun}` : `Hide ${noun}`}>
+                <Switch checked={!isHidden} onChange={() => toggleVisibility(item.id)} />
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
+
+  const renderLevelAware = () => (
+    <>
+      <Section
+        title="Level-aware columns"
+        description="An optional layout for aging and transaction-detail reports. Detail fields render once in their own zone; distributed measures repeat across buckets."
       >
-        <div style={{
-          width: 6, height: 6, borderRadius: "50%",
-          background: active ? ui.accent : "rgba(100,116,139,0.25)",
-          boxShadow: "none",
-        }} />
-        {label}
+        <Switch
+          checked={!!levelAwareConfig.enabled}
+          onChange={() => persistLevelAwareConfig({ ...levelAwareConfig, enabled: !levelAwareConfig.enabled })}
+          label="Use level-aware layout"
+        />
+      </Section>
+
+      {rowFieldItems.length > 0 && (
+        <Section title="Row field roles">
+          <div className="mx-stack is-tight">
+            {rowFieldItems.map(item => {
+              const role = item.config?.role || "hierarchy";
+              const displayAt = item.config?.displayAt || (role === "detail" ? "leaf" : "all");
+              const placement = item.config?.placement || (role === "detail" ? "detailColumns" : role === "hiddenKey" ? "hidden" : "rowHeader");
+              const aggregation = item.config?.aggregation || "none";
+              return (
+                <div key={item.levelIndex} className="mx-item" style={{ flexDirection: "column", alignItems: "stretch", gap: 10, padding: 10 }}>
+                  <div className="mx-item-main" style={{ flex: "none" }}>
+                    <span className="mx-item-title">{item.fieldName}</span>
+                    <span className="mx-item-meta">Level {item.levelIndex + 1}</span>
+                  </div>
+                  <div className="mx-grid-2">
+                    <Field label="Role">
+                      <select className="mx-select is-sm" aria-label="Role" value={role} onChange={e => updateRowField(item.levelIndex, item.fieldName, { role: e.target.value as RowFieldRole, placement: e.target.value === "detail" ? "detailColumns" : e.target.value === "hiddenKey" ? "hidden" : "rowHeader" })}>
+                        {ROW_FIELD_ROLE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Show at">
+                      <select className="mx-select is-sm" aria-label="Show at" value={displayAt} onChange={e => updateRowField(item.levelIndex, item.fieldName, { displayAt: e.target.value as RowFieldDisplayAt })}>
+                        {ROW_FIELD_DISPLAY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Placement">
+                      <select className="mx-select is-sm" aria-label="Placement" value={placement} onChange={e => updateRowField(item.levelIndex, item.fieldName, { placement: e.target.value as RowFieldPlacement })}>
+                        {ROW_FIELD_PLACEMENT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Aggregation">
+                      <select className="mx-select is-sm" aria-label="Aggregation" value={aggregation} onChange={e => updateRowField(item.levelIndex, item.fieldName, { aggregation: e.target.value as RowFieldAggregation })}>
+                        {ROW_FIELD_AGG_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </Field>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      <Section title="Measures">
+        {levelAwareItems.length === 0 ? (
+          <EmptyNote title={search ? "No matches" : "No measures"} hint={search ? "Try a different search." : undefined} />
+        ) : (
+          <div className="mx-stack is-tight">
+            {levelAwareItems.map((item, index) => {
+              const field = item.field;
+              const displayMode = field?.displayMode || "distributed";
+              const rowVisibility = field?.rowVisibility || (displayMode === "detail" ? "leaf" : "all");
+              const columnGroupVisibility = field?.columnGroupVisibility || (displayMode === "detail" ? "notRepeated" : "all");
+              const aggregation = (field?.aggregation || (displayMode === "detail" ? "none" : "sum")) as LevelAwareAggregation;
+              const placement = field?.placement || "beforeDistributed";
+              const enabled = field?.enabled !== false && field?.hidden !== true;
+              return (
+                <div key={item.id} className="mx-item" style={{ flexDirection: "column", alignItems: "stretch", gap: 10, padding: 10 }}>
+                  <div className="mx-row">
+                    <div className="mx-item-main">
+                      <span className="mx-item-title">{item.label}</span>
+                      <span className="mx-item-meta">{item.sub}</span>
+                    </div>
+                    <div className="mx-item-actions">
+                      <IconButton label="Move up" icon={<IconArrowUp size={14} />} disabled={index === 0} onClick={() => moveLevelAwareField(item.measureIndex, -1)} />
+                      <IconButton label="Move down" icon={<IconArrowDown size={14} />} disabled={index === levelAwareItems.length - 1} onClick={() => moveLevelAwareField(item.measureIndex, 1)} />
+                    </div>
+                    <span title={enabled ? "Hide measure" : "Show measure"}>
+                      <Switch checked={enabled} onChange={() => updateLevelAwareField(item.measure, item.measureIndex, { hidden: enabled, enabled: true })} />
+                    </span>
+                  </div>
+                  <div className="mx-grid-2">
+                    <Field label="Display as">
+                      <select className="mx-select is-sm" aria-label="Display as" value={displayMode} onChange={e => updateLevelAwareField(item.measure, item.measureIndex, { displayMode: e.target.value as LevelAwareDisplayMode })}>
+                        {DISPLAY_MODE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Rows">
+                      <select className="mx-select is-sm" aria-label="Rows" value={rowVisibility} onChange={e => updateLevelAwareField(item.measure, item.measureIndex, { rowVisibility: e.target.value as LevelAwareRowVisibility })}>
+                        {ROW_VISIBILITY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Column groups">
+                      <select className="mx-select is-sm" aria-label="Column groups" value={columnGroupVisibility} onChange={e => updateLevelAwareField(item.measure, item.measureIndex, { columnGroupVisibility: e.target.value as LevelAwareColumnGroupVisibility })}>
+                        {COLUMN_GROUP_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Aggregation">
+                      <select className="mx-select is-sm" aria-label="Aggregation" value={aggregation} onChange={e => updateLevelAwareField(item.measure, item.measureIndex, { aggregation: e.target.value as LevelAwareAggregation })}>
+                        {AGGREGATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Placement">
+                      <select className="mx-select is-sm" aria-label="Placement" value={placement} onChange={e => updateLevelAwareField(item.measure, item.measureIndex, { placement: e.target.value as LevelAwarePlacement })}>
+                        {PLACEMENT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </Field>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Section>
+    </>
+  );
+
+  const renderVisualColumns = () => {
+    if (filteredVisualColumnRules.length === 0) {
+      return search ? (
+        <EmptyNote title="No matches" hint="Try a different search." />
+      ) : (
+        <EmptyNote
+          title="No visual columns"
+          hint="Add a rule here, or use Visual on a measure or column."
+        />
+      );
+    }
+    return (
+      <div className="mx-stack is-tight">
+        {filteredVisualColumnRules.map(rule => (
+          <div key={rule.id} className="mx-item" style={{ flexDirection: "column", alignItems: "stretch", gap: 10, padding: 10 }}>
+            <div className="mx-row">
+              <div className="mx-item-main">
+                <span className="mx-item-title">{rule.sourceMeasureName || "Unnamed rule"}</span>
+              </div>
+              <span title={rule.enabled !== false ? "Turn off" : "Turn on"}>
+                <Switch checked={rule.enabled !== false} onChange={() => updateVisualColumnRule(rule.id, { enabled: rule.enabled === false })} />
+              </span>
+              <IconButton
+                label="Delete visual column"
+                tone="danger"
+                icon={<IconTrash size={14} />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteVisualColumnRule(rule.id);
+                }}
+              />
+            </div>
+            <div className="mx-grid-2">
+              <Field label="Frequency">
+                <select className="mx-select is-sm" aria-label="Frequency" value={rule.frequency} onChange={e => updateVisualColumnRule(rule.id, { frequency: e.target.value as any })}>
+                  <option value="all">Everywhere</option>
+                  <option value="yearly">Yearly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="ytd">YTD total</option>
+                  <option value="specific">Specific</option>
+                </select>
+              </Field>
+              <Field label="Position">
+                <select className="mx-select is-sm" aria-label="Position" value={rule.position} onChange={e => updateVisualColumnRule(rule.id, { position: e.target.value as any })}>
+                  <option value="normal">Normal</option>
+                  <option value="beginning">Beginning</option>
+                  <option value="end">End</option>
+                </select>
+              </Field>
+            </div>
+            <Field label="Style applies to">
+              <Segmented
+                size="sm"
+                ariaLabel="Style applies to"
+                value={rule.applyTo || "both"}
+                onChange={(applyTo) => updateVisualColumnRule(rule.id, { applyTo })}
+                options={[
+                  { value: "both", label: "Headers and values" },
+                  { value: "headers", label: "Headers" },
+                  { value: "values", label: "Values" },
+                ]}
+              />
+            </Field>
+          </div>
+        ))}
       </div>
     );
   };
 
-  return (
-    <div style={overlayStyles} onClick={onClose}>
-      <style>{`
-        @keyframes matrix-fade-in { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes glow-pulse { 0% { box-shadow: 0 0 5px rgba(0, 229, 255, 0.4); } 50% { box-shadow: 0 0 20px rgba(0, 229, 255, 0.8); } 100% { box-shadow: 0 0 5px rgba(0, 229, 255, 0.4); } }
-        .matrix-scrollbar::-webkit-scrollbar { width: 4px; }
-        .matrix-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .matrix-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); borderRadius: 10px; }
-        .matrix-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
-        .studio-card {
-          background: ${ui.panelSoft};
-          border: 1px solid ${ui.border};
-          border-radius: 18px;
-          box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
-        }
-      `}</style>
-      <div
-        style={{
-          width: `min(${panelWidth}px, 100%)`,
-          height: "100%",
-          background: ui.panel,
-          borderLeft: `1px solid ${ui.borderStrong}`,
-          boxShadow: ui.shadow,
-          display: "flex",
-          flexDirection: "row",
-          overflow: "hidden",
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-        <div style={{ width: compact ? 154 : 176, borderRight: `1px solid ${ui.border}`, background: "rgba(255,255,255,0.24)", display: "flex", flexDirection: "column", padding: compact ? "18px 12px 18px" : "20px 14px 20px" }}>
-          <div style={{ padding: compact ? "0 2px 14px" : "0 4px 16px" }}>
-            <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: ui.textMuted, fontWeight: 800 }}>Design Studio</div>
-            <div style={{ marginTop: 6, fontWeight: 800, fontSize: compact ? 18 : 20, lineHeight: 1.04, color: ui.text, letterSpacing: "-0.04em" }}>
-              Manage Columns
-            </div>
-          </div>
-          <TabBtn id="measures" label="Measures" />
-          <TabBtn id="columns" label="Columns" />
-          <TabBtn id="visualColumns" label="Visuals" />
-          <TabBtn id="levelAware" label="Level Aware" />
-          <TabBtn id="rows" label="Rows" />
-          <TabBtn id="design" label="Design Studio" />
+  const renderDesign = () => (
+    <>
+      <Section title="Templates" description="Each template overwrites theme, layout, header and value settings.">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
+          {DESIGN_TEMPLATES.map(([id, label, description]) => (
+            <button
+              key={id}
+              type="button"
+              className="mx-item is-clickable"
+              style={{ flexDirection: "column", alignItems: "flex-start", gap: 2, padding: 10, textAlign: "left", fontFamily: "inherit" }}
+              onClick={() => applyDesignTemplate(id)}
+            >
+              <span className="mx-item-title">{label}</span>
+              <span className="mx-item-meta" style={{ whiteSpace: "normal" }}>{description}</span>
+            </button>
+          ))}
         </div>
+      </Section>
 
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "rgba(255,255,255,0.12)", position: "relative" }}>
-          {/* Grid Overlay */}
-          <div style={{ position: "absolute", inset: 0, backgroundImage: "radial-gradient(rgba(148,163,184,0.18) 1px, transparent 1px)", backgroundSize: "26px 26px", opacity: 0.22, pointerEvents: "none" }} />
-          
-          <div style={{ padding: compact ? "16px 16px 14px" : "18px 18px 16px", borderBottom: `1px solid ${ui.border}`, display: "grid", gap: 12, zIndex: 1, position: "relative" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: ui.textMuted, fontWeight: 800 }}>Design Studio</div>
-                <h1 style={{ margin: "6px 0 0", fontSize: compact ? 20 : 22, fontWeight: 800, color: ui.text, letterSpacing: "-0.02em", lineHeight: 1.05 }}>
-                  {activeTab === "design" ? "Design Studio" : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
-                </h1>
-              </div>
-              <button
-                onClick={onClose}
-                style={{ border: "none", background: "rgba(255,255,255,0.72)", borderRadius: 12, width: 36, height: 36, fontSize: 18, color: "#475569", cursor: "pointer" }}
-              >
-                ×
-              </button>
-            </div>
-            <div style={{ display: "flex", gap: 12 }}>
-              {(activeTab === "measures" || activeTab === "columns" || activeTab === "rows") && (
-                <button
-                  type="button"
-                  onClick={() => setShowHiddenOnly(prev => !prev)}
-                  style={{
-                    ...actionBtn,
-                    background: showHiddenOnly ? ui.accentSoft : "rgba(255,255,255,0.62)",
-                    color: showHiddenOnly ? ui.accent : ui.text,
-                    border: `1px solid ${showHiddenOnly ? "rgba(14,165,233,0.28)" : ui.border}`,
-                  }}
-                >
-                  {showHiddenOnly ? "Showing Hidden" : "Show Hidden"}
-                </button>
-              )}
-              {(activeTab === "measures" || activeTab === "visualColumns") && (
-                <button
-                  onClick={activeTab === "measures" ? () => { onClose(); onOpenCalcMeasureWizard?.(); } : addVisualColumnRule}
-                  style={{
-                    ...actionBtn,
-                    background: ui.accent,
-                    color: "#fff",
-                    border: "none",
-                    boxShadow: "0 10px 24px rgba(14,165,233,0.2)",
-                  }}
-                >
-                  <PlusIcon /> {activeTab === "measures" ? "New Measure" : "Add Rule"}
-                </button>
-              )}
-              {activeTab === "levelAware" && (
-                <button
-                  type="button"
-                  onClick={() => persistLevelAwareConfig({ ...levelAwareConfig, enabled: !levelAwareConfig.enabled })}
-                  style={{
-                    ...actionBtn,
-                    background: levelAwareConfig.enabled ? ui.accent : "rgba(255,255,255,0.62)",
-                    color: levelAwareConfig.enabled ? "#fff" : ui.text,
-                    border: levelAwareConfig.enabled ? "none" : `1px solid ${ui.border}`,
-                  }}
-                >
-                  {levelAwareConfig.enabled ? "Level Aware On" : "Enable Layout"}
-                </button>
-              )}
-            </div>
-          </div>
+      <div className="mx-divider" />
 
-          <div style={{ padding: compact ? "14px 16px 12px" : "16px 18px 14px", zIndex: 1 }}>
-            <div style={{ position: "relative" }}>
+      <Section title="Surface">
+        <div className="mx-stack">
+          <Field label="Background" inline>
+            <ColorWell
+              label="Background color"
+              value={settings.appearance.surfaceColor || "#ffffff"}
+              onChange={value => onPersistProperty("appearance", "surfaceColor", value)}
+            />
+          </Field>
+          <Field label="Corner radius" inline>
+            <input
+              type="range" min="0" max="40"
+              aria-label="Corner radius"
+              value={settings.appearance.cornerRadius || 0}
+              onChange={e => onPersistProperty("appearance", "cornerRadius", parseInt(e.target.value))}
+              style={{ flex: 1, minWidth: 0, accentColor: "var(--mx-accent)" }}
+            />
+            <span className="mx-num mx-muted" style={{ width: 28, textAlign: "right" }}>{settings.appearance.cornerRadius || 0}</span>
+          </Field>
+          <Field label="Background image URL">
+            <input
+              className="mx-input"
+              type="text"
+              placeholder="https://example.com/image.jpg"
+              value={(settings.appearance as any).backgroundImage || ""}
+              onChange={e => onPersistProperty("appearance", "backgroundImage", e.target.value)}
+            />
+          </Field>
+          <Field label="Background blur" inline>
+            <input
+              type="range" min="0" max="40"
+              aria-label="Background blur"
+              value={(settings.appearance as any).backgroundBlur || 0}
+              onChange={e => onPersistProperty("appearance", "backgroundBlur", parseInt(e.target.value))}
+              style={{ flex: 1, minWidth: 0, accentColor: "var(--mx-accent)" }}
+            />
+            <span className="mx-num mx-muted" style={{ width: 28, textAlign: "right" }}>{(settings.appearance as any).backgroundBlur || 0}</span>
+          </Field>
+          <Switch
+            label="Frosted glass"
+            checked={(settings.appearance as any).glassmorphism || false}
+            onChange={() => onPersistProperty("appearance", "glassmorphism", !(settings.appearance as any).glassmorphism)}
+          />
+        </div>
+      </Section>
+
+      <div className="mx-divider" />
+
+      <Section title="Typography">
+        <div className="mx-stack">
+          <Field label="Value font size" inline>
+            <input
+              className="mx-input is-num"
+              type="number"
+              aria-label="Value font size"
+              style={{ width: 80 }}
+              value={settings.values.fontSize}
+              onChange={e => onPersistProperty("values", "fontSize", parseInt(e.target.value))}
+            />
+          </Field>
+          <Field label="Value alignment" inline>
+            <Segmented
+              ariaLabel="Value alignment"
+              value={settings.values.alignment}
+              onChange={value => onPersistProperty("values", "alignment", value)}
+              options={[
+                { value: "left", label: "Left" },
+                { value: "center", label: "Center" },
+                { value: "right", label: "Right" },
+              ]}
+            />
+          </Field>
+        </div>
+      </Section>
+    </>
+  );
+
+  const searchPlaceholder =
+    activeTab === "visualColumns" ? "Search visual columns"
+      : activeTab === "levelAware" ? "Search measures and fields"
+        : `Search ${noun}s`;
+
+  const countLabel = plural(items.length, noun) + (showHiddenOnly ? " hidden" : "");
+
+  return (
+    <>
+      <Overlay
+        kind="sheet"
+        title="Manage columns"
+        subtitle="Changes apply as you make them."
+        width={panelWidth}
+        onClose={onClose}
+        flush
+        toolbar={<Tabs<TabId> ariaLabel="Manage columns sections" tabs={TABS} value={activeTab} onChange={switchTab} />}
+      >
+        {activeTab !== "design" && (
+          <div className="mx-stack is-tight" style={{ padding: "12px var(--mx-ov-pad) 10px", borderBottom: "1px solid var(--mx-ov-line)", flexShrink: 0 }}>
+            <div className="mx-row">
               <input
-                type="text"
-                placeholder="Search resources..."
+                className="mx-input"
+                type="search"
+                aria-label="Search"
+                placeholder={searchPlaceholder}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                style={{
-                  width: "100%",
-                  background: "rgba(255,255,255,0.78)",
-                  border: `1px solid ${ui.border}`,
-                  padding: compact ? "10px 14px 10px 40px" : "11px 14px 11px 42px",
-                  color: ui.text,
-                  fontSize: compact ? 12 : 13,
-                  borderRadius: 12,
-                  outline: "none",
-                }}
+                style={{ flex: 1 }}
               />
-              <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: ui.textMuted }}>
-                <SearchIcon />
-              </div>
+              {activeTab === "measures" && (
+                <Button variant="primary" icon={<IconPlus size={14} />} onClick={() => { onClose(); onOpenCalcMeasureWizard?.(); }}>
+                  New measure
+                </Button>
+              )}
+              {activeTab === "visualColumns" && (
+                <Button variant="primary" icon={<IconPlus size={14} />} onClick={addVisualColumnRule}>
+                  Add rule
+                </Button>
+              )}
             </div>
-            <div style={{ height: 1, background: ui.border, margin: compact ? "14px -16px 0 -16px" : "16px -18px 0 -18px" }} />
-
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16 }}>
-              <div style={{ color: ui.textMuted, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                {activeTab === "levelAware" ? levelAwareItems.length : items.length} {activeTab} available
-              </div>
-              <button 
-                onClick={toggleAll}
-                style={{ background: "none", border: "none", color: ui.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: "4px 8px" }}
-              >
-                Toggle Visibility
-              </button>
-            </div>
-          </div>
-
-          <div ref={listScrollRef} style={{ flex: 1, overflowY: "auto", padding: "0 22px 22px", zIndex: 1 }} className="matrix-scrollbar">
-            {activeTab === "levelAware" ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingTop: 14 }}>
-                <div className="studio-card" style={{ padding: 14, borderColor: levelAwareConfig.enabled ? "rgba(14,165,233,0.28)" : ui.border }}>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: ui.text }}>Level-Aware Columns</div>
-                  <div style={{ marginTop: 4, fontSize: 11, color: ui.textMuted, lineHeight: 1.45 }}>
-                    Optional asymmetric layout for aging and transaction-detail reports. Detail fields render once in their own zone; distributed measures continue across buckets.
-                  </div>
+            {isVisibilityTab && (
+              <div className="mx-row is-between">
+                <span className="mx-muted mx-num">{countLabel}</span>
+                <div className="mx-row" style={{ gap: 12 }}>
+                  <Switch checked={showHiddenOnly} onChange={setShowHiddenOnly} label="Hidden only" />
+                  <Button variant="ghost" size="sm" disabled={items.length === 0} onClick={toggleAll}>
+                    {allItemsHidden ? "Show all" : "Hide all"}
+                  </Button>
                 </div>
-                {rowFieldItems.length > 0 && (
-                  <div className="studio-card" style={{ padding: 14 }}>
-                    <div style={{ fontSize: 13, fontWeight: 900, color: ui.text, marginBottom: 10 }}>Row Field Roles</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {rowFieldItems.map(item => {
-                        const role = item.config?.role || "hierarchy";
-                        const displayAt = item.config?.displayAt || (role === "detail" ? "leaf" : "all");
-                        const placement = item.config?.placement || (role === "detail" ? "detailColumns" : role === "hiddenKey" ? "hidden" : "rowHeader");
-                        const aggregation = item.config?.aggregation || "none";
-                        return (
-                          <div key={item.levelIndex} style={{ display: "grid", gridTemplateColumns: "minmax(120px, 1.1fr) repeat(4, minmax(120px, 1fr))", gap: 8, alignItems: "center" }}>
-                            <div>
-                              <div style={{ fontSize: 12, fontWeight: 800, color: ui.text }}>{item.fieldName}</div>
-                              <div style={{ fontSize: 10, color: ui.textMuted }}>Level {item.levelIndex + 1}</div>
-                            </div>
-                            <select value={role} onChange={e => updateRowField(item.levelIndex, item.fieldName, { role: e.target.value as RowFieldRole, placement: e.target.value === "detail" ? "detailColumns" : e.target.value === "hiddenKey" ? "hidden" : "rowHeader" })} style={{ background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 10px", borderRadius: 8, fontSize: 11 }}>
-                              {ROW_FIELD_ROLE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                            </select>
-                            <select value={displayAt} onChange={e => updateRowField(item.levelIndex, item.fieldName, { displayAt: e.target.value as RowFieldDisplayAt })} style={{ background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 10px", borderRadius: 8, fontSize: 11 }}>
-                              {ROW_FIELD_DISPLAY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                            </select>
-                            <select value={placement} onChange={e => updateRowField(item.levelIndex, item.fieldName, { placement: e.target.value as RowFieldPlacement })} style={{ background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 10px", borderRadius: 8, fontSize: 11 }}>
-                              {ROW_FIELD_PLACEMENT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                            </select>
-                            <select value={aggregation} onChange={e => updateRowField(item.levelIndex, item.fieldName, { aggregation: e.target.value as RowFieldAggregation })} style={{ background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 10px", borderRadius: 8, fontSize: 11 }}>
-                              {ROW_FIELD_AGG_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                            </select>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                {levelAwareItems.map((item, index) => {
-                  const field = item.field;
-                  const displayMode = field?.displayMode || "distributed";
-                  const rowVisibility = field?.rowVisibility || (displayMode === "detail" ? "leaf" : "all");
-                  const columnGroupVisibility = field?.columnGroupVisibility || (displayMode === "detail" ? "notRepeated" : "all");
-                  const aggregation = (field?.aggregation || (displayMode === "detail" ? "none" : "sum")) as LevelAwareAggregation;
-                  const placement = field?.placement || "beforeDistributed";
-                  const enabled = field?.enabled !== false && field?.hidden !== true;
-                  return (
-                    <div key={item.id} className="studio-card" style={{ padding: 14 }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 800, color: ui.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.label}</div>
-                          <div style={{ fontSize: 10, color: ui.textMuted, marginTop: 2 }}>{item.sub}</div>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <button type="button" disabled={index === 0} onClick={() => moveLevelAwareField(item.measureIndex, -1)} style={{ ...miniBtn, opacity: index === 0 ? 0.45 : 1 }}>Up</button>
-                          <button type="button" disabled={index === levelAwareItems.length - 1} onClick={() => moveLevelAwareField(item.measureIndex, 1)} style={{ ...miniBtn, opacity: index === levelAwareItems.length - 1 ? 0.45 : 1 }}>Down</button>
-                          <Toggle checked={enabled} onChange={() => updateLevelAwareField(item.measure, item.measureIndex, { hidden: enabled, enabled: true })} />
-                        </div>
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
-                        <select value={displayMode} onChange={e => updateLevelAwareField(item.measure, item.measureIndex, { displayMode: e.target.value as LevelAwareDisplayMode })} style={{ background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 10px", borderRadius: 8, fontSize: 11 }}>
-                          {DISPLAY_MODE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                        </select>
-                        <select value={rowVisibility} onChange={e => updateLevelAwareField(item.measure, item.measureIndex, { rowVisibility: e.target.value as LevelAwareRowVisibility })} style={{ background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 10px", borderRadius: 8, fontSize: 11 }}>
-                          {ROW_VISIBILITY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                        </select>
-                        <select value={columnGroupVisibility} onChange={e => updateLevelAwareField(item.measure, item.measureIndex, { columnGroupVisibility: e.target.value as LevelAwareColumnGroupVisibility })} style={{ background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 10px", borderRadius: 8, fontSize: 11 }}>
-                          {COLUMN_GROUP_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                        </select>
-                        <select value={aggregation} onChange={e => updateLevelAwareField(item.measure, item.measureIndex, { aggregation: e.target.value as LevelAwareAggregation })} style={{ background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 10px", borderRadius: 8, fontSize: 11 }}>
-                          {AGGREGATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                        </select>
-                        <select value={placement} onChange={e => updateLevelAwareField(item.measure, item.measureIndex, { placement: e.target.value as LevelAwarePlacement })} style={{ background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 10px", borderRadius: 8, fontSize: 11 }}>
-                          {PLACEMENT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : activeTab === "visualColumns" ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 24, paddingTop: 16 }}>
-                {filteredVisualColumnRules.map(rule => (
-                  <div key={rule.id} className="studio-card" style={{ padding: 20 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                       <div style={{ fontSize: 14, fontWeight: 700, color: ui.accent }}>{rule.sourceMeasureName || "Unnamed Rule"}</div>
-                       <div style={{ display: "flex", gap: 8 }}>
-                          <Toggle checked={rule.enabled !== false} onChange={() => updateVisualColumnRule(rule.id, { enabled: rule.enabled === false })} />
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteVisualColumnRule(rule.id);
-                            }}
-                            style={{ background: "none", border: "none", color: ui.danger, cursor: "pointer" }}
-                          >
-                            <TrashIcon />
-                          </button>
-                       </div>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                       <select value={rule.frequency} onChange={e => updateVisualColumnRule(rule.id, { frequency: e.target.value as any })} style={{ background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 12px", borderRadius: 8, fontSize: 12 }}>
-                          <option value="all">Everywhere</option>
-                          <option value="yearly">Yearly</option>
-                          <option value="quarterly">Quarterly</option>
-                          <option value="ytd">YTD Total</option>
-                          <option value="specific">Specific</option>
-                       </select>
-                       <select value={rule.position} onChange={e => updateVisualColumnRule(rule.id, { position: e.target.value as any })} style={{ background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 12px", borderRadius: 8, fontSize: 12 }}>
-                          <option value="normal">Normal</option>
-                          <option value="beginning">Beginning</option>
-                          <option value="end">End</option>
-                       </select>
-                    </div>
-                    <div style={{ marginTop: 12 }}>
-                       <div style={{ fontSize: 10, color: ui.textMuted, marginBottom: 8, fontWeight: 700, textTransform: "uppercase" }}>Style Application</div>
-                       <select 
-                         value={rule.applyTo || "both"} 
-                         onChange={e => updateVisualColumnRule(rule.id, { applyTo: e.target.value as any })} 
-                         style={{ width: "100%", background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 12px", borderRadius: 8, fontSize: 12 }}
-                       >
-                          <option value="both">Apply to Headers & Values</option>
-                          <option value="headers">Headers Only</option>
-                          <option value="values">Values Only</option>
-                       </select>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : activeTab === "design" ? (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 24, paddingTop: 16 }}>
-                <div className="studio-card" style={{ padding: 20 }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", marginBottom: 8 }}>Report Design Templates</div>
-                  <div style={{ fontSize: 12, color: ui.textMuted, marginBottom: 16 }}>
-                    Presets inspired by modern SaaS tables, billing ledgers, customer directories, glass pill reports, and rounded card matrices.
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
-                    {[
-                      ["vendor", "Vendor Activity", "Searchable SaaS directory with progress bars and soft pills"],
-                      ["billing", "Billing History", "Invoice-style rows with clean status and action columns"],
-                      ["customers", "Customer Table", "Avatar/payment/category report with spacious app rows"],
-                      ["glassPills", "Glass Pills", "Floating glass rows with turquoise pill labels"],
-                      ["columnCards", "Column Cards", "Rounded vertical-card matrix inspired by data cards"],
-                    ].map(([id, label, description]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => applyDesignTemplate(id as any)}
-                        style={{
-                          textAlign: "left",
-                          border: `1px solid ${ui.border}`,
-                          background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))",
-                          color: ui.text,
-                          borderRadius: 14,
-                          padding: "12px 14px",
-                          cursor: "pointer",
-                          minHeight: 86,
-                        }}
-                      >
-                        <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6 }}>{label}</div>
-                        <div style={{ fontSize: 10, lineHeight: 1.4, color: ui.textMuted }}>{description}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="studio-card" style={{ padding: 24 }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", marginBottom: 20 }}>Surface Aesthetics</div>
-                  
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Background Color</div>
-                      <input 
-                        type="color" 
-                        value={settings.appearance.surfaceColor || "#ffffff"} 
-                        onChange={e => onPersistProperty("appearance", "surfaceColor", e.target.value)}
-                        style={{ width: "100%", height: 40, border: "none", background: "none", cursor: "pointer" }}
-                      />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Corner Radius</div>
-                      <input 
-                        type="range" min="0" max="40" 
-                        value={settings.appearance.cornerRadius || 0}
-                        onChange={e => onPersistProperty("appearance", "cornerRadius", parseInt(e.target.value))}
-                        style={{ width: "100%", accentColor: ui.accent }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: 24 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Background Image URL</div>
-                    <input 
-                      type="text" 
-                      placeholder="https://example.com/image.jpg"
-                      value={(settings.appearance as any).backgroundImage || ""}
-                      onChange={e => onPersistProperty("appearance", "backgroundImage", e.target.value)}
-                      style={{ width: "100%", background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "10px 16px", borderRadius: 10, fontSize: 13 }}
-                    />
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginTop: 24 }}>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Blur Intensity</div>
-                      <input 
-                        type="range" min="0" max="40" 
-                        value={(settings.appearance as any).backgroundBlur || 0}
-                        onChange={e => onPersistProperty("appearance", "backgroundBlur", parseInt(e.target.value))}
-                        style={{ width: "100%", accentColor: ui.accent }}
-                      />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Glassmorphism</div>
-                      <Toggle 
-                        checked={(settings.appearance as any).glassmorphism || false} 
-                        onChange={() => onPersistProperty("appearance", "glassmorphism", !(settings.appearance as any).glassmorphism)} 
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="studio-card" style={{ padding: 24 }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", marginBottom: 20 }}>Typography & Contrast</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Primary Font Size</div>
-                      <input 
-                        type="number" 
-                        value={settings.values.fontSize}
-                        onChange={e => onPersistProperty("values", "fontSize", parseInt(e.target.value))}
-                        style={{ width: "100%", background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 12px", borderRadius: 8 }}
-                      />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.textMuted, marginBottom: 8, textTransform: "uppercase" }}>Header Alignment</div>
-                      <select 
-                        value={settings.values.alignment}
-                        onChange={e => onPersistProperty("values", "alignment", e.target.value)}
-                        style={{ width: "100%", background: ui.bg, border: `1px solid ${ui.border}`, color: ui.text, padding: "8px 12px", borderRadius: 8 }}
-                      >
-                        <option value="left">Left</option>
-                        <option value="center">Center</option>
-                        <option value="right">Right</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 16 }}>
-                {items.map((item: any) => {
-                  const isHidden = activeTab === "rows" ? hiddenRowKeysState.has(item.id) : hiddenColsState.has(item.id);
-                  const isDragOver = dragOverId === item.id;
-                  return (
-                    <div 
-                      key={item.id}
-                      draggable
-                      onDragStart={e => handleDragStart(e, item.id)}
-                      onDragOver={e => handleDragOver(e, item.id)}
-                      onDrop={e => handleDrop(e, item.id)}
-                      onDragEnd={handleDragEnd}
-                      style={{
-                        padding: compact ? "12px 12px" : "13px 14px",
-                        marginLeft: activeTab === "columns" && item.level ? Math.min(28, item.level * 10) : 0,
-                        background: isDragOver ? ui.accentSoft : isHidden ? "rgba(255,255,255,0.38)" : ui.panelSoft,
-                        border: `1px solid ${isDragOver ? ui.accent : isHidden ? ui.border : ui.border}`,
-                        borderRadius: 16,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 12,
-                        opacity: isHidden ? 0.4 : 1,
-                        transition: "all 0.2s",
-                        boxShadow: "0 8px 20px rgba(15, 23, 42, 0.05)",
-                      }}
-                    >
-                      <DragHandle />
-                      <div style={{ flex: 1 }}>
-                                                {renamingId === item.id ? (
-                          <input 
-                            autoFocus
-                            value={renameInput}
-                            onChange={e => setRenameInput(e.target.value)}
-                            onBlur={() => saveRename(item.id, renameInput)}
-                            onKeyDown={e => {
-                              if (e.key === "Enter") saveRename(item.id, renameInput);
-                              if (e.key === "Escape") setRenamingId(null);
-                            }}
-                            style={{ width: "100%", background: "rgba(255,255,255,0.96)", border: `1px solid ${ui.accent}`, color: ui.text, padding: "7px 9px", borderRadius: 10, fontSize: 12, outline: "none" }}
-                          />
-                        ) : (
-                          <div 
-                            style={{ fontWeight: 700, fontSize: 12, color: ui.text, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
-                            onClick={() => {
-                              if (activeTab === "measures" && item.isCalculatedMeasure && item.measure?.id) {
-                                onOpenCalcMeasureWizard?.(item.measure.id);
-                                return;
-                              }
-                              setRenamingId(item.id);
-                              setRenameInput(labelOverrides[item.id] || item.label);
-                            }}
-                          >
-                            {labelOverrides[item.id] || item.label}
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: 0.3 }}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                          </div>
-                        )}
-
-                        <div style={{ fontSize: 10, color: ui.textMuted, marginTop: 4 }}>{item.sub}</div>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, flexWrap: "wrap", flex: "0 1 auto", minWidth: 0 }}>
-                      {activeTab === "columns" && (item.col?.isSubtotal || item.col?.isGrandTotal) && (
-                        <select
-                          title="Place this total/subtotal at the beginning or end of its hierarchy"
-                          value={totalPositions[item.col.key] || "inherit"}
-                          onChange={(e) => updateTotalPosition(item.col.key, e.target.value as "inherit" | "beginning" | "end")}
-                          style={{
-                            background: ui.bg,
-                            border: `1px solid ${ui.border}`,
-                            color: ui.text,
-                            borderRadius: 8,
-                            height: 30,
-                            padding: "0 8px",
-                            fontSize: 11,
-                            fontWeight: 700,
-                            cursor: "pointer",
-                          }}
-                        >
-                          <option value="inherit">Inherit total position</option>
-                          <option value="beginning">Beginning</option>
-                          <option value="end">End</option>
-                        </select>
-                      )}
-                      {(activeTab === "measures" || activeTab === "columns") && (
-                        <>
-                        {activeTab === "measures" && (
-                          <select
-                            title="Move measure to position across every column"
-                            value={Math.max(0, buildOrder().indexOf(item.id))}
-                            onChange={(e) => moveItemToPosition(item.id, parseInt(e.target.value, 10))}
-                            style={{
-                              background: ui.bg,
-                              border: `1px solid ${ui.border}`,
-                              color: ui.text,
-                              borderRadius: 8,
-                              height: 30,
-                              padding: "0 8px",
-                              fontSize: 11,
-                              fontWeight: 700,
-                              cursor: "pointer",
-                            }}
-                          >
-                            {measureItems.map((measureItem, index) => (
-                              <option key={measureItem.id} value={index}>{index + 1}</option>
-                            ))}
-                          </select>
-                        )}
-                        {activeTab === "measures" && item.isCalculatedMeasure && item.measure?.id && (
-                          <button
-                            type="button"
-                            title="Edit calculated measure"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onOpenCalcMeasureWizard?.(item.measure.id);
-                            }}
-                            style={{
-                              border: `1px solid ${ui.border}`,
-                              background: ui.surfaceActive,
-                              color: ui.text,
-                              borderRadius: 8,
-                              height: 30,
-                              padding: "0 10px",
-                              fontSize: 11,
-                              fontWeight: 800,
-                              cursor: "pointer",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            Edit
-                          </button>
-                        )}
-                        {activeTab === "measures" && item.isCalculatedMeasure && item.measure?.id && onDeleteCalcMeasure && (
-                          <button
-                            type="button"
-                            title="Delete calculated measure"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteItem(item);
-                            }}
-                            style={{
-                              border: `1px solid ${ui.border}`,
-                              background: ui.dangerSoft,
-                              color: ui.danger,
-                              borderRadius: 8,
-                              height: 30,
-                              padding: "0 10px",
-                              fontSize: 11,
-                              fontWeight: 800,
-                              cursor: "pointer",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            Delete
-                          </button>
-                        )}
-                        {item.measure && (
-                          <select
-                            title="Aggregation Type"
-                            value={getAggregationValue(item.measure.index)}
-                            onChange={(e) => saveAggregation(item.measure.index, e.target.value as AggregationType)}
-                            style={{
-                              background: ui.bg,
-                              border: `1px solid ${ui.border}`,
-                              color: ui.text,
-                              borderRadius: 8,
-                              height: 30,
-                              padding: "0 8px",
-                              fontSize: 11,
-                              fontWeight: 700,
-                              cursor: "pointer",
-                            }}
-                          >
-                            {AGGREGATION_OPTIONS.map(option => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
-                        )}
-                      <button
-                        type="button"
-                        title="Convert to visual column"
-                          onClick={() => {
-                            if (activeTab === "measures" && item.measure) addVisualRuleForMeasure(item.measure);
-                            if (activeTab === "columns" && item.col && item.measure) addVisualRuleForColumnMeasure(item.col, item.measure);
-                            else if (activeTab === "columns" && item.col) addVisualRulesForColumn(item.col);
-                          }}
-                          style={{
-                            border: `1px solid ${ui.border}`,
-                            background: ui.accentSoft,
-                            color: ui.accent,
-                            borderRadius: 8,
-                            height: 30,
-                            padding: "0 10px",
-                            fontSize: 11,
-                            fontWeight: 800,
-                            cursor: "pointer",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          Visual
-                        </button>
-                        {activeTab === "measures" && item.measure && hasVisualRuleForMeasure(item.measure) && (
-                          <button
-                            type="button"
-                            title="Delete calculated/visual column rules for this measure"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteVisualRulesForMeasure(item.measure);
-                            }}
-                            style={{
-                              border: `1px solid ${ui.border}`,
-                              background: ui.dangerSoft,
-                              color: ui.danger,
-                              borderRadius: 8,
-                              height: 30,
-                              padding: "0 10px",
-                              fontSize: 11,
-                              fontWeight: 800,
-                              cursor: "pointer",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            Delete Visual
-                          </button>
-                        )}
-                        </>
-                      )}
-                      </div>
-                      <div style={{ flex: "0 0 52px", display: "flex", justifyContent: "flex-end", overflow: "visible" }}>
-                        <Toggle checked={!isHidden} onChange={() => toggleVisibility(item.id)} />
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
             )}
           </div>
+        )}
 
-          <div style={{ padding: compact ? "14px 16px" : "16px 18px", borderTop: `1px solid ${ui.border}`, display: "flex", justifyContent: "flex-end", gap: 10, zIndex: 1 }}>
-             <button onClick={onClose} style={{ ...actionBtn, background: "rgba(255,255,255,0.72)", color: ui.textMuted, border: `1px solid ${ui.border}`, borderRadius: 14 }}>Discard</button>
-             <button onClick={onClose} style={{ ...actionBtn, background: ui.accent, color: "#fff", boxShadow: "0 10px 24px rgba(14,165,233,0.2)", borderRadius: 14, padding: "0 18px" }}>Save Changes</button>
-          </div>
-          {confirmRequest && (
-            <div
-              style={{
-                position: "fixed",
-                inset: 0,
-                zIndex: 100002,
-                background: "rgba(15,23,42,0.28)",
-                backdropFilter: "blur(8px)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 24,
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                setConfirmRequest(null);
-              }}
-            >
-              <div
-                role="dialog"
-                aria-modal="true"
-                aria-label={confirmRequest.title}
-                style={{
-                  width: "min(420px, 100%)",
-                  borderRadius: 20,
-                  border: `1px solid ${ui.borderStrong}`,
-                  background: "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.96))",
-                  boxShadow: "0 24px 70px rgba(15,23,42,0.22)",
-                  padding: 20,
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div style={{ fontSize: 15, fontWeight: 900, color: ui.text }}>{confirmRequest.title}</div>
-                <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.5, color: ui.textMuted }}>{confirmRequest.message}</div>
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmRequest(null)}
-                    style={{ ...actionBtn, height: 32, background: "rgba(255,255,255,0.8)", color: ui.textMuted, border: `1px solid ${ui.border}` }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const action = confirmRequest.onConfirm;
-                      setConfirmRequest(null);
-                      action();
-                    }}
-                    style={{ ...actionBtn, height: 32, background: ui.danger, color: "#fff", border: "none" }}
-                  >
-                    {confirmRequest.confirmLabel || "Delete"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+        <div
+          ref={listScrollRef}
+          className="mx-stack"
+          style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px var(--mx-ov-pad) var(--mx-ov-pad)", gap: 20 }}
+        >
+          {activeTab === "levelAware"
+            ? renderLevelAware()
+            : activeTab === "visualColumns"
+              ? renderVisualColumns()
+              : activeTab === "design"
+                ? renderDesign()
+                : renderList()}
         </div>
-      </div>
-    </div>
+      </Overlay>
+
+      {confirmRequest && (
+        <Overlay
+          kind="dialog"
+          title={confirmRequest.title}
+          width={400}
+          onClose={() => setConfirmRequest(null)}
+          footer={
+            <>
+              <Button onClick={() => setConfirmRequest(null)}>Cancel</Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  const action = confirmRequest.onConfirm;
+                  setConfirmRequest(null);
+                  action();
+                }}
+              >
+                {confirmRequest.confirmLabel || "Delete"}
+              </Button>
+            </>
+          }
+        >
+          <p className="mx-muted" style={{ margin: 0, lineHeight: 1.5 }}>{confirmRequest.message}</p>
+        </Overlay>
+      )}
+    </>
   );
 };
-
-
-
-

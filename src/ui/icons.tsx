@@ -227,18 +227,16 @@ export const IconLineChart: React.FC<IconProps> = (props) => (
 
 export const IconSort: React.FC<IconProps> = (props) => (
   <Svg {...props}>
-    <path {...stroke} d="M4 6l2-2 2 2" />
-    <path {...stroke} d="M4 10l2 2 2-2" />
-    <path {...stroke} d="M10 4v8" />
-    <path {...stroke} d="M13 4v8" />
+    <path {...stroke} d="M5 13V3" />
+    <path {...stroke} d="M2.75 5.25L5 3l2.25 2.25" />
+    <path {...stroke} d="M11 3v10" />
+    <path {...stroke} d="M8.75 10.75L11 13l2.25-2.25" />
   </Svg>
 );
 
 export const IconFilter: React.FC<IconProps> = (props) => (
   <Svg {...props}>
-    <path {...stroke} d="M2.5 4h11" />
-    <path {...stroke} d="M5 4v3a3 3 0 006 0V4" />
-    <path {...stroke} d="M8 10v4" />
+    <path {...stroke} d="M2.5 3.5h11L9.25 8.5v4L6.75 13.5v-5z" />
   </Svg>
 );
 
@@ -712,8 +710,8 @@ export const IconReuse: React.FC<IconProps> = (props) => (
 
 export const IconReset: React.FC<IconProps> = (props) => (
   <Svg {...props}>
-    <path {...stroke} d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12" />
-    <path {...stroke} d="M3 3v9h9" />
+    <path {...stroke} d="M2.5 8a5.5 5.5 0 1 0 1.7-4L2.5 5.5" />
+    <path {...stroke} d="M2.5 2.5v3h3" />
   </Svg>
 );
 
@@ -721,5 +719,94 @@ export const IconAllowed: React.FC<IconProps> = (props) => (
   <Svg {...props}>
     <circle cx="8" cy="8" r="5" {...stroke} />
     <path {...stroke} d="M5 8l2 2 4-4" />
+  </Svg>
+);
+
+export const IconLevels: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M3 3.5h6" />
+    <path {...stroke} d="M5.5 8h6" />
+    <path {...stroke} d="M8 12.5h5" />
+    <path {...stroke} d="M3 3.5v4.5h2.5" />
+    <path {...stroke} d="M5.5 8v4.5H8" />
+  </Svg>
+);
+
+export const IconDownload: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M8 2.5v7.5" />
+    <path {...stroke} d="M5 7l3 3 3-3" />
+    <path {...stroke} d="M3 11.5v1.5h10v-1.5" />
+  </Svg>
+);
+
+export const IconSliders: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M2.5 4.5h4M9.5 4.5h4" />
+    <path {...stroke} d="M2.5 11.5h7M12.5 11.5h1" />
+    <circle {...stroke} cx="8" cy="4.5" r="1.5" />
+    <circle {...stroke} cx="11" cy="11.5" r="1.5" />
+  </Svg>
+);
+
+export const IconCollapse: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M4 9.5l4-3.5 4 3.5" />
+  </Svg>
+);
+
+export const IconExpand: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M4 6.5l4 3.5 4-3.5" />
+  </Svg>
+);
+
+export const IconNumber: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M6 2.5l-1.5 11M11.5 2.5l-1.5 11" />
+    <path {...stroke} d="M3 6h10M2.5 10h10" />
+  </Svg>
+);
+
+export const IconGrip: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <circle cx="6" cy="4" r="1" fill="currentColor" />
+    <circle cx="10" cy="4" r="1" fill="currentColor" />
+    <circle cx="6" cy="8" r="1" fill="currentColor" />
+    <circle cx="10" cy="8" r="1" fill="currentColor" />
+    <circle cx="6" cy="12" r="1" fill="currentColor" />
+    <circle cx="10" cy="12" r="1" fill="currentColor" />
+  </Svg>
+);
+
+export const IconClose: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M4 4l8 8M12 4l-8 8" />
+  </Svg>
+);
+
+export const IconPlus: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M8 3v10M3 8h10" />
+  </Svg>
+);
+
+export const IconTrash: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M3 4.5h10" />
+    <path {...stroke} d="M6.5 4.5V3h3v1.5" />
+    <path {...stroke} d="M4.5 4.5l.6 8.5h5.8l.6-8.5" />
+  </Svg>
+);
+
+export const IconArrowUp: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M8 13V3M4 7l4-4 4 4" />
+  </Svg>
+);
+
+export const IconArrowDown: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <path {...stroke} d="M8 3v10M4 9l4 4 4-4" />
   </Svg>
 );

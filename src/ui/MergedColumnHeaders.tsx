@@ -3,12 +3,16 @@
  * Renders multi-level column headers with Year above Months style merging
  */
 
-import React, { memo, useMemo } from "react";
+import React, { memo, useMemo, useState } from "react";
 import { FlattenedNode } from "../model/tree";
 import { MeasureInfo } from "../model/pivot";
 import { SortConfig, SortDirection } from "../model/sorting";
 import { ColumnFormat, quickFormatHeaderLabel, resolveColumnFormat } from "../format/directFormats";
-import { VisualSettings } from "../settings/settings";
+import { VisualSettings, defaultSettings } from "../settings/settings";
+
+// The default header fill follows the theme's subtle surface; an edited color wins.
+const headerBackground = (settings: { headers: { backgroundColor: string } }) =>
+  settings.headers.backgroundColor === defaultSettings.headers.backgroundColor ? "var(--mx-surface-subtle)" : settings.headers.backgroundColor;
 
 export type ColumnArrangement = "time-then-measure" | "measure-then-time";
 
@@ -85,7 +89,14 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
   settings,
   labelOverrides,
   columnLevelNames = [],
+  onColumnReorder,
 }) => {
+  // Column drag-to-reorder (leaf headers). The drop lands before or after the
+  // hovered column depending on which half of it the pointer is over.
+  const [dragKey, setDragKey] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ key: string; side: "before" | "after" } | null>(null);
+  const canReorder = allowInteractions && !!onColumnReorder;
+
   const headerRows = useMemo(() => {
     return buildMergedHeaders(columns, measures, arrangement, sortConfig, gridColumns);
   }, [columns, measures, arrangement, sortConfig, gridColumns]);
@@ -124,7 +135,7 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
               backgroundColor: (() => {
                 const isMeasureRow = arrangement === "measure-then-time" ? rowIndex === 0 : rowIndex === headerRows.length - 1;
                 if (isMeasureRow) {
-                  return settings.headers.colHeaderLeafBg || settings.headers.backgroundColor;
+                  return settings.headers.colHeaderLeafBg || headerBackground(settings);
                 }
                 const levelIndex = arrangement === "measure-then-time" ? rowIndex - 1 : rowIndex;
                 if (levelIndex === 0 && settings.headers.colHeaderLevel0Bg) {
@@ -133,7 +144,7 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
                 if (levelIndex === 1 && settings.headers.colHeaderLevel1Bg) {
                   return settings.headers.colHeaderLevel1Bg;
                 }
-                return settings.headers.backgroundColor;
+                return headerBackground(settings);
               })(),
             }}
           >
@@ -213,14 +224,14 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
                 if (cell.isGrandTotal) {
                   resolvedBg = settings.totals.grandTotalBackgroundColor !== "#d1d5db"
                     ? settings.totals.grandTotalBackgroundColor
-                    : settings.headers.backgroundColor;
+                    : headerBackground(settings);
                 } else if (cell.isSubtotal) {
                   resolvedBg = settings.totals.subtotalBackgroundColor !== "#f3f4f6"
                     ? settings.totals.subtotalBackgroundColor
-                    : settings.headers.backgroundColor;
+                    : headerBackground(settings);
                 } else {
                   // 4. General header background color fallback
-                  resolvedBg = settings.headers.backgroundColor;
+                  resolvedBg = headerBackground(settings);
                 }
               }
 
@@ -261,10 +272,36 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
                 }
               }
 
+              const gridKey = cell.isLeaf && cell.colSpan === 1 ? gridColumns[currentIdx]?.key : undefined;
+              const nextGridKey = gridKey ? gridColumns[currentIdx + 1]?.key ?? "__end__" : undefined;
+              const draggableCell = canReorder && !!gridKey;
+              const dropSide = gridKey && dropTarget?.key === gridKey && dragKey !== gridKey ? dropTarget.side : null;
+
               return (
               <div
                 key={`${cell.key}-${cellIndex}`}
-                className={`merged-header-cell ${cell.isLeaf ? "leaf" : "group"} ${cell.sortDirection && cell.sortDirection !== "none" ? "sorted" : ""} ${isColSelected ? "col-selected" : ""}`}
+                className={`merged-header-cell ${cell.isLeaf ? "leaf" : "group"} ${cell.sortDirection && cell.sortDirection !== "none" ? "sorted" : ""} ${isColSelected ? "col-selected" : ""} ${draggableCell ? "is-draggable" : ""} ${dragKey && dragKey === gridKey ? "is-dragging" : ""} ${dropSide ? `drop-${dropSide}` : ""}`}
+                draggable={draggableCell}
+                onDragStart={draggableCell ? (e) => {
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", gridKey!);
+                  setDragKey(gridKey!);
+                } : undefined}
+                onDragOver={draggableCell && dragKey ? (e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const side = e.clientX < rect.left + rect.width / 2 ? "before" : "after";
+                  if (dropTarget?.key !== gridKey || dropTarget.side !== side) setDropTarget({ key: gridKey!, side });
+                } : undefined}
+                onDrop={draggableCell && dragKey ? (e) => {
+                  e.preventDefault();
+                  const target = dropTarget?.side === "after" ? nextGridKey! : gridKey!;
+                  if (dragKey !== target) onColumnReorder!(dragKey, target);
+                  setDragKey(null);
+                  setDropTarget(null);
+                } : undefined}
+                onDragEnd={draggableCell ? () => { setDragKey(null); setDropTarget(null); } : undefined}
                 style={{
                   width: width,
                   minWidth: width,
@@ -301,6 +338,21 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
                   <span className="merged-header-sort-icon">
                     {cell.sortDirection === "asc" ? "↑" : "↓"}
                   </span>
+                )}
+                {cell.isLeaf && allowInteractions && cell.columnKey !== undefined && (
+                  <button
+                    type="button"
+                    className="merged-header-menu"
+                    title="Column options"
+                    aria-label={`Options for ${baseLabel}`}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onContextMenu(e, cell.columnKey, cell.measureIndex);
+                    }}
+                  >
+                    ⋯
+                  </button>
                 )}
                 {cell.isLeaf && (
                   <div 
