@@ -417,7 +417,7 @@ export const ConditionalFormattingDropdown: React.FC<ConditionalFormattingDropdo
         className="mx-popover"
         role="menu"
         aria-label="Conditional formatting"
-        style={{ top: anchor.bottom + 4, left: Math.max(8, menuLeft), minWidth: 220 }}
+        style={{ top: anchor.bottom + 4, left: Math.max(8, menuLeft), minWidth: 220, maxHeight: `max(120px, calc(100vh - ${anchor.bottom + 4}px - 8px))` }}
       >
         {rows.map((r) => (
           <MainRowView
@@ -446,7 +446,7 @@ export const ConditionalFormattingDropdown: React.FC<ConditionalFormattingDropdo
           data-cf-submenu="true"
           className="mx-popover"
           role="menu"
-          style={{ top: Math.max(8, active.rect.top - 6), left: subLeft, zIndex: 100001, minWidth: 180 }}
+          style={{ top: Math.max(8, active.rect.top - 6), left: subLeft, zIndex: 100001, minWidth: 180, maxHeight: `max(120px, calc(100vh - ${Math.max(8, active.rect.top - 6)}px - 8px))` }}
           onMouseEnter={cancelScheduledClose}
           onMouseLeave={scheduleCloseSub}
         >

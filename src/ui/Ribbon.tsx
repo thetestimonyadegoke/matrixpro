@@ -163,7 +163,7 @@ const RibbonMenu: React.FC<{
       ref={menuRef}
       className="rb-menu"
       role="menu"
-      style={{ top: pos?.top ?? -9999, left: pos?.left ?? -9999 }}
+      style={{ top: pos?.top ?? -9999, left: pos?.left ?? -9999, maxHeight: pos ? `max(120px, calc(100vh - ${pos.top}px - 8px))` : undefined }}
       onKeyDown={onMenuKeyDown}
     >
       {entries.map((entry, i) => {
@@ -291,11 +291,17 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   const [openMenu, setOpenMenu] = useState<{ id: string; anchor: HTMLElement } | null>(null);
   const [cfAnchor, setCfAnchor] = useState<DOMRect | null>(null);
 
-  // Stages, richest first: 0 = one row with every label, 1 = two rows with every label (Explore, Build and
-  // Analyze above; Format and Output below), 2 = one row with labels on the main actions only, 3 = icons only. "auto" walks down the
-  // stages as the bar narrows; "full" stops at two rows (then scrolls); "compact" is icons only.
-  const [stage, setStage] = useState<0 | 1 | 2 | 3>(0);
-  const failWidthsRef = useRef<number[]>([0, 0, 0]); // width each stage needed when it last overflowed
+  // Layouts, richest first. "auto" walks down as the bar narrows: one row with labels, two rows with
+  // labels (Explore, Build and Analyze above; Format and Output below), then two rows of icons.
+  // "full" stops at two rows with labels; "compact" is icons on one row, or two when one won't fit.
+  // Only when the last layout still overflows does the bar fall back to scrolling.
+  const layouts: Array<{ rows: 1 | 2; labels: boolean }> = toolbarMode === "compact"
+    ? [{ rows: 1, labels: false }, { rows: 2, labels: false }]
+    : toolbarMode === "full"
+      ? [{ rows: 1, labels: true }, { rows: 2, labels: true }]
+      : [{ rows: 1, labels: true }, { rows: 2, labels: true }, { rows: 2, labels: false }];
+  const [stage, setStage] = useState(0);
+  const failWidthsRef = useRef<number[]>([0, 0, 0]); // width each layout needed when it last overflowed
   const lastModeRef = useRef(toolbarMode);
   useLayoutEffect(() => {
     const el = barRef.current;
@@ -303,11 +309,12 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     if (lastModeRef.current !== toolbarMode) {
       lastModeRef.current = toolbarMode;
       failWidthsRef.current = [0, 0, 0];
-      setStage(0);
-      return undefined;
+      if (stage !== 0) {
+        setStage(0);
+        return undefined;
+      }
     }
-    if (toolbarMode === "compact") return undefined;
-    const maxStage = toolbarMode === "full" ? 1 : 3;
+    const maxStage = layouts.length - 1;
     const fit = () => {
       // Two rows overflow when either row does; the bar itself when it is one row.
       const rows = Array.from(el.querySelectorAll<HTMLElement>(":scope > .rb-row"));
@@ -315,9 +322,9 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
       const available = el.clientWidth;
       if (stage < maxStage && needed > available + 1) {
         failWidthsRef.current[stage] = needed;
-        setStage((stage + 1) as 0 | 1 | 2 | 3);
+        setStage(stage + 1);
       } else if (stage > 0 && available >= failWidthsRef.current[stage - 1]) {
-        setStage((stage - 1) as 0 | 1 | 2 | 3);
+        setStage(stage - 1);
       }
     };
     fit();
@@ -326,10 +333,10 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     ro.observe(el);
     return () => ro.disconnect();
   }, [stage, toolbarMode]);
-  const activeStage: 0 | 1 | 2 | 3 = toolbarMode === "compact" ? 3 : toolbarMode === "full" ? (Math.min(stage, 1) as 0 | 1) : stage;
-  const twoRow = activeStage === 1;
-  const effectiveStep: 0 | 1 | 2 = activeStage <= 1 ? 0 : activeStage === 2 ? 1 : 2;
-  const showLabels = effectiveStep < 2;
+  const layout = layouts[Math.min(stage, layouts.length - 1)];
+  const twoRow = layout.rows === 2;
+  const effectiveStep: 0 | 2 = layout.labels ? 0 : 2;
+  const showLabels = layout.labels;
 
   // Report the real height so the grid below never overlaps a two-row bar.
   useLayoutEffect(() => {
@@ -676,7 +683,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     secondary?: boolean;
   }) => {
     const isMenuOpen = !!opts.menu && openMenu?.id === opts.menu;
-    const labelVisible = showLabels && !opts.iconOnly && !(opts.secondary && effectiveStep >= 1);
+    const labelVisible = showLabels && !opts.iconOnly;
     const tipText = opts.title && opts.title !== opts.label && !opts.title.startsWith(opts.label) ? `${opts.label} — ${opts.title}` : (opts.title ?? opts.label);
     const wantsTip = !labelVisible || tipText !== opts.label;
     return (
