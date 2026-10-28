@@ -584,6 +584,22 @@
               }
             }
           }
+        },
+        "showGridlines": {
+          "displayName": "Col Headers: Show Gridlines",
+          "type": {
+            "bool": true
+          }
+        },
+        "gridlineColor": {
+          "displayName": "Col Headers: Gridline Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
         }
       }
     },

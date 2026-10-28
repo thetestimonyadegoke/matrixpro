@@ -77,6 +77,8 @@ export const headerSettingsMetadata: Record<keyof HeaderSettings, SettingMetadat
   colHeaderLevel0Bg: { description: "Level 1 column header background color", type: "color", defaultValue: "", category: "Structural Styling" },
   colHeaderLevel1Bg: { description: "Level 2 column header background color", type: "color", defaultValue: "", category: "Structural Styling" },
   colHeaderLeafBg: { description: "Measure header background color", type: "color", defaultValue: "", category: "Structural Styling" },
+  showGridlines: { description: "Show lines between column header cells", type: "boolean", defaultValue: true, category: "Structural Styling" },
+  gridlineColor: { description: "Column header gridline color (empty follows the theme)", type: "color", defaultValue: "", category: "Structural Styling" },
 };
 
 export const valueSettingsMetadata: Record<keyof ValueSettings, SettingMetadata> = {

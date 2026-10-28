@@ -1,7 +1,7 @@
 import React, { memo, useEffect, useMemo, useState } from "react";
 import { FlattenedNode } from "../model/tree";
 import { HeaderSettings, TitleSettings, VisualSettings } from "../settings/settings";
-import { ColorWell, Field, Overlay, Section, Segmented, Switch } from "./overlayKit";
+import { Button, ColorWell, Field, Overlay, Section, Segmented, Switch } from "./overlayKit";
 
 interface HeaderOptionsPanelProps {
   settings: VisualSettings;
@@ -146,7 +146,7 @@ export const HeaderOptionsPanel: React.FC<HeaderOptionsPanelProps> = memo(({
     </Field>
   );
 
-  const colorRow = (label: string, objectName: string, propertyName: string, value: string, onCommit: (value: string) => void) => {
+  const colorRow = (label: string, objectName: string, propertyName: string, value: string, onCommit: (value: string) => void, onClear?: () => void) => {
     const key = `${objectName}.${propertyName}`;
     const draft = colorDrafts[key] ?? value;
     return (
@@ -172,6 +172,12 @@ export const HeaderOptionsPanel: React.FC<HeaderOptionsPanelProps> = memo(({
           }}
           style={{ flex: 1, minWidth: 0 }}
         />
+        {onClear && (
+          <Button variant="ghost" size="sm" disabled={!value} onClick={() => {
+            setColorDrafts((current) => ({ ...current, [key]: "" }));
+            onClear();
+          }}>Clear</Button>
+        )}
       </Field>
     );
   };
@@ -310,6 +316,16 @@ export const HeaderOptionsPanel: React.FC<HeaderOptionsPanelProps> = memo(({
             ]}
           />
         </Field>
+      </Section>
+
+      <hr className="mx-divider" />
+
+      <Section title="Column header fills" description="Give each header row its own fill, from the top level (such as the year) down to the measures. Leave a row clear to follow the theme.">
+        {colorRow("Top level", "headers", "colHeaderLevel0Bg", h.colHeaderLevel0Bg, (value) => updateHeader("colHeaderLevel0Bg", value), () => updateHeader("colHeaderLevel0Bg", ""))}
+        {colorRow("Second level", "headers", "colHeaderLevel1Bg", h.colHeaderLevel1Bg, (value) => updateHeader("colHeaderLevel1Bg", value), () => updateHeader("colHeaderLevel1Bg", ""))}
+        {colorRow("Measures", "headers", "colHeaderLeafBg", h.colHeaderLeafBg, (value) => updateHeader("colHeaderLeafBg", value), () => updateHeader("colHeaderLeafBg", ""))}
+        <Switch label="Header gridlines" hint="The lines between column header cells." checked={h.showGridlines} onChange={(v) => updateHeader("showGridlines", v)} />
+        {colorRow("Gridline color", "headers", "gridlineColor", h.gridlineColor, (value) => updateHeader("gridlineColor", value), () => updateHeader("gridlineColor", ""))}
       </Section>
 
       <hr className="mx-divider" />

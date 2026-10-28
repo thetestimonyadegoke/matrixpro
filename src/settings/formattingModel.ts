@@ -399,6 +399,34 @@ export function getFormattingModel(settings: VisualSettings): powerbi.visuals.Fo
                   },
                 },
               },
+              {
+                uid: "headers_showGridlines",
+                displayName: "Show Header Gridlines",
+                control: {
+                  type: powerbi.visuals.FormattingComponent.ToggleSwitch,
+                  properties: {
+                    descriptor: {
+                      objectName: "headers",
+                      propertyName: "showGridlines",
+                    },
+                    value: settings.headers.showGridlines,
+                  },
+                },
+              },
+              {
+                uid: "headers_gridlineColor",
+                displayName: "Header Gridline Color",
+                control: {
+                  type: powerbi.visuals.FormattingComponent.ColorPicker,
+                  properties: {
+                    descriptor: {
+                      objectName: "headers",
+                      propertyName: "gridlineColor",
+                    },
+                    value: { value: settings.headers.gridlineColor },
+                  },
+                },
+              },
             ],
           },
         ],

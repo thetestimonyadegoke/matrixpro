@@ -41,6 +41,10 @@ export interface HeaderSettings {
   colHeaderLevel0Bg: string;
   colHeaderLevel1Bg: string;
   colHeaderLeafBg: string;
+  /** Lines between column header cells. */
+  showGridlines: boolean;
+  /** Color of those lines; empty follows the theme. */
+  gridlineColor: string;
 }
 
 export interface UIState {
@@ -606,6 +610,8 @@ export const defaultSettings: VisualSettings = {
     colHeaderLevel0Bg: "",
     colHeaderLevel1Bg: "",
     colHeaderLeafBg: "",
+    showGridlines: true,
+    gridlineColor: "",
   },
   values: {
     fontSize: 11,
@@ -841,6 +847,8 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       colHeaderLevel0Bg: getColor(objects, "headers", "colHeaderLevel0Bg", defaultSettings.headers.colHeaderLevel0Bg),
       colHeaderLevel1Bg: getColor(objects, "headers", "colHeaderLevel1Bg", defaultSettings.headers.colHeaderLevel1Bg),
       colHeaderLeafBg: getColor(objects, "headers", "colHeaderLeafBg", defaultSettings.headers.colHeaderLeafBg),
+      showGridlines: getValue(objects, "headers", "showGridlines", defaultSettings.headers.showGridlines),
+      gridlineColor: getColor(objects, "headers", "gridlineColor", defaultSettings.headers.gridlineColor),
     },
     values: {
       fontSize: getValue(objects, "values", "fontSize", defaultSettings.values.fontSize),

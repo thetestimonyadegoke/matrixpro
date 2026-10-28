@@ -222,6 +222,19 @@
     }
   }
 
+  // ── Column header gridlines (Format pane: Headers → Show header gridlines / color) ──
+  .merged-column-headers {
+    &.hdr-grid-off .merged-header-cell {
+      border-right-color: transparent;
+      border-bottom-color: transparent;
+    }
+
+    &.hdr-grid-colored:not(.hdr-grid-off) .merged-header-cell {
+      border-right-color: var(--mx-hdr-grid);
+      border-bottom-color: var(--mx-hdr-grid);
+    }
+  }
+
   // ── Expanding and collapsing: rows settle in, a beat apart ────────────────
   .matrix-container[data-motion="expand"] {
     .matrix-row,

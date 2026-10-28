@@ -19,7 +19,7 @@ import { ScrollManager } from "../virtualization/scroll";
 import { Row } from "./Row";
 import { RowHeader } from "./RowHeader";
 import { MatrixSearch, SearchResult, createGridSearchTarget, useSearchShortcut } from "./matrixSearch";
-import { MergedColumnHeaders, ColumnArrangement, buildMergedHeaders } from "./MergedColumnHeaders";
+import { MergedColumnHeaders, ColumnArrangement, ColumnMove, buildMergedHeaders } from "./MergedColumnHeaders";
 import { createCellStyleEvaluator, computeAllGlobalStats } from "../format/cellStyleEvaluator";
 import { parseColFormats, parseRowFormats } from "../format/directFormats";
 import { getRowStyle } from "../format/styles";
@@ -726,16 +726,48 @@ export const Matrix: React.FC<MatrixProps> = ({
     onColumnSelectionChange?.(next);
   }, [allowInteractions, gridColumns, selectedColumnKeysArr, onColumnSelectionChange]);
 
-  const handleColumnReorder = useCallback((dragKey: string, targetKey: string) => {
-    const order = gridColumns.map(c => c.key);
-    const from = order.indexOf(dragKey);
-    // "__end__" drops after the last column; otherwise insert before targetKey.
-    const to = targetKey === "__end__" ? order.length : order.indexOf(targetKey);
-    if (from < 0 || to < 0 || from === to) return;
-    const [moved] = order.splice(from, 1);
-    order.splice(from < to ? to - 1 : to, 0, moved);
-    onPersistProperty("manualData", "colOrder", JSON.stringify(Array.from(new Set(order))));
-  }, [gridColumns, onPersistProperty]);
+  // Drag-to-reorder from the column headers. Measures reorder as a whole (every period follows);
+  // a period or group moves with all its columns. Saved in manualData.colOrder: "m_N" keys give the
+  // measure order and plain keys give the column (period) order, which is what buildGridColumns reads.
+  const handleColumnReorder = useCallback((move: ColumnMove) => {
+    let existing: string[] = [];
+    try { existing = JSON.parse(settings.manualData.colOrder || "[]"); } catch { existing = []; }
+    const isMeasureKey = (key: string) => key.startsWith("m_") || key.startsWith("m:");
+    const existingMeasure = existing.filter(isMeasureKey);
+    const existingColumns = existing.filter(key => !isMeasureKey(key));
+
+    if (move.kind === "measure") {
+      const stored = existingMeasure
+        .map(key => parseInt(key.slice(2), 10))
+        .filter((index, position, list) => Number.isFinite(index) && index >= 0 && index < measures.length && list.indexOf(index) === position);
+      const order = [...stored, ...measures.map((_, index) => index).filter(index => !stored.includes(index))];
+      const without = order.filter(index => index !== move.from);
+      let at = without.indexOf(move.to);
+      if (at < 0 || move.from === move.to) return;
+      if (move.side === "after") at++;
+      without.splice(at, 0, move.from);
+      onPersistProperty("manualData", "colOrder", JSON.stringify([...without.map(index => `m_${index}`), ...existingColumns]));
+      return;
+    }
+
+    const columnOf = (gridKey: string) => gridColumns.find(gc => gc.key === gridKey)?.col.key;
+    const unique = (list: Array<string | undefined>) => Array.from(new Set(list.filter((key): key is string => !!key)));
+    const visible = unique(gridColumns.map(gc => gc.col.key));
+    const moving = unique(move.fromKeys.map(columnOf));
+    const anchors = unique(move.toKeys.map(columnOf));
+    if (moving.length === 0 || anchors.length === 0 || moving.some(key => anchors.includes(key))) return;
+    const rest = visible.filter(key => !moving.includes(key));
+    let at = rest.indexOf(move.side === "before" ? anchors[0] : anchors[anchors.length - 1]);
+    if (at < 0) return;
+    if (move.side === "after") at++;
+    rest.splice(at, 0, ...moving);
+    const visibleSet = new Set(visible);
+    onPersistProperty("manualData", "colOrder", JSON.stringify([
+      ...existingMeasure,
+      ...rest,
+      ...existingColumns.filter(key => !visibleSet.has(key.includes("::m") ? key.split("::m")[0] : key)),
+    ]));
+  }, [gridColumns, measures, settings.manualData.colOrder, onPersistProperty]);
 
   const handleRowHeaderClick = useCallback((
     row: FlattenedNode,

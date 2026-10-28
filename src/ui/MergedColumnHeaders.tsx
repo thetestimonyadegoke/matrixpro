@@ -23,7 +23,8 @@ export interface MergedColumnHeadersProps {
   sortConfig: SortConfig;
   onSort: (columnKey: string, measureIndex: number) => void;
   onContextMenu: (e: React.MouseEvent, columnKey?: string, measureIndex?: number) => void;
-  onColumnReorder?: (dragKey: string, targetKey: string) => void;
+  /** Drag-to-reorder: measures reorder globally; period/group headers move as a block among siblings. */
+  onColumnReorder?: (move: ColumnMove) => void;
   allowInteractions: boolean;
   rowHeaderWidth: number;
   columnWidth: number;
@@ -47,6 +48,14 @@ export interface MergedColumnHeadersProps {
   /** Hierarchy field names for columns (e.g. ["Year", "Month"]). Used for corner labels. */
   columnLevelNames?: string[];
 }
+
+export type ColumnMove =
+  | { kind: "measure"; from: number; to: number; side: "before" | "after" }
+  | { kind: "group"; fromKeys: string[]; toKeys: string[]; side: "before" | "after" };
+
+type DragSpec =
+  | { id: string; kind: "measure"; measureIndex: number }
+  | { id: string; kind: "group"; keys: string[]; row: number; parent: string };
 
 interface HeaderCell {
   key: string;
@@ -91,10 +100,11 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
   columnLevelNames = [],
   onColumnReorder,
 }) => {
-  // Column drag-to-reorder (leaf headers). The drop lands before or after the
-  // hovered column depending on which half of it the pointer is over.
-  const [dragKey, setDragKey] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<{ key: string; side: "before" | "after" } | null>(null);
+  // Column drag-to-reorder. A measure header moves that measure everywhere; a period or group
+  // header moves its whole block among its siblings. The drop lands before or after the hovered
+  // header depending on which half of it the pointer is over.
+  const [drag, setDrag] = useState<DragSpec | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; side: "before" | "after" } | null>(null);
   const canReorder = allowInteractions && !!onColumnReorder;
 
   const headerRows = useMemo(() => {
@@ -119,7 +129,10 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
   };
 
   return (
-    <div className="merged-column-headers">
+    <div
+      className={`merged-column-headers ${settings.headers.showGridlines === false ? "hdr-grid-off" : ""} ${settings.headers.gridlineColor ? "hdr-grid-colored" : ""}`}
+      style={settings.headers.gridlineColor ? ({ "--mx-hdr-grid": settings.headers.gridlineColor } as React.CSSProperties) : undefined}
+    >
       {headerRows.map((row, rowIndex) => (
         <div
           key={`header-row-${rowIndex}`}
@@ -272,36 +285,60 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
                 }
               }
 
-              const gridKey = cell.isLeaf && cell.colSpan === 1 ? gridColumns[currentIdx]?.key : undefined;
-              const nextGridKey = gridKey ? gridColumns[currentIdx + 1]?.key ?? "__end__" : undefined;
-              const draggableCell = canReorder && !!gridKey;
-              const dropSide = gridKey && dropTarget?.key === gridKey && dragKey !== gridKey ? dropTarget.side : null;
+              // What dragging this header means: a measure, or a block of columns under one parent.
+              const firstSelection = selectionKeys[0];
+              const measureFromKey = firstSelection?.startsWith("m:") ? Number(firstSelection.slice(2)) : undefined;
+              let spec: DragSpec | null = null;
+              if (canReorder) {
+                if (measureFromKey !== undefined && Number.isFinite(measureFromKey)) {
+                  spec = { id: cell.key, kind: "measure", measureIndex: measureFromKey };
+                } else if (selectionKeys.length > 0 && !firstSelection.startsWith("m:")) {
+                  const firstColumn = gridColumns.find(gc => gc.key === firstSelection);
+                  spec = {
+                    id: cell.key,
+                    kind: "group",
+                    keys: selectionKeys,
+                    row: rowIndex,
+                    parent: JSON.stringify((firstColumn?.col.path || []).slice(0, cell.level)),
+                  };
+                }
+              }
+              const canDropHere = !!(drag && spec && drag.id !== spec.id && drag.kind === spec.kind
+                && (spec.kind === "measure" || (drag.kind === "group" && drag.row === spec.row && drag.parent === spec.parent)));
+              const dropSide = dropTarget?.id === cell.key && canDropHere ? dropTarget.side : null;
 
               return (
               <div
                 key={`${cell.key}-${cellIndex}`}
-                className={`merged-header-cell ${cell.isLeaf ? "leaf" : "group"} ${cell.sortDirection && cell.sortDirection !== "none" ? "sorted" : ""} ${isColSelected ? "col-selected" : ""} ${draggableCell ? "is-draggable" : ""} ${dragKey && dragKey === gridKey ? "is-dragging" : ""} ${dropSide ? `drop-${dropSide}` : ""}`}
-                draggable={draggableCell}
-                onDragStart={draggableCell ? (e) => {
+                className={`merged-header-cell ${cell.isLeaf ? "leaf" : "group"} ${cell.sortDirection && cell.sortDirection !== "none" ? "sorted" : ""} ${isColSelected ? "col-selected" : ""} ${spec ? "is-draggable" : ""} ${drag && drag.id === cell.key ? "is-dragging" : ""} ${dropSide ? `drop-${dropSide}` : ""}`}
+                draggable={!!spec}
+                onDragStart={spec ? (e) => {
                   e.dataTransfer.effectAllowed = "move";
-                  e.dataTransfer.setData("text/plain", gridKey!);
-                  setDragKey(gridKey!);
+                  e.dataTransfer.setData("text/plain", cell.label);
+                  setDrag(spec);
                 } : undefined}
-                onDragOver={draggableCell && dragKey ? (e) => {
+                onDragOver={spec && drag ? (e) => {
+                  if (!canDropHere) return;
                   e.preventDefault();
                   e.dataTransfer.dropEffect = "move";
                   const rect = e.currentTarget.getBoundingClientRect();
                   const side = e.clientX < rect.left + rect.width / 2 ? "before" : "after";
-                  if (dropTarget?.key !== gridKey || dropTarget.side !== side) setDropTarget({ key: gridKey!, side });
+                  if (dropTarget?.id !== cell.key || dropTarget.side !== side) setDropTarget({ id: cell.key, side });
                 } : undefined}
-                onDrop={draggableCell && dragKey ? (e) => {
+                onDrop={spec && drag ? (e) => {
                   e.preventDefault();
-                  const target = dropTarget?.side === "after" ? nextGridKey! : gridKey!;
-                  if (dragKey !== target) onColumnReorder!(dragKey, target);
-                  setDragKey(null);
+                  const side = dropTarget?.id === cell.key ? dropTarget.side : "before";
+                  if (canDropHere) {
+                    if (drag.kind === "measure" && spec!.kind === "measure") {
+                      onColumnReorder!({ kind: "measure", from: drag.measureIndex, to: spec!.measureIndex, side });
+                    } else if (drag.kind === "group" && spec!.kind === "group") {
+                      onColumnReorder!({ kind: "group", fromKeys: drag.keys, toKeys: spec!.keys, side });
+                    }
+                  }
+                  setDrag(null);
                   setDropTarget(null);
                 } : undefined}
-                onDragEnd={draggableCell ? () => { setDragKey(null); setDropTarget(null); } : undefined}
+                onDragEnd={spec ? () => { setDrag(null); setDropTarget(null); } : undefined}
                 style={{
                   width: width,
                   minWidth: width,
