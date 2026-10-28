@@ -174,6 +174,8 @@ export const App: React.FC<AppProps> = ({
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
+  // The command bar wraps onto two rows when it can, so its height is reported rather than assumed.
+  const [ribbonMeasuredHeight, setRibbonMeasuredHeight] = useState(RIBBON_HEIGHT);
   const isRestoringHistoryRef = useRef(false);
 
   const getPersistedValue = useCallback((objectName: string, propertyName: string): any => {
@@ -1207,7 +1209,7 @@ export const App: React.FC<AppProps> = ({
   }, [onPersistProperty, settings.manualData.rowFormats]);
 
   const ribbonHeight = effectiveSettings.appearance.showToolbar
-    ? RIBBON_HEIGHT
+    ? ribbonMeasuredHeight
     : 0;
   const titleBarHeight = effectiveSettings.title.show ? Math.max(0, effectiveSettings.title.height || 0) : 0;
 
@@ -1222,6 +1224,7 @@ export const App: React.FC<AppProps> = ({
             hasValues={model.hasValues}
             toolbarMode={toolbarMode}
             onToolbarModeChange={setToolbarMode}
+            onHeightChange={setRibbonMeasuredHeight}
             onPersistProperty={onPersistProperty}
             onExportCSV={handleExportCSV}
             onExportXLSX={handleExportXLSX}
@@ -1299,6 +1302,7 @@ export const App: React.FC<AppProps> = ({
           hasValues={model.hasValues}
           toolbarMode={toolbarMode}
           onToolbarModeChange={setToolbarMode}
+            onHeightChange={setRibbonMeasuredHeight}
           onPersistProperty={onPersistProperty}
           onExportCSV={handleExportCSV}
           onExportXLSX={handleExportXLSX}

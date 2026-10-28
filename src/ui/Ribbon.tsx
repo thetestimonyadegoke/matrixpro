@@ -64,6 +64,8 @@ export interface RibbonProps {
   onOpenCondFormatPanel?: () => void;
   onOpenBulkOperations?: () => void;
   onToolbarModeChange?: (mode: ToolbarMode) => void;
+  /** Reports the bar's rendered height (it grows when it wraps onto two rows). */
+  onHeightChange?: (height: number) => void;
   onCopyToClipboard?: () => void;
   onOpenSortPanel?: () => void;
   /** Opens the Find (Ctrl+F) panel over the matrix. */
@@ -261,6 +263,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   onOpenCondFormatPanel,
   onOpenBulkOperations,
   onToolbarModeChange,
+  onHeightChange,
   onCopyToClipboard,
   onOpenSortPanel,
   onOpenFind,
@@ -288,20 +291,33 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   const [openMenu, setOpenMenu] = useState<{ id: string; anchor: HTMLElement } | null>(null);
   const [cfAnchor, setCfAnchor] = useState<DOMRect | null>(null);
 
-  // In "auto" mode labels drop as the bar narrows. Three steps: 0 = every label, 1 = labels on the
-  // main actions only, 2 = icons only. "full" and "compact" are explicit choices and pin the step.
-  const [labelStep, setLabelStep] = useState<0 | 1 | 2>(0);
-  const stepWidthsRef = useRef<number[]>([0, 0]); // content width steps 0 and 1 needed when they last overflowed
+  // Stages, richest first: 0 = one row with every label, 1 = two rows with every label (Explore, Build and
+  // Analyze above; Format and Output below), 2 = one row with labels on the main actions only, 3 = icons only. "auto" walks down the
+  // stages as the bar narrows; "full" stops at two rows (then scrolls); "compact" is icons only.
+  const [stage, setStage] = useState<0 | 1 | 2 | 3>(0);
+  const failWidthsRef = useRef<number[]>([0, 0, 0]); // width each stage needed when it last overflowed
+  const lastModeRef = useRef(toolbarMode);
   useLayoutEffect(() => {
     const el = barRef.current;
     if (!el) return undefined;
-    if (toolbarMode !== "auto") return undefined;
+    if (lastModeRef.current !== toolbarMode) {
+      lastModeRef.current = toolbarMode;
+      failWidthsRef.current = [0, 0, 0];
+      setStage(0);
+      return undefined;
+    }
+    if (toolbarMode === "compact") return undefined;
+    const maxStage = toolbarMode === "full" ? 1 : 3;
     const fit = () => {
-      if (labelStep < 2 && el.scrollWidth > el.clientWidth + 1) {
-        stepWidthsRef.current[labelStep] = el.scrollWidth;
-        setLabelStep((labelStep + 1) as 0 | 1 | 2);
-      } else if (labelStep > 0 && el.clientWidth >= stepWidthsRef.current[labelStep - 1]) {
-        setLabelStep((labelStep - 1) as 0 | 1 | 2);
+      // Two rows overflow when either row does; the bar itself when it is one row.
+      const rows = Array.from(el.querySelectorAll<HTMLElement>(":scope > .rb-row"));
+      const needed = rows.length > 0 ? Math.max(...rows.map(r => r.scrollWidth)) : el.scrollWidth;
+      const available = el.clientWidth;
+      if (stage < maxStage && needed > available + 1) {
+        failWidthsRef.current[stage] = needed;
+        setStage((stage + 1) as 0 | 1 | 2 | 3);
+      } else if (stage > 0 && available >= failWidthsRef.current[stage - 1]) {
+        setStage((stage - 1) as 0 | 1 | 2 | 3);
       }
     };
     fit();
@@ -309,9 +325,23 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [labelStep, toolbarMode]);
-  const effectiveStep: 0 | 1 | 2 = toolbarMode === "full" ? 0 : toolbarMode === "compact" ? 2 : labelStep;
+  }, [stage, toolbarMode]);
+  const activeStage: 0 | 1 | 2 | 3 = toolbarMode === "compact" ? 3 : toolbarMode === "full" ? (Math.min(stage, 1) as 0 | 1) : stage;
+  const twoRow = activeStage === 1;
+  const effectiveStep: 0 | 1 | 2 = activeStage <= 1 ? 0 : activeStage === 2 ? 1 : 2;
   const showLabels = effectiveStep < 2;
+
+  // Report the real height so the grid below never overlaps a two-row bar.
+  useLayoutEffect(() => {
+    const el = barRef.current;
+    if (!el || !onHeightChange) return undefined;
+    const report = () => onHeightChange(el.offsetHeight);
+    report();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [onHeightChange, twoRow]);
 
   const closeMenu = useCallback(() => setOpenMenu(null), []);
   const toggleMenu = (id: string, anchor: HTMLElement) =>
@@ -685,65 +715,73 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     </span>
   );
 
-  return (
-    <div className={`mx-ribbon mx-cmdbar ${showLabels ? "has-labels" : "is-compact"}`} role="toolbar" aria-label="Matrix commands" ref={barRef}>
-      <div className="rb-group" role="group" aria-label="Explore">
-        {button({ id: "sort", icon: <IconSort size={16} />, label: "Sort", onClick: () => onOpenSortPanel?.(), disabled: needsData })}
-        {button({ id: "filter", icon: <IconFilter size={16} />, label: "Filter", onClick: () => onOpenFilterPanel?.(), active: filterActive, disabled: needsData })}
-        {button({ id: "topn", secondary: true, icon: <IconTopN size={16} />, label: "Top N", onClick: () => onOpenTopNPanel?.(), active: topNActive, disabled: !hasData })}
-        {button({ id: "levels", secondary: true, icon: <IconLevels size={16} />, label: "Levels", title: "Show or hide hierarchy levels", onClick: () => onOpenLevelPanel?.(), active: levelsActive, disabled: needsData })}
-        {button({ id: "find", secondary: true, icon: <IconSearch size={16} />, label: "Find", title: "Find in labels and values (Ctrl+F)", onClick: () => onOpenFind?.(), disabled: !hasData || !onOpenFind })}
-      </div>
+  const groupExplore = (
+    <div className="rb-group" role="group" aria-label="Explore">
+      {button({ id: "sort", icon: <IconSort size={16} />, label: "Sort", onClick: () => onOpenSortPanel?.(), disabled: needsData })}
+      {button({ id: "filter", icon: <IconFilter size={16} />, label: "Filter", onClick: () => onOpenFilterPanel?.(), active: filterActive, disabled: needsData })}
+      {button({ id: "topn", secondary: true, icon: <IconTopN size={16} />, label: "Top N", onClick: () => onOpenTopNPanel?.(), active: topNActive, disabled: !hasData })}
+      {button({ id: "levels", secondary: true, icon: <IconLevels size={16} />, label: "Levels", title: "Show or hide hierarchy levels", onClick: () => onOpenLevelPanel?.(), active: levelsActive, disabled: needsData })}
+      {button({ id: "find", secondary: true, icon: <IconSearch size={16} />, label: "Find", title: "Find in labels and values (Ctrl+F)", onClick: () => onOpenFind?.(), disabled: !hasData || !onOpenFind })}
+    </div>
+  );
 
-      <div className="rb-group" role="group" aria-label="Build">
-        {button({ id: "rows", icon: <IconInsertRow size={16} />, label: "Rows", menu: "rows", disabled: edit })}
-        {button({ id: "columns", icon: <IconManageColumns size={16} />, label: "Columns", menu: "columns", disabled: edit })}
-        {button({ id: "totals", icon: <IconTotals size={16} />, label: "Totals", title: "Totals and subtotals", onClick: () => onOpenTotalsPanel?.(), active: settings.totals.showGrandTotals, disabled: edit })}
-        {button({ id: "group", secondary: true, icon: <IconGroup size={16} />, label: "Group", title: "Group rows", onClick: () => onOpenGroupPanel?.(), disabled: edit })}
-      </div>
+  const groupBuild = (
+    <div className="rb-group" role="group" aria-label="Build">
+      {button({ id: "rows", icon: <IconInsertRow size={16} />, label: "Rows", menu: "rows", disabled: edit })}
+      {button({ id: "columns", icon: <IconManageColumns size={16} />, label: "Columns", menu: "columns", disabled: edit })}
+      {button({ id: "totals", icon: <IconTotals size={16} />, label: "Totals", title: "Totals and subtotals", onClick: () => onOpenTotalsPanel?.(), active: settings.totals.showGrandTotals, disabled: edit })}
+      {button({ id: "group", secondary: true, icon: <IconGroup size={16} />, label: "Group", title: "Group rows", onClick: () => onOpenGroupPanel?.(), disabled: edit })}
+    </div>
+  );
 
-      <div className="rb-group" role="group" aria-label="Format">
-        {effectiveStep === 0 && <span className="rb-scope" title="Formatting applies to this selection">{scopeLabel}</span>}
-        {button({ id: "bold", icon: <IconBold size={16} />, label: "Bold", iconOnly: true, onClick: () => handleFormatUpdate({ bold: !effBold }), active: !!effBold, disabled: edit })}
-        {button({ id: "italic", icon: <IconItalic size={16} />, label: "Italic", iconOnly: true, onClick: () => handleFormatUpdate({ italic: !effItalic }), active: !!effItalic, disabled: edit })}
-        {button({ id: "underline", icon: <IconUnderline size={16} />, label: "Underline", iconOnly: true, onClick: () => handleFormatUpdate({ underline: !effUnderline }), active: !!effUnderline, disabled: edit })}
-        {button({ id: "align", icon: alignIcon, label: "Alignment", iconOnly: true, menu: "align", disabled: edit })}
-        {button({ id: "text", icon: colorIcon, label: "Text", title: "Font, size and colors", iconOnly: true, menu: "text", disabled: edit })}
-        {button({ id: "number", secondary: true, icon: <IconNumber size={16} />, label: "Number", title: "Number format, display units and decimals", menu: "number", disabled: edit })}
-        {button({
-          id: "rules",
-          icon: <IconCondFormat size={16} />,
-          label: "Rules",
-          title: "Conditional formatting",
-          active: settings.conditionalFormatting.enabled,
-          disabled: needsValues,
-          onClick: (el) => setCfAnchor(current => (current ? null : el.getBoundingClientRect())),
-        })}
-        {button({ id: "visuals", secondary: true, icon: <IconBars size={16} />, label: "In-cell", title: "Data bars, trend icons and sparklines", menu: "visuals", active: visualsActive, disabled: needsValues })}
-      </div>
+  const groupFormat = (
+    <div className="rb-group" role="group" aria-label="Format">
+      {effectiveStep === 0 && <span className="rb-scope" title="Formatting applies to this selection">{scopeLabel}</span>}
+      {button({ id: "bold", icon: <IconBold size={16} />, label: "Bold", iconOnly: true, onClick: () => handleFormatUpdate({ bold: !effBold }), active: !!effBold, disabled: edit })}
+      {button({ id: "italic", icon: <IconItalic size={16} />, label: "Italic", iconOnly: true, onClick: () => handleFormatUpdate({ italic: !effItalic }), active: !!effItalic, disabled: edit })}
+      {button({ id: "underline", icon: <IconUnderline size={16} />, label: "Underline", iconOnly: true, onClick: () => handleFormatUpdate({ underline: !effUnderline }), active: !!effUnderline, disabled: edit })}
+      {button({ id: "align", icon: alignIcon, label: "Alignment", iconOnly: true, menu: "align", disabled: edit })}
+      {button({ id: "text", icon: colorIcon, label: "Text", title: "Font, size and colors", iconOnly: true, menu: "text", disabled: edit })}
+      {button({ id: "number", secondary: true, icon: <IconNumber size={16} />, label: "Number", title: "Number format, display units and decimals", menu: "number", disabled: edit })}
+      {button({
+        id: "rules",
+        icon: <IconCondFormat size={16} />,
+        label: "Rules",
+        title: "Conditional formatting",
+        active: settings.conditionalFormatting.enabled,
+        disabled: needsValues,
+        onClick: (el) => setCfAnchor(current => (current ? null : el.getBoundingClientRect())),
+      })}
+      {button({ id: "visuals", secondary: true, icon: <IconBars size={16} />, label: "In-cell", title: "Data bars, trend icons and sparklines", menu: "visuals", active: visualsActive, disabled: needsValues })}
+    </div>
+  );
 
-      <div className="rb-group" role="group" aria-label="Analyze">
-        {button({ id: "analyze", icon: <IconSmartAnalysis size={16} />, label: "Analyze", menu: "analyze", disabled: edit })}
-      </div>
+  const groupAnalyze = (
+    <div className="rb-group" role="group" aria-label="Analyze">
+      {button({ id: "analyze", icon: <IconSmartAnalysis size={16} />, label: "Analyze", menu: "analyze", disabled: edit })}
+    </div>
+  );
 
-      <div className="rb-spacer" />
+  const groupOutput = (
+    <div className="rb-group is-trailing" role="group" aria-label="Output">
+      {button({ id: "design", icon: <IconSliders size={16} />, label: "Design", title: "Layout, density and theme", menu: "design", disabled: edit })}
+      {button({ id: "export", icon: <IconDownload size={16} />, label: "Export", menu: "export", disabled: !hasData })}
+      {onToolbarModeChange && button({
+        id: "mode",
+        icon: showLabels ? <IconCollapse size={16} /> : <IconExpand size={16} />,
+        label: showLabels ? "Compact toolbar" : "Show labels",
+        iconOnly: true,
+        onClick: () => onToolbarModeChange(showLabels ? "compact" : "full"),
+      })}
+    </div>
+  );
 
-      <div className="rb-group is-trailing" role="group" aria-label="Output">
-        {button({ id: "design", icon: <IconSliders size={16} />, label: "Design", title: "Layout, density and theme", menu: "design", disabled: edit })}
-        {button({ id: "export", icon: <IconDownload size={16} />, label: "Export", menu: "export", disabled: !hasData })}
-        {onToolbarModeChange && button({
-          id: "mode",
-          icon: showLabels ? <IconCollapse size={16} /> : <IconExpand size={16} />,
-          label: showLabels ? "Compact toolbar" : "Show labels",
-          iconOnly: true,
-          onClick: () => onToolbarModeChange(showLabels ? "compact" : "full"),
-        })}
-      </div>
-
+  const barClass = `mx-ribbon mx-cmdbar ${showLabels ? "has-labels" : "is-compact"} ${twoRow ? "is-two-row" : ""}`;
+  const overlays = (
+    <>
       {tip && !openMenu && (
         <div className="rb-tooltip" role="tooltip" style={{ left: tip.x, top: tip.y }}>{tip.text}</div>
       )}
-
       {openMenu && menus[openMenu.id] && (
         <RibbonMenu
           anchor={openMenu.anchor}
@@ -760,6 +798,32 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
           onSelect={handleCfSelect}
         />
       )}
+    </>
+  );
+
+  return twoRow ? (
+    <div className={barClass} role="toolbar" aria-label="Matrix commands" ref={barRef}>
+      <div className="rb-row">
+        {groupExplore}
+        {groupBuild}
+        {groupAnalyze}
+      </div>
+      <div className="rb-row">
+        {groupFormat}
+        <div className="rb-spacer" />
+        {groupOutput}
+      </div>
+      {overlays}
+    </div>
+  ) : (
+    <div className={barClass} role="toolbar" aria-label="Matrix commands" ref={barRef}>
+      {groupExplore}
+      {groupBuild}
+      {groupFormat}
+      {groupAnalyze}
+      <div className="rb-spacer" />
+      {groupOutput}
+      {overlays}
     </div>
   );
 });

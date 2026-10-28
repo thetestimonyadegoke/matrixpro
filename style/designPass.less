@@ -45,6 +45,25 @@
     }
   }
 
+  // Two-row layout: Explore, Build and Analyze on top; Format and Output below.
+  .mx-cmdbar.is-two-row {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 2px;
+    height: auto;
+    min-height: 0;
+    padding: 4px 8px;
+  }
+
+  .rb-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 34px;
+    flex-shrink: 0;
+  }
+
   .rb-group {
     display: flex;
     align-items: center;
