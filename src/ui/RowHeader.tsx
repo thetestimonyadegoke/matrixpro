@@ -106,6 +106,9 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
 
   const className = [
     "matrix-row-header",
+    `lvl-${Math.min(Math.max((row.indent ?? 0) - 1, 0), 3)}`,
+    row.hasChildren ? "is-parent" : "is-leaf",
+    row.isExpanded ? "is-expanded" : "",
     row.isSubtotal ? "subtotal-row" : "",
     row.isGrandTotal ? "grandtotal-row" : "",
     isSelected ? "selected" : "",
@@ -149,7 +152,11 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
         ...style,
         backgroundColor: resolvedHeaderBackground,
         paddingLeft: 8 + indentPadding,
+        // Drives the tree guide lines drawn in polish.less.
+        ["--mx-depth" as string]: row.indent,
+        ["--mx-unit" as string]: `${indentUnit}px`,
       }}
+      data-rk={row.key}
       onClick={onClick}
       onContextMenu={(e) => {
         e.preventDefault();

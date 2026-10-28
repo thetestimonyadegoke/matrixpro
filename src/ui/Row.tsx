@@ -209,6 +209,7 @@ export const Row: React.FC<RowProps> = memo(({
   return (
     <div
       className={className}
+      data-rk={row.key}
       style={{
         ...rowStyle,
         ...(rowBreakStyle ? { borderTop: rowBreakStyle } : {}),

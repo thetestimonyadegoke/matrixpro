@@ -177,6 +177,7 @@ export const Matrix: React.FC<MatrixProps> = ({
   // Which element last moved the horizontal position. The body and the companion scrollbar mirror
   // each other; without this, the lagging echo of one write overrides the other mid-animation
   // (a click on the scrollbar track would spring back).
+  const containerRef = useRef<HTMLDivElement>(null);
   const hScrollSourceRef = useRef<"body" | "bar" | null>(null);
   const hScrollSourceTimerRef = useRef<number>(0);
   const claimHScroll = useCallback((source: "body" | "bar") => {
@@ -1182,6 +1183,41 @@ export const Matrix: React.FC<MatrixProps> = ({
     scrollManagerRef.current?.handleScroll(scrollTop, scrollLeft);
   }, [claimHScroll]);
 
+  // Hovering a row lights it across both the row header and the cells (they are separate columns).
+  // Done on the DOM directly so moving the pointer never re-renders the grid.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return undefined;
+    let hovered: string | null = null;
+    const light = (key: string | null) => {
+      if (key === hovered) return;
+      hovered = key;
+      el.querySelectorAll(".is-hover").forEach(node => node.classList.remove("is-hover"));
+      if (key === null) return;
+      el.querySelectorAll<HTMLElement>("[data-rk]").forEach(node => {
+        if (node.dataset.rk === key) node.classList.add("is-hover");
+      });
+    };
+    const onOver = (e: MouseEvent) => light((e.target as HTMLElement).closest<HTMLElement>("[data-rk]")?.dataset.rk ?? null);
+    const onLeave = () => light(null);
+    el.addEventListener("mouseover", onOver);
+    el.addEventListener("mouseleave", onLeave);
+    return () => {
+      el.removeEventListener("mouseover", onOver);
+      el.removeEventListener("mouseleave", onLeave);
+    };
+  }, []);
+
+  // Expanding or collapsing briefly marks the grid so the rows that move settle in (see polish.less).
+  const motionTimerRef = useRef(0);
+  const handleToggleRowExpand = useCallback((key: string) => {
+    onToggleRowExpand(key);
+    window.clearTimeout(motionTimerRef.current);
+    window.setTimeout(() => containerRef.current?.setAttribute("data-motion", "expand"), 0);
+    motionTimerRef.current = window.setTimeout(() => containerRef.current?.removeAttribute("data-motion"), 480);
+  }, [onToggleRowExpand]);
+  useEffect(() => () => window.clearTimeout(motionTimerRef.current), []);
+
   const handleHorizontalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     // Ignore the scrollbar's echo of a position the body just set.
     if (hScrollSourceRef.current === "body") return;
@@ -1689,7 +1725,7 @@ export const Matrix: React.FC<MatrixProps> = ({
   } as React.CSSProperties), [gridCellBackground, rowBandBackground, shellStrongBackground, settings.headers, settings.totals, quietGrandTotal, quietSubtotal]);
 
   return (
-    <div className={`matrix-container ${quietGrandTotal || quietSubtotal ? "mx-quiet-totals" : ""} ${formulaBarEditMode ? "formula-edit-mode" : ""} ${(settings.appearance as any).glassmorphism ? "is-glassmorphic" : ""}`} style={{ height, ...designStyles, ...structuralStyleVars }} onClick={handleBackgroundClick} onScroll={handleContainerScroll}>
+    <div ref={containerRef} className={`matrix-container ${quietGrandTotal || quietSubtotal ? "mx-quiet-totals" : ""} ${formulaBarEditMode ? "formula-edit-mode" : ""} ${(settings.appearance as any).glassmorphism ? "is-glassmorphic" : ""}`} style={{ height, ...designStyles, ...structuralStyleVars }} onClick={handleBackgroundClick} onScroll={handleContainerScroll}>
       <div style={{ position: "absolute", inset: 0, ...glassEffect, pointerEvents: "none", zIndex: 0 }} />
       {allowInteractions && (
         <div
@@ -1841,7 +1877,7 @@ export const Matrix: React.FC<MatrixProps> = ({
                     height: safeRowHeightPx,
                     width: rowHeaderWidth,
                   }}
-                  onToggleExpand={onToggleRowExpand}
+                  onToggleExpand={handleToggleRowExpand}
                   onClick={(e) => {
                     const ctrl = e.ctrlKey || e.metaKey;
                     const shift = e.shiftKey;

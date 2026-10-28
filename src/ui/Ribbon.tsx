@@ -30,6 +30,7 @@ import {
   IconChevronDown,
 } from "./icons";
 import { ConditionalFormattingDropdown } from "./ConditionalFormattingDropdown";
+import { VisualPortal } from "./overlayKit";
 
 export type RibbonTab = "home" | "insert" | "design" | "export";
 /** "full" shows icon + label; "compact" is icon-only. Both render the same items. */
@@ -786,16 +787,22 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   const barClass = `mx-ribbon mx-cmdbar ${showLabels ? "has-labels" : "is-compact"} ${twoRow ? "is-two-row" : ""}`;
   const overlays = (
     <>
+      {/* Menus and tooltips render outside the bar: themes with a backdrop-filter on the bar would
+          otherwise make it their containing block and clip them at its edge. */}
       {tip && !openMenu && (
-        <div className="rb-tooltip" role="tooltip" style={{ left: tip.x, top: tip.y }}>{tip.text}</div>
+        <VisualPortal>
+          <div className="rb-tooltip" role="tooltip" style={{ left: tip.x, top: tip.y }}>{tip.text}</div>
+        </VisualPortal>
       )}
       {openMenu && menus[openMenu.id] && (
-        <RibbonMenu
-          anchor={openMenu.anchor}
-          entries={menus[openMenu.id]}
-          onClose={closeMenu}
-          align={openMenu.id === "design" || openMenu.id === "export" ? "end" : "start"}
-        />
+        <VisualPortal>
+          <RibbonMenu
+            anchor={openMenu.anchor}
+            entries={menus[openMenu.id]}
+            onClose={closeMenu}
+            align={openMenu.id === "design" || openMenu.id === "export" ? "end" : "start"}
+          />
+        </VisualPortal>
       )}
 
       {cfAnchor && (

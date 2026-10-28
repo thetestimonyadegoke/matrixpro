@@ -1,8 +1,9 @@
-import React, { memo } from "react";
+import React, { memo, useEffect, useRef, useState } from "react";
 import { VisualSettings } from "../settings/settings";
 import { CellStyle, ClassificationIcon } from "../format/conditional";
 import { DataBar } from "./InCell/DataBar";
 import { KPIIcon } from "./InCell/KPIIcon";
+import { FormattedValue } from "./FormattedValue";
 
 type BuiltInIconKind = Exclude<ClassificationIcon["kind"], "custom" | "text">;
 
@@ -142,6 +143,20 @@ export const Cell: React.FC<CellProps> = memo(({
   onClick,
 }) => {
   const alignmentClass = `align-${composedAlignment ?? settings.values.alignment}`;
+
+  // A displayed value that changes after first paint (new data, display units, an edit) settles in
+  // with a soft flash so the change is noticed. Mounting, including scroll virtualization, stays still.
+  const shownRef = useRef(formattedValue);
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    if (shownRef.current === formattedValue) return undefined;
+    shownRef.current = formattedValue;
+    setFlash(true);
+    const timer = window.setTimeout(() => setFlash(false), 900);
+    return () => window.clearTimeout(timer);
+  }, [formattedValue]);
+  const isEmptyValue = value === null || /^[s–—-]*$/.test(formattedValue);
+  const signClass = value !== null && value < 0 ? "is-negative" : value === 0 ? "is-zero" : "";
   const showCFDataBar = cellStyle.dataBarPct !== undefined && value !== null;
   const showDataBar = !showCFDataBar && settings.dataBars.enabled && value !== null && !isSubtotal && !isGrandTotal;
   const showKPI = settings.kpiIcons.enabled && !isSubtotal && !isGrandTotal;
@@ -174,7 +189,7 @@ export const Cell: React.FC<CellProps> = memo(({
 
   return (
     <div
-      className={`matrix-cell ${alignmentClass} ${isActive ? "active" : ""} ${isEdited ? "edited" : ""} ${isColumnSelected ? "col-selected" : ""} ${isFindMatch ? "find-match" : ""} ${cfIcon ? "has-cf-icon" : ""} ${iconLeft ? "has-cf-icon-left" : ""} ${iconRight ? "has-cf-icon-right" : ""}`}
+      className={`matrix-cell ${alignmentClass} ${isActive ? "active" : ""} ${isEdited ? "edited" : ""} ${isColumnSelected ? "col-selected" : ""} ${isFindMatch ? "find-match" : ""} ${flash ? "value-changed" : ""} ${isEmptyValue ? "is-empty" : signClass} ${cfIcon ? "has-cf-icon" : ""} ${iconLeft ? "has-cf-icon-left" : ""} ${iconRight ? "has-cf-icon-right" : ""}`}
       style={{
         width: columnWidth,
         minWidth: columnWidth,
@@ -214,7 +229,7 @@ export const Cell: React.FC<CellProps> = memo(({
         />
       )}
       {iconLeft && <CFIcon icon={cfIcon!} dock="left" />}
-      <span className="cell-value">{hideValueText ? "" : formattedValue}</span>
+      <span className="cell-value">{hideValueText ? "" : <FormattedValue text={formattedValue} />}</span>
       {iconRight && <CFIcon icon={cfIcon!} dock="right" />}
       {showKPI && kpiDelta !== null && (
         <KPIIcon

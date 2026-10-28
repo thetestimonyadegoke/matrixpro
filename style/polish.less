@@ -1,0 +1,299 @@
+// ════════════════════════════════════════════════════════════════════════════
+// Polish — how the matrix itself reads and moves.
+//   Type      crisp rendering; numerals set for scanning; currency and unit marks
+//             sit quieter than the digits they belong to.
+//   Hierarchy each level has its own weight, a tree guide marks depth, and the
+//             top level carries a rail when open.
+//   Motion    a row lights across header and cells, selection lands softly,
+//             expanding settles rows in, changed values flash once.
+// Everything reads theme tokens and respects reduced motion. Imported last.
+// ════════════════════════════════════════════════════════════════════════════
+
+.advanced-matrix-root {
+  --mx-guide: rgba(15, 23, 42, 0.12);
+  --mx-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  @supports (color: color-mix(in srgb, red, blue)) {
+    --mx-guide: color-mix(in srgb, var(--mx-text, #1a1a1a) 16%, transparent);
+  }
+}
+
+.advanced-matrix-visual {
+  // ── Crisp type ────────────────────────────────────────────────────────────
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
+  font-synthesis: none;
+
+  // ── Numbers ───────────────────────────────────────────────────────────────
+  .matrix-cell,
+  .merged-header-cell.leaf,
+  .mx-footer-count {
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum" 1, "lnum" 1, "kern" 1;
+  }
+
+  .matrix-cell {
+    .cell-value {
+      letter-spacing: 0.002em;
+    }
+
+    // Currency symbols, units and brackets: present, but never louder than the figure.
+    .num-affix {
+      font-size: 0.84em;
+      font-weight: 400;
+      opacity: 0.6;
+      letter-spacing: 0.01em;
+
+      &:first-child {
+        margin-right: 0.14em;
+      }
+
+      &:last-child {
+        margin-left: 0.1em;
+      }
+    }
+
+    &.is-empty .cell-value {
+      opacity: 0.32;
+    }
+
+    &.is-zero .cell-value {
+      opacity: 0.6;
+    }
+  }
+
+  // ── Row hierarchy ─────────────────────────────────────────────────────────
+  .matrix-row-header {
+    letter-spacing: -0.002em;
+    transition: box-shadow 0.14s var(--mx-ease), background-color 0.14s var(--mx-ease);
+
+    // Tree guides: one hairline per level above this row, under each parent's chevron.
+    &::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      // The tree has a hidden root, so a row at indent n has n - 1 parents to draw guides for.
+      width: max(0px, calc(16px + (var(--mx-depth, 0) - 1) * var(--mx-unit, 20px)));
+      pointer-events: none;
+      background-image: repeating-linear-gradient(
+        90deg,
+        transparent 0,
+        transparent calc(var(--mx-unit, 20px) - 1px),
+        var(--mx-guide) calc(var(--mx-unit, 20px) - 1px),
+        var(--mx-guide) var(--mx-unit, 20px)
+      );
+      background-position: 16px 0;
+    }
+
+    // The rail: marks an open top-level group, and follows the pointer elsewhere.
+    &::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 3px;
+      bottom: 3px;
+      width: 3px;
+      border-radius: 0 3px 3px 0;
+      background: var(--mx-accent);
+      opacity: 0;
+      transform: scaleY(0.4);
+      transition: opacity 0.18s var(--mx-ease), transform 0.22s var(--mx-spring);
+      pointer-events: none;
+    }
+
+    &.lvl-0.is-parent.is-expanded::after {
+      opacity: 0.9;
+      transform: none;
+    }
+
+    &.is-hover:not(.lvl-0)::after {
+      opacity: 0.35;
+      transform: none;
+    }
+
+    // Top-level groups: set apart with a soft wash that fades into the grid.
+    &.lvl-0.is-parent:not(.subtotal-row):not(.grandtotal-row) {
+      background-image: linear-gradient(90deg, var(--mx-accent-12) 0, transparent 90%);
+    }
+
+    // Depth reads through weight and presence, not just indent.
+    &.lvl-0.is-parent .row-label {
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+
+    &.lvl-1.is-parent .row-label {
+      font-weight: 600;
+    }
+
+    &.lvl-2 .row-label {
+      opacity: 0.92;
+    }
+
+    &.lvl-3 .row-label {
+      opacity: 0.82;
+    }
+
+    .row-drag-handle {
+      transition: opacity 0.14s var(--mx-ease), transform 0.14s var(--mx-ease);
+      transform: translateX(-2px);
+    }
+
+    &:hover .row-drag-handle {
+      transform: none;
+    }
+
+    // The chevron turns with a little overshoot, so opening feels physical.
+    .expand-toggle svg {
+      transition: transform 0.24s var(--mx-spring);
+    }
+  }
+
+  // ── Row hover: header and cells light together ────────────────────────────
+  .matrix-row.is-hover,
+  .matrix-row-header.is-hover {
+    box-shadow: inset 0 0 0 9999px var(--mx-hover-bg, rgba(0, 0, 0, 0.04));
+  }
+
+  .matrix-cell {
+    transition: background-color 0.14s var(--mx-ease);
+
+    &:hover:not(.active) {
+      outline: 1px solid var(--mx-accent-55, rgba(45, 116, 218, 0.4));
+      outline-offset: -1px;
+    }
+
+    &.active {
+      animation: mx-cell-land 0.18s var(--mx-ease);
+    }
+
+    &.value-changed {
+      animation: mx-value-flash 0.9s var(--mx-ease);
+    }
+  }
+
+  // ── Column headers ────────────────────────────────────────────────────────
+  .merged-header-cell {
+    letter-spacing: 0.004em;
+    transition: background-color 0.14s var(--mx-ease), color 0.14s var(--mx-ease);
+
+    &.leaf:hover {
+      background-image: linear-gradient(var(--mx-hover-bg, rgba(0, 0, 0, 0.04)), var(--mx-hover-bg, rgba(0, 0, 0, 0.04)));
+    }
+
+    .merged-header-sort-icon {
+      display: inline-block;
+      animation: mx-sort-in 0.22s var(--mx-spring);
+    }
+  }
+
+  // ── Expanding and collapsing: rows settle in, a beat apart ────────────────
+  .matrix-container[data-motion="expand"] {
+    .matrix-row,
+    .matrix-row-header {
+      animation: mx-row-in 0.24s var(--mx-ease) both;
+    }
+
+    .loop-stagger(@i) when (@i > 0) {
+      .matrix-row:nth-child(@{i}),
+      .matrix-row-header:nth-child(@{i}) {
+        animation-delay: (@i * 9ms);
+      }
+
+      .loop-stagger(@i - 1);
+    }
+
+    .loop-stagger(26);
+  }
+
+  // ── Scrollbars: slim, rounded, quiet until needed ─────────────────────────
+  .matrix-body-area,
+  .matrix-horizontal-scrollbar {
+    &::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background-color: var(--mx-guide);
+      border-radius: 6px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+
+    &::-webkit-scrollbar-thumb:hover {
+      background-color: var(--mx-text-muted, #8a8a8a);
+      background-clip: padding-box;
+    }
+  }
+}
+
+@keyframes mx-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes mx-cell-land {
+  from {
+    outline-offset: 3px;
+    outline-color: transparent;
+  }
+
+  to {
+    outline-offset: -1.5px;
+  }
+}
+
+@keyframes mx-value-flash {
+  0% {
+    box-shadow: inset 0 0 0 100px var(--mx-accent-12, rgba(45, 116, 218, 0.14));
+  }
+
+  100% {
+    box-shadow: inset 0 0 0 100px transparent;
+  }
+}
+
+@keyframes mx-sort-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px) scale(0.7);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .advanced-matrix-visual {
+    .matrix-container[data-motion="expand"] .matrix-row,
+    .matrix-container[data-motion="expand"] .matrix-row-header,
+    .matrix-cell.active,
+    .matrix-cell.value-changed,
+    .merged-header-sort-icon {
+      animation: none;
+    }
+
+    .matrix-row-header::after,
+    .expand-toggle svg {
+      transition: none;
+    }
+  }
+}

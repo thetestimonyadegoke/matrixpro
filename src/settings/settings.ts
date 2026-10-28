@@ -564,7 +564,7 @@ export const defaultSettings: VisualSettings = {
     freezeFirstColumn: false,
     showGridlines: true,
     rowBanding: true,
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif",
     rowHighlight: false,
     topN: 0,
     invertRows: false,
