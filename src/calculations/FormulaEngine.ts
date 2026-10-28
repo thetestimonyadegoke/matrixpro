@@ -96,7 +96,56 @@ export class FormulaEngine {
     const cellKey = generateCellKey(rowKey, colKey, measureIndex);
     refs?.push(cellKey);
     const cell = this.context.cellMap.get(cellKey);
-    return cell?.value ?? null;
+    if (cell?.value !== null && cell?.value !== undefined && !Number.isNaN(cell.value)) {
+      return cell.value;
+    }
+    return this.getAggregatedDescendantValue(rowKey, colKey, measureIndex, refs);
+  }
+
+  private getAggregatedDescendantValue(rowKey: string, colKey: string, measureIndex: number, refs?: string[]): number | null {
+    const measureSuffix = `::m${measureIndex}`;
+    const rowPrefix = `${rowKey}|`;
+    const colPrefix = `${colKey}|`;
+    const candidates: Array<{ key: string; rowKey: string; colKey: string; value: number }> = [];
+    const isSyntheticTotalKey = (key: string) =>
+      key.includes("__subtotal") || key.includes("__grand_total") || key.includes("__total");
+
+    for (const [key, cell] of this.context.cellMap.entries()) {
+      if (!key.endsWith(measureSuffix)) continue;
+      if (cell.value === null || cell.value === undefined || Number.isNaN(cell.value)) continue;
+
+      const withoutMeasure = key.slice(0, -measureSuffix.length);
+      const separatorIndex = withoutMeasure.indexOf("::col:");
+      if (separatorIndex < 0) continue;
+
+      const candidateRowKey = withoutMeasure.slice(0, separatorIndex);
+      const candidateColKey = withoutMeasure.slice(separatorIndex + 2);
+      const rowMatches = candidateRowKey === rowKey || candidateRowKey.startsWith(rowPrefix);
+      const colMatches = candidateColKey === colKey || candidateColKey.startsWith(colPrefix);
+
+      if (!rowMatches || !colMatches) continue;
+      if (isSyntheticTotalKey(candidateRowKey) || isSyntheticTotalKey(candidateColKey)) continue;
+
+      candidates.push({ key, rowKey: candidateRowKey, colKey: candidateColKey, value: cell.value });
+    }
+
+    const leafCandidates = candidates.filter(candidate =>
+      !candidates.some(other =>
+        other.key !== candidate.key &&
+        (
+          other.rowKey.startsWith(`${candidate.rowKey}|`) ||
+          other.colKey.startsWith(`${candidate.colKey}|`)
+        )
+      )
+    );
+
+    const values: number[] = [];
+    for (const candidate of leafCandidates) {
+      refs?.push(candidate.key);
+      values.push(candidate.value);
+    }
+    if (values.length === 0) return null;
+    return values.reduce((sum, value) => sum + value, 0);
   }
 
   private getLeafRows(): FlattenedNode[] {
@@ -186,8 +235,8 @@ export class FormulaEngine {
   }
 
   private aggregate(values: Array<number | null>, fn: string): number | null {
-    const valid = values.filter((v): v is number => v !== null && !Number.isNaN(v));
-    if (valid.length === 0) return null;
+    const valid = values.map(value => this.numeric(value)).filter(value => !Number.isNaN(value));
+    if (valid.length === 0) return 0;
 
     switch (fn) {
       case "SUM": return valid.reduce((acc, value) => acc + value, 0);
@@ -636,10 +685,29 @@ export class FormulaEngine {
 
   private safeEval(expression: string): number | null {
     try {
-      return this.parseAndEvaluate(expression);
+      const value = this.parseAndEvaluate(expression);
+      return typeof value === "number" && Number.isFinite(value) ? value : null;
     } catch {
       return null;
     }
+  }
+
+  private numeric(value: number | null | undefined): number {
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  }
+
+  private safeDivide(left: number | null | undefined, right: number | null | undefined): number | null {
+    if (
+      typeof left !== "number" ||
+      typeof right !== "number" ||
+      !Number.isFinite(left) ||
+      !Number.isFinite(right) ||
+      right === 0
+    ) {
+      return null;
+    }
+    const result = left / right;
+    return Number.isFinite(result) ? result : null;
   }
 
   private tokenizeExpression(expression: string): MathToken[] {
@@ -672,11 +740,7 @@ export class FormulaEngine {
         while (pos < expression.length && /[A-Za-z0-9_]/.test(expression[pos])) {
           ident += expression[pos++];
         }
-        if (ident === "Infinity") {
-          tokens.push({ type: "number", value: Infinity });
-        } else {
-          tokens.push({ type: "identifier", value: ident.toUpperCase() });
-        }
+        tokens.push({ type: "identifier", value: ident.toUpperCase() });
         continue;
       }
 
@@ -758,7 +822,7 @@ export class FormulaEngine {
       if (token.type === "operator" && token.value === "-") {
         consume();
         const value = parsePrimary();
-        return value === null ? null : -value;
+        return -this.numeric(value);
       }
 
       if (token.type === "lparen") {
@@ -779,8 +843,12 @@ export class FormulaEngine {
       while (current().type === "operator" && (current() as { type: "operator"; value: string }).value.match(/[*/]/)) {
         const op = (consume() as { type: "operator"; value: string }).value;
         const right = parsePrimary();
-        if (left === null || right === null) return null;
-        left = op === "*" ? left * right : (right === 0 ? (left >= 0 ? Infinity : -Infinity) : left / right);
+        left = op === "*"
+          ? this.numeric(left) * this.numeric(right)
+          : this.safeDivide(left, right);
+        if (typeof left === "number" && !Number.isFinite(left)) {
+          left = null;
+        }
       }
       return left;
     };
@@ -790,8 +858,9 @@ export class FormulaEngine {
       while (current().type === "operator" && (current() as { type: "operator"; value: string }).value.match(/[+-]/)) {
         const op = (consume() as { type: "operator"; value: string }).value;
         const right = parseMulDiv();
-        if (left === null || right === null) return null;
-        left = op === "+" ? left + right : left - right;
+        const l = this.numeric(left);
+        const r = this.numeric(right);
+        left = op === "+" ? l + r : l - r;
       }
       return left;
     };
@@ -801,14 +870,15 @@ export class FormulaEngine {
       while (current().type === "operator" && [">", "<", ">=", "<=", "==", "!="].includes((current() as { type: "operator"; value: string }).value)) {
         const op = (consume() as { type: "operator"; value: string }).value;
         const right = parseAddSub();
-        if (left === null || right === null) return null;
+        const l = this.numeric(left);
+        const r = this.numeric(right);
         switch (op) {
-          case ">": left = left > right ? 1 : 0; break;
-          case "<": left = left < right ? 1 : 0; break;
-          case ">=": left = left >= right ? 1 : 0; break;
-          case "<=": left = left <= right ? 1 : 0; break;
-          case "==": left = left === right ? 1 : 0; break;
-          case "!=": left = left !== right ? 1 : 0; break;
+          case ">": left = l > r ? 1 : 0; break;
+          case "<": left = l < r ? 1 : 0; break;
+          case ">=": left = l >= r ? 1 : 0; break;
+          case "<=": left = l <= r ? 1 : 0; break;
+          case "==": left = l === r ? 1 : 0; break;
+          case "!=": left = l !== r ? 1 : 0; break;
         }
       }
       return left;
@@ -818,26 +888,26 @@ export class FormulaEngine {
     if (current().type !== "eof") {
       throw new Error("Unexpected trailing input");
     }
-    return value;
+    return typeof value === "number" && !Number.isFinite(value) ? null : value;
   }
 
   private evaluateBuiltinFunction(name: string, args: Array<number | null>): number | null {
-    const valid = args.filter((value): value is number => value !== null && !Number.isNaN(value));
+    const valid = args.map(value => this.numeric(value)).filter(value => !Number.isNaN(value));
 
     switch (name) {
-      case "ABS": return args[0] === null || args[0] === undefined ? null : Math.abs(args[0]);
+      case "ABS": return Math.abs(this.numeric(args[0]));
       case "ROUND": {
-        if (args[0] === null || args[0] === undefined) return null;
-        const decimals = args[1] ?? 0;
+        const value = this.numeric(args[0]);
+        const decimals = this.numeric(args[1]);
         const factor = Math.pow(10, decimals);
-        return Math.round(args[0] * factor) / factor;
+        return Math.round(value * factor) / factor;
       }
-      case "FLOOR": return args[0] === null || args[0] === undefined ? null : Math.floor(args[0]);
-      case "CEIL": return args[0] === null || args[0] === undefined ? null : Math.ceil(args[0]);
-      case "MIN": return valid.length ? Math.min(...valid) : null;
-      case "MAX": return valid.length ? Math.max(...valid) : null;
-      case "SUM": return valid.length ? valid.reduce((acc, value) => acc + value, 0) : null;
-      case "AVG": return valid.length ? valid.reduce((acc, value) => acc + value, 0) / valid.length : null;
+      case "FLOOR": return Math.floor(this.numeric(args[0]));
+      case "CEIL": return Math.ceil(this.numeric(args[0]));
+      case "MIN": return valid.length ? Math.min(...valid) : 0;
+      case "MAX": return valid.length ? Math.max(...valid) : 0;
+      case "SUM": return valid.reduce((acc, value) => acc + value, 0);
+      case "AVG": return valid.length ? valid.reduce((acc, value) => acc + value, 0) / valid.length : 0;
       case "COUNT": return valid.length;
       case "COALESCE": return valid.length ? valid[0] : null;
       case "ISNULL": return args.length < 1 ? null : (args[0] === null ? 1 : 0);

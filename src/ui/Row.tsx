@@ -1,12 +1,7 @@
 import React, { memo, useMemo } from "react";
 import { FlattenedNode } from "../model/tree";
-import { CellValue, MeasureInfo, getCellValue, formatValue } from "../model/pivot";
-import {
-  VisualSettings,
-  RowQuickFormat,
-  RowScalingFactor,
-  migrateInsertedRows,
-} from "../settings/settings";
+import { CellValue, MeasureInfo, getCellValue } from "../model/pivot";
+import { VisualSettings } from "../settings/settings";
 import { ViewportRange, ColumnWidthMap, getColumnWidth } from "../virtualization/viewport";
 import { CellStyle } from "../format/conditional";
 import { Cell } from "./Cell";
@@ -14,61 +9,19 @@ import { getRowStyle } from "../format/styles";
 import {
   parseColFormats,
   parseRowFormats,
-  formatQuickNumber,
   composeCellStyle,
   resolveAlignment,
-  resolveColumnFormat,
-  QuickNumberFormat,
-  quickFormatDivisor,
 } from "../format/directFormats";
 
-/**
- * Map a row-level scaling factor ("thousands" / "millions" / …) to the
- * column-format `QuickNumberFormat` so we can reuse `formatQuickNumber`
- * for the scaling step.
- */
-function scalingToQuick(sf: RowScalingFactor | undefined): QuickNumberFormat | undefined {
-  if (!sf || sf === "none") return undefined;
-  return sf as QuickNumberFormat;
-}
+import { GridColumn } from "../model/gridColumns";
+import { parseJsonObjectCached } from "../utils/jsonCache";
+import { CalcRowFormat, resolveCalcRowFormat, resolveCellDisplay } from "../format/cellDisplay";
 
-/**
- * Apply the row-level Quick Format (number/currency/percentage) on top of
- * an already-scaled numeric value. Scaling (thousands/millions/…) is handled
- * separately via `formatQuickNumber` before this runs.
- */
-function applyRowQuickFormat(scaledValue: number, qf: RowQuickFormat): string {
-  if (qf === "currency") {
-    return scaledValue.toLocaleString(undefined, {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    });
-  }
-  if (qf === "percentage") {
-    return (scaledValue * 100).toLocaleString(undefined, {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    }) + "%";
-  }
-  // "number"
-  return scaledValue.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
-}
-
-type GridColumn = {
-  key: string;
-  col: FlattenedNode;
-  measure: MeasureInfo;
-  measureIndex: number;
-};
 
 export interface RowProps {
   row: FlattenedNode;
   rowIndex: number;
+  topOffset?: number;
   prevRowKey: string | null;
   visibleColumns: GridColumn[];
   visibleRange: ViewportRange;
@@ -76,6 +29,7 @@ export interface RowProps {
   measures: MeasureInfo[];
   settings: VisualSettings;
   isSelected: boolean;
+  isFormatSelected?: boolean;
   showRowBreak?: boolean;
   sparklineMeasureIndex: number;
   rowHeight: number;
@@ -86,6 +40,8 @@ export interface RowProps {
   onContextMenu: (e: React.MouseEvent, row: FlattenedNode, colKey?: string, measureIndex?: number) => void;
   onCellClick: (colKey: string, measureIndex: number, colIndex: number, modifiers: { ctrl: boolean; shift: boolean }) => void;
   activeCell: { rowKey: string; colKey: string; measureIndex: number } | null;
+  /** Cell in this row that is the current Find (Ctrl+F) match. */
+  findMatch?: { colKey: string | null; measureIndex: number | null } | null;
   selectedColumnKeys?: Set<string>;
   columnWidthMap: ColumnWidthMap;
 }
@@ -93,6 +49,7 @@ export interface RowProps {
 export const Row: React.FC<RowProps> = memo(({
   row,
   rowIndex,
+  topOffset,
   prevRowKey,
   visibleColumns,
   visibleRange,
@@ -100,6 +57,7 @@ export const Row: React.FC<RowProps> = memo(({
   measures: _measures,
   settings,
   isSelected,
+  isFormatSelected,
   showRowBreak,
   sparklineMeasureIndex: _sparklineMeasureIndex,
   rowHeight,
@@ -110,14 +68,15 @@ export const Row: React.FC<RowProps> = memo(({
   onContextMenu,
   onCellClick,
   activeCell,
+  findMatch,
   selectedColumnKeys,
   columnWidthMap,
 }) => {
   const rowStyle = getRowStyle(settings, rowIndex, row.isSubtotal, row.isGrandTotal, isSelected);
   const rowBreakStyle = showRowBreak
     ? settings.layout.rowBreak === "section"
-      ? "3px double var(--mx-border, #cbd5e1)"
-      : "2px solid var(--mx-border, #cbd5e1)"
+      ? "8px solid var(--mx-canvas-bg, transparent)"
+      : "12px solid var(--mx-canvas-bg, transparent)"
     : undefined;
 
   const className = [
@@ -125,12 +84,13 @@ export const Row: React.FC<RowProps> = memo(({
     row.isSubtotal ? "subtotal-row" : "",
     row.isGrandTotal ? "grandtotal-row" : "",
     isSelected ? "selected" : "",
+    isFormatSelected ? "format-selected" : "",
     settings.general.rowBanding && rowIndex % 2 === 1 ? "banded" : "",
     settings.general.rowHighlight ? "row-highlight" : "",
   ].filter(Boolean).join(" ");
 
-  const manualEdits = JSON.parse(settings.manualData.edits || "{}");
-  const manualNotes = JSON.parse(settings.manualData.notes || "{}");
+  const manualEdits = parseJsonObjectCached<Record<string, unknown>>(settings.manualData.edits);
+  const manualNotes = parseJsonObjectCached<Record<string, unknown>>(settings.manualData.notes);
 
   // Parse direct-format maps once per render. The JSON strings are stable
   // across renders that don't modify them, so memoizing avoids re-parsing.
@@ -142,26 +102,16 @@ export const Row: React.FC<RowProps> = memo(({
     () => parseRowFormats(settings.manualData.rowFormats),
     [settings.manualData.rowFormats]
   );
-  const thisRowFormat = rowFormats[row.key];
+  const thisRowFormat = rowFormats[row.key] || (row.calcRowDefId ? rowFormats[`__calcrow__${row.calcRowDefId}`] || rowFormats[row.calcRowDefId] : undefined);
 
   // Calc-row per-row number formatting: scaling factor + quick format.
   // Only applies when this row is a calculated virtual row (key prefix
   // `__calcrow__`) — we look up the corresponding definition by id and
   // pull its optional `scalingFactor` / `quickFormat` fields.
-  const calcRowFormat = useMemo<{ sf: RowScalingFactor; qf: RowQuickFormat } | null>(() => {
-    if (!row.key.startsWith("__calcrow__")) return null;
-    const id = row.key.slice("__calcrow__".length);
-    const defs = migrateInsertedRows(settings.calculations.rows);
-    for (const d of defs) {
-      if ((d.kind === "calculated" || d.kind === "child") && d.id === id) {
-        const sf = (d.scalingFactor ?? "none") as RowScalingFactor;
-        const qf = (d.quickFormat ?? "none") as RowQuickFormat;
-        if (sf === "none" && qf === "none") return null;
-        return { sf, qf };
-      }
-    }
-    return null;
-  }, [row.key, settings.calculations.rows]);
+  const calcRowFormat = useMemo<CalcRowFormat | null>(
+    () => resolveCalcRowFormat(row.key, settings.calculations.rows),
+    [row.key, settings.calculations.rows]
+  );
 
   // ──────────────────────────────────────────────────────────────────────────
   // Kind-specific rendering for non-standard inserted rows.
@@ -180,7 +130,7 @@ export const Row: React.FC<RowProps> = memo(({
         className={`${className} blank-row`}
         style={{
           ...rowStyle,
-          top: rowIndex * rowHeight,
+          top: topOffset ?? rowIndex * rowHeight,
           height: row.blankHeight ?? rowHeight,
           background: "transparent",
         }}
@@ -201,7 +151,7 @@ export const Row: React.FC<RowProps> = memo(({
         className={`${className} divider-row`}
         style={{
           ...rowStyle,
-          top: rowIndex * rowHeight,
+          top: topOffset ?? rowIndex * rowHeight,
           height: rowHeight,
           display: "flex",
           alignItems: "center",
@@ -222,7 +172,7 @@ export const Row: React.FC<RowProps> = memo(({
         className={`${className} group-row`}
         style={{
           ...rowStyle,
-          top: rowIndex * rowHeight,
+          top: topOffset ?? rowIndex * rowHeight,
           height: rowHeight,
           display: "flex",
           alignItems: "center",
@@ -262,7 +212,8 @@ export const Row: React.FC<RowProps> = memo(({
       style={{
         ...rowStyle,
         ...(rowBreakStyle ? { borderTop: rowBreakStyle } : {}),
-        top: rowIndex * rowHeight,
+        ...(rowBreakStyle ? { boxSizing: "border-box" } : {}),
+        top: topOffset ?? rowIndex * rowHeight,
         height: rowHeight,
       }}
       onContextMenu={(e) => {
@@ -298,31 +249,17 @@ export const Row: React.FC<RowProps> = memo(({
         const mIdx = gridCol.measureIndex;
         const colKey = gridCol.col.key;
 
-        const cell = getCellValue(cellMap, row.key, colKey, mIdx);
         const editKey = `${row.key}|${colKey}|${mIdx}`;
-        const rawEdit = manualEdits[editKey];
-
-        let displayValue = cell?.value ?? null;
-        let displayFormatted = cell?.formattedValue ?? "—";
-
-        const isEdited = rawEdit !== undefined;
-
-        if (isEdited) {
-          const editStr = String(rawEdit);
-          // For direct value overrides, show the new value immediately.
-          // For formula-based edits (starting with '='), rely on the
-          // evaluated result from the model's cellMap instead of
-          // displaying the raw formula text in the grid.
-          if (!editStr.startsWith("=")) {
-            const parsed = parseFloat(editStr);
-            if (!Number.isNaN(parsed)) {
-              displayValue = parsed;
-              displayFormatted = parsed.toLocaleString();
-            } else {
-              displayFormatted = editStr;
-            }
-          }
-        }
+        const { displayValue, displayFormatted, isEdited, thisColFormat } = resolveCellDisplay({
+          row,
+          gridCol,
+          cellMap,
+          settings,
+          manualEdits,
+          colFormats,
+          thisRowFormat,
+          calcRowFormat,
+        });
 
         const cellStyle = getCellStyle(row.key, colKey, mIdx, displayValue);
         const prevCell = prevRowKey ? getCellValue(cellMap, prevRowKey, colKey, mIdx) : undefined;
@@ -335,93 +272,15 @@ export const Row: React.FC<RowProps> = memo(({
           selectedColumnKeys?.has(`m:${mIdx}`)
         );
 
-        // Apply per-column direct formatting (bold/italic/bg/color/align/quickFormat).
-        // Apply logical identity column formatting (Measure Global -> Dimension Global -> Specific).
-        const stableMeasureIndex = gridCol.measure.index ?? mIdx;
-        const thisColFormat = stableMeasureIndex !== mIdx
-          ? {
-              ...resolveColumnFormat(colFormats, colKey, mIdx),
-              ...resolveColumnFormat(colFormats, colKey, stableMeasureIndex),
-            }
-          : resolveColumnFormat(colFormats, colKey, mIdx);
-
-        // Quick-format scales the displayed numeric value and re-renders it
-        // with the chosen precision. Non-numeric / null cells are untouched.
-        const globalQuickFormat = (settings.values as any).quickFormat || "none";
-        const currentQF = thisColFormat?.quickFormat || globalQuickFormat;
-        const currentNF = thisColFormat?.numberFormat || settings.values.numberFormat || "";
-        const currentDecimals = thisColFormat?.decimals ?? settings.values.decimals;
-
-        if (displayValue !== null && !Number.isNaN(displayValue)) {
-          if (currentQF && currentQF !== "none") {
-            // If we have a Quick Format (scaling), we scale it first.
-            const scaledValue = displayValue / quickFormatDivisor(currentQF, displayValue);
-            const decimals = currentDecimals ?? 1;
-            
-            if (currentNF) {
-              // If there's ALSO a number format (e.g. %), apply it to the scaled value.
-              displayFormatted = formatValue(scaledValue, currentNF);
-            } else {
-              // Otherwise use standard quick format display.
-              displayFormatted = formatQuickNumber(displayValue, currentQF, decimals);
-            }
-          } else if (currentNF) {
-            // Number format only (%, $, comma). Apply with decimals if set.
-            if (currentNF.includes("%")) {
-              const dec = currentDecimals ?? 1;
-              displayFormatted = displayValue.toLocaleString(undefined, {
-                style: "percent",
-                minimumFractionDigits: dec,
-                maximumFractionDigits: dec,
-              });
-            } else if (currentNF.includes("$")) {
-              const dec = currentDecimals ?? 2;
-              displayFormatted = displayValue.toLocaleString(undefined, {
-                style: "currency",
-                currency: "USD",
-                minimumFractionDigits: dec,
-                maximumFractionDigits: dec,
-              });
-            } else {
-              displayFormatted = formatValue(displayValue, currentNF);
-            }
-          } else if (currentDecimals !== undefined && currentDecimals !== null) {
-            // Decimals-only adjustment (no special format, no scaling).
-            displayFormatted = displayValue.toLocaleString(undefined, {
-              minimumFractionDigits: currentDecimals,
-              maximumFractionDigits: currentDecimals,
-            });
-          }
-        }
-
-        // Row-level scaling + quick-format (for calculated rows). 
-        if (calcRowFormat && displayValue !== null && !Number.isNaN(displayValue)) {
-          const scaled = (() => {
-            const qf = scalingToQuick(calcRowFormat.sf);
-            if (!qf) return displayValue;
-            return displayValue / quickFormatDivisor(qf, displayValue);
-          })();
-
-          if (calcRowFormat.qf !== "none") {
-            displayFormatted = applyRowQuickFormat(scaled, calcRowFormat.qf);
-          } else if (calcRowFormat.sf !== "none") {
-            displayFormatted = formatQuickNumber(
-              displayValue,
-              scalingToQuick(calcRowFormat.sf),
-              undefined
-            );
-          }
-        }
-
         const composedStyle = composeCellStyle(
           settings,
           cellStyle,
           thisColFormat,
-          thisRowFormat,
+          thisRowFormat || row.calculatedRowStyle,
           row.isSubtotal || gridCol.col.isSubtotal,
           row.isGrandTotal || gridCol.col.isGrandTotal
         );
-        const composedAlign = resolveAlignment(settings, thisColFormat, thisRowFormat);
+        const composedAlign = resolveAlignment(settings, thisColFormat, thisRowFormat || row.calculatedRowStyle);
 
         return (
           <Cell
@@ -442,6 +301,7 @@ export const Row: React.FC<RowProps> = memo(({
             isEdited={isEdited}
             hasNote={hasNote}
             isColumnSelected={isColSelected}
+            isFindMatch={!!findMatch && findMatch.colKey === colKey && findMatch.measureIndex === mIdx}
             composedStyle={composedStyle}
             composedAlignment={composedAlign}
             onClick={(e) => onCellClick(colKey, mIdx, actualColIndex, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })}

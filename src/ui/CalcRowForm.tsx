@@ -32,6 +32,7 @@ export interface CalcRowFormValues {
   binding: RowBinding;
   scalingFactor: RowScalingFactor;
   quickFormat: RowQuickFormat;
+  overrideColumnFormat: boolean;
   includeInTotal: boolean;
   evaluateColumnsBeforeRows: boolean;
   description: string;
@@ -76,6 +77,7 @@ const DEFAULTS: CalcRowFormValues = {
   binding: { mode: "none" },
   scalingFactor: "none",
   quickFormat: "none",
+  overrideColumnFormat: false,
   includeInTotal: true,
   evaluateColumnsBeforeRows: false,
   description: "",
@@ -109,6 +111,9 @@ export const CalcRowForm: React.FC<CalcRowFormProps> = ({
   );
   const [quickFormat, setQuickFormat] = useState<RowQuickFormat>(
     initial.quickFormat
+  );
+  const [overrideColumnFormat, setOverrideColumnFormat] = useState<boolean>(
+    initial.overrideColumnFormat
   );
   const [includeInTotal, setIncludeInTotal] = useState<boolean>(
     initial.includeInTotal
@@ -298,6 +303,7 @@ export const CalcRowForm: React.FC<CalcRowFormProps> = ({
       binding: buildBinding(),
       scalingFactor,
       quickFormat,
+      overrideColumnFormat,
       includeInTotal,
       evaluateColumnsBeforeRows,
       description: description.trim(),
@@ -311,6 +317,7 @@ export const CalcRowForm: React.FC<CalcRowFormProps> = ({
     buildBinding,
     scalingFactor,
     quickFormat,
+    overrideColumnFormat,
     includeInTotal,
     evaluateColumnsBeforeRows,
     description,
@@ -494,6 +501,22 @@ export const CalcRowForm: React.FC<CalcRowFormProps> = ({
             </option>
           ))}
         </select>
+      </div>
+
+      {/* 5b. Override column formatting */}
+      <div className="calc-row-form-field calc-row-form-toggle-row">
+        <label className="calc-row-form-label" htmlFor="calcrow-override-col-fmt">
+          Override column formatting
+        </label>
+        <label className="calc-row-form-switch">
+          <input
+            id="calcrow-override-col-fmt"
+            type="checkbox"
+            checked={overrideColumnFormat}
+            onChange={(e) => setOverrideColumnFormat(e.target.checked)}
+          />
+          <span className="calc-row-form-slider" />
+        </label>
       </div>
 
       {/* 6. Include in total */}

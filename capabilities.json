@@ -529,6 +529,36 @@
               }
             }
           }
+        },
+        "colHeaderLevel0Bg": {
+          "displayName": "Col Headers: Level 0 Background Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "colHeaderLevel1Bg": {
+          "displayName": "Col Headers: Level 1 Background Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "colHeaderLeafBg": {
+          "displayName": "Col Headers: Measure Background Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
         }
       }
     },

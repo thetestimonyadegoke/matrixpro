@@ -3,11 +3,13 @@ import { generateRowKey, generateColumnKey } from "./keys";
 
 export interface TreeNode {
   key: string;
+  parentKey?: string;
   label: string;
   value: powerbi.PrimitiveValue;
   level: number;
   // Store raw values from the matrix node; type is kept loose here to avoid SDK typing issues
   path: any[];
+  keyPath?: any[];
   children: TreeNode[];
   isExpanded: boolean;
   isLeaf: boolean;
@@ -23,6 +25,9 @@ export interface FlattenedNode extends TreeNode {
   hasChildren: boolean;
   visibleIndex: number;
   isCalculatedRow?: boolean;
+  isSpacer?: boolean;
+  isDivider?: boolean;
+  customHeight?: number;
   calculatedRowStyle?: {
     bold?: boolean;
     italic?: boolean;
@@ -45,6 +50,8 @@ export interface FlattenedNode extends TreeNode {
   calcRowDefId?: string;
 }
 
+export type SubtotalPositionResolver = "top" | "bottom" | ((node: TreeNode) => "top" | "bottom");
+
 export function buildRowTree(
   matrixNode: powerbi.DataViewMatrixNode,
   levelSources: powerbi.DataViewMetadataColumn[],
@@ -52,18 +59,27 @@ export function buildRowTree(
   selectionIdBuilder: (node: any, levels?: powerbi.DataViewHierarchyLevel[]) => any | undefined,
   path: any[] = [],
   level: number = 0,
-  hierarchyLevels: powerbi.DataViewHierarchyLevel[] = []
+  hierarchyLevels: powerbi.DataViewHierarchyLevel[] = [],
+  keyPath: any[] = [],
+  siblingOrdinal: number = 0,
+  parentKey?: string
 ): TreeNode {
   const nodeValue = matrixNode.value;
   const label = nodeValue !== undefined && nodeValue !== null ? String(nodeValue) : "";
   const currentPath: any[] = nodeValue !== undefined
     ? [...path, nodeValue]
     : path;
+  const rawKeyPath: any[] = nodeValue !== undefined
+    ? [...keyPath, nodeValue]
+    : keyPath;
+  const currentKeyPath = siblingOrdinal > 0
+    ? [...rawKeyPath, `__duplicate_${siblingOrdinal}`]
+    : rawKeyPath;
 
   const isSubtotal = matrixNode.isSubtotal === true;
   const isGrandTotal = level === 0 && isSubtotal;
 
-  const baseKeyPath: any[] = currentPath.length > 0 ? currentPath : ["root"];
+  const baseKeyPath: any[] = currentKeyPath.length > 0 ? currentKeyPath : ["root"];
   const keyedPath: any[] = isGrandTotal
     ? [...baseKeyPath, "__grand_total"]
     : isSubtotal
@@ -76,7 +92,14 @@ export function buildRowTree(
 
   const children: TreeNode[] = [];
   if (matrixNode.children) {
+    const siblingCounts = new Map<string, number>();
     for (const child of matrixNode.children) {
+      const childKeyBase = JSON.stringify([
+        child.value === undefined ? "__undefined__" : child.value,
+        child.isSubtotal === true ? "subtotal" : "regular",
+      ]);
+      const childOrdinal = siblingCounts.get(childKeyBase) ?? 0;
+      siblingCounts.set(childKeyBase, childOrdinal + 1);
       children.push(
         buildRowTree(
           child,
@@ -84,7 +107,10 @@ export function buildRowTree(
           selectionIdBuilder,
           currentPath,
           level + 1,
-          hierarchyLevels
+          hierarchyLevels,
+          currentKeyPath,
+          childOrdinal,
+          level === 0 ? "root" : key
         )
       );
     }
@@ -99,10 +125,12 @@ export function buildRowTree(
 
   return {
     key,
+    parentKey,
     label: isGrandTotal ? "Grand Total" : isSubtotal ? `${label} Total` : label,
     value: nodeValue,
     level,
     path: currentPath,
+    keyPath: currentKeyPath,
     children,
     isExpanded: true,
     isLeaf,
@@ -174,8 +202,7 @@ export function flattenTree(
   subtotalPosition: "top" | "bottom",
   hiddenLevels: string[] = [],
   result: FlattenedNode[] = [],
-  indent: number = 0,
-  seenKeys: Set<string> = new Set<string>()
+  indent: number = 0
 ): FlattenedNode[] {
   const isExpanded = expandedState.get(node.key) ?? node.isExpanded;
   const hasChildren = node.children.length > 0;
@@ -185,13 +212,7 @@ export function flattenTree(
     if (hiddenLevels && hiddenLevels.includes(String(Math.max(0, node.level - 1)))) return result;
   }
 
-  // Prevent duplicate nodes
-  if (seenKeys.has(node.key)) {
-    return result;
-  }
-
   if (node.level > 0 || node.isGrandTotal) {
-    seenKeys.add(node.key);
     result.push({
       ...node,
       isExpanded,
@@ -215,17 +236,17 @@ export function flattenTree(
 
     if (subtotalPosition === "top") {
       for (const subtotal of subtotalNodes) {
-        flattenTree(subtotal, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent, seenKeys);
+        flattenTree(subtotal, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent);
       }
     }
 
     for (const child of regularNodes) {
-      flattenTree(child, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent + 1, seenKeys);
+      flattenTree(child, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent + 1);
     }
 
     if (subtotalPosition === "bottom") {
       for (const subtotal of subtotalNodes) {
-        flattenTree(subtotal, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent, seenKeys);
+        flattenTree(subtotal, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent);
       }
     }
   }
@@ -265,7 +286,7 @@ export function flattenColumnTree(
   node: TreeNode,
   expandedState: Map<string, boolean>,
   showSubtotals: boolean,
-  subtotalPosition: "top" | "bottom",
+  subtotalPosition: SubtotalPositionResolver,
   measureCount: number,
   hiddenLevels: string[] = []
 ): FlattenedNode[] {
@@ -278,7 +299,7 @@ function flattenColumnTreeRecursive(
   node: TreeNode,
   expandedState: Map<string, boolean>,
   showSubtotals: boolean,
-  subtotalPosition: "top" | "bottom",
+  subtotalPosition: SubtotalPositionResolver,
   hiddenLevels: string[],
   result: FlattenedNode[],
   indent: number
@@ -313,7 +334,9 @@ function flattenColumnTreeRecursive(
       }
     }
 
-    if (subtotalPosition === "top") {
+    const resolvedSubtotalPosition = typeof subtotalPosition === "function" ? subtotalPosition(node) : subtotalPosition;
+
+    if (resolvedSubtotalPosition === "top") {
       for (const subtotal of subtotalNodes) {
         flattenColumnTreeRecursive(subtotal, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent);
       }
@@ -323,7 +346,7 @@ function flattenColumnTreeRecursive(
       flattenColumnTreeRecursive(child, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent + 1);
     }
 
-    if (subtotalPosition === "bottom") {
+    if (resolvedSubtotalPosition === "bottom") {
       for (const subtotal of subtotalNodes) {
         flattenColumnTreeRecursive(subtotal, expandedState, showSubtotals, subtotalPosition, hiddenLevels, result, indent);
       }

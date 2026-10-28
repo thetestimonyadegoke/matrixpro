@@ -62,23 +62,14 @@ export function generateCellLabel(
     rowIndex?: number,
     colIndex?: number
 ): string {
-    // For simple grids, use alphanumeric
-    if (rowIndex !== undefined && colIndex !== undefined) {
-        const hasSimpleRow = !row.path || row.path.length <= 1;
-        const hasSimpleCol = !col.path || col.path.length <= 1;
+    const rowLabel = row.path && row.path.length > 0
+        ? row.path.map(part => String(part)).join(" > ")
+        : row.label || `R${(rowIndex || 0) + 1}`;
+    const colLabel = col.path && col.path.length > 0
+        ? col.path.map(part => String(part)).join(" > ")
+        : col.label || `C${(colIndex || 0) + 1}`;
 
-        if (hasSimpleRow && hasSimpleCol) {
-            return generateAlphanumericRef(rowIndex, colIndex);
-        }
-    }
-
-    // For hierarchical data, show last level of each dimension
-    const rowLabel = row.label || `R${(rowIndex || 0) + 1}`;
-    const colLabel = col.label || `C${(colIndex || 0) + 1}`;
-
-    // If there's only one measure, omit it from the label
-    // Otherwise include it for clarity
-    return `${rowLabel}|${colLabel}`;
+    return `${rowLabel} | ${colLabel} | ${measure.name}`;
 }
 
 /**
@@ -102,8 +93,14 @@ export function formatCellReferenceForFormula(
     col: FlattenedNode,
     measure: MeasureInfo
 ): string {
-    const rowRef = escapeCellReference(row.label);
-    const colRef = escapeCellReference(col.label);
+    const rowPath = row.path && row.path.length > 0
+        ? row.path.map(part => String(part)).join(" > ")
+        : row.label;
+    const colPath = col.path && col.path.length > 0
+        ? col.path.map(part => String(part)).join(" > ")
+        : col.label;
+    const rowRef = escapeCellReference(rowPath);
+    const colRef = escapeCellReference(colPath);
     const measureRef = escapeCellReference(measure.name);
 
     return `CELL(row=${rowRef}, col=${colRef}, measure=${measureRef})`;

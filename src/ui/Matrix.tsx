@@ -1,7 +1,7 @@
 import React, { useCallback, useRef, useState, useMemo, useEffect } from "react";
 import powerbi from "powerbi-visuals-api";
 import { FlattenedNode } from "../model/tree";
-import { CellValue, MeasureInfo, getCellValue, computeGlobalStats } from "../model/pivot";
+import { CellValue, MeasureInfo, getCellValue } from "../model/pivot";
 import { VisualSettings } from "../settings/settings";
 import { SortConfig } from "../model/sorting";
 import { SelectionState, SelectionManagerWrapper } from "../powerbi/selection";
@@ -12,12 +12,15 @@ import {
   setColumnWidth,
   getTotalWidthWithVariableWidths,
   computeVisibleRangeWithVariableWidths,
+  getColumnWidth,
+  getColumnOffsetWithVariableWidths,
 } from "../virtualization/viewport";
 import { ScrollManager } from "../virtualization/scroll";
 import { Row } from "./Row";
 import { RowHeader } from "./RowHeader";
-import { MergedColumnHeaders, ColumnArrangement } from "./MergedColumnHeaders";
-import { CellStyle, evaluateCellStyle, EvaluationContext } from "../format/conditional";
+import { MatrixSearch, SearchResult, createGridSearchTarget, useSearchShortcut } from "./matrixSearch";
+import { MergedColumnHeaders, ColumnArrangement, buildMergedHeaders } from "./MergedColumnHeaders";
+import { createCellStyleEvaluator, computeAllGlobalStats } from "../format/cellStyleEvaluator";
 import { parseColFormats, parseRowFormats } from "../format/directFormats";
 import { getRowStyle } from "../format/styles";
 import { TooltipServiceWrapper } from "../powerbi/tooltip";
@@ -27,6 +30,13 @@ import { BulkOperationsPanel, BulkOperationType } from "./BulkOperationsPanel";
 import { generateCellLabel, formatCellReferenceForFormula } from "../utils/cellNaming";
 import { IntelliSenseContext } from "../intellisense/FormulaIntelliSense";
 import { generateRowKey } from "../model/keys";
+import { GridColumn, buildGridColumns, parseVisualColumnRules } from "../model/gridColumns";
+import {
+  LevelAwareFieldConfig,
+  getLevelAwareConfig,
+  serializeLevelAwareColumns,
+  upsertFieldConfig,
+} from "../model/levelAwareColumns";
 
 export interface MatrixProps {
   rows: FlattenedNode[];
@@ -65,10 +75,22 @@ export interface MatrixProps {
   onSetSortDirection?: (columnKey: string, measureIndex: number, direction: "asc" | "desc" | "none") => void;
   onEditCalcRow?: (rowKey: string) => void;
   onDeleteCalcRow?: (rowKey: string) => void;
+  /** Column hierarchy field names (e.g. ["Year", "Month"]) for labelling header corner cells. */
+  columnLevelNames?: string[];
+  /** Incremented by the host (e.g. the Ribbon's Find button) to open the Find panel. */
+  findRequest?: number;
 }
 
 const ROW_BUFFER = 10;
 const COL_BUFFER = 2;
+
+function getManualParentKey(row: FlattenedNode | undefined): string {
+  if (!row) return "root";
+  if (row.parentKey) return row.parentKey;
+  const keyPath = row.keyPath || row.path;
+  if (!keyPath || keyPath.length <= 1) return "root";
+  return generateRowKey(keyPath.slice(0, -1) as (string | number)[]);
+}
 
 export const Matrix: React.FC<MatrixProps> = ({
   rows,
@@ -107,6 +129,8 @@ export const Matrix: React.FC<MatrixProps> = ({
   onSetSortDirection,
   onEditCalcRow,
   onDeleteCalcRow,
+  columnLevelNames,
+  findRequest,
 }) => {
   const toAlphaColor = useCallback((color: string | undefined, alpha: number, fallback: string) => {
     const value = (color || "").trim();
@@ -140,27 +164,6 @@ export const Matrix: React.FC<MatrixProps> = ({
     }
   }, [settings.manualData.labelOverrides]);
 
-  type GridColumn = {
-    key: string;
-    col: FlattenedNode;
-    measure: MeasureInfo;
-    measureIndex: number;
-  };
-
-  type VisualColumnFrequency = "all" | "yearly" | "quarterly" | "specific";
-  type VisualColumnPosition = "normal" | "beginning" | "end" | "specific";
-  type VisualColumnDefinition = {
-    id: string;
-    enabled?: boolean;
-    sourceMeasureId?: string;
-    sourceMeasureName?: string;
-    sourceMeasureIndex?: number;
-    frequency?: VisualColumnFrequency;
-    position?: VisualColumnPosition;
-    positionIndex?: number;
-    specificColumnKeys?: string[];
-    hierarchyLevel?: number;
-  };
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const horizontalScrollRef = useRef<HTMLDivElement>(null);
@@ -169,21 +172,7 @@ export const Matrix: React.FC<MatrixProps> = ({
 
   const formulaBarRef = useRef<FormulaBarRef>(null);
 
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState(84);
 
-  useEffect(() => {
-    if (!contentRef.current) return () => {};
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        // Measure the natural height of the content
-        const height = Math.max(56, entry.contentRect.height);
-        setMeasuredHeaderHeight(height);
-      }
-    });
-    observer.observe(contentRef.current);
-    return () => observer.disconnect();
-  }, []);
 
   const [scrollTop, setScrollTop] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -224,6 +213,13 @@ export const Matrix: React.FC<MatrixProps> = ({
 
   // Formula Bar Edit Mode
   const [formulaBarEditMode, setFormulaBarEditMode] = useState(false);
+  const showFormulaBar = activeCell !== null;
+
+  useEffect(() => {
+    if (!showFormulaBar) {
+      setFormulaBarEditMode(false);
+    }
+  }, [showFormulaBar]);
 
   // Manual edit history for undo/redo
   const [editHistory, setEditHistory] = useState<string[]>([]);
@@ -242,6 +238,7 @@ export const Matrix: React.FC<MatrixProps> = ({
   const [draggedRowKey, setDraggedRowKey] = useState<string | null>(null);
   const [dragOverRowKey, setDragOverRowKey] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<"before" | "after" | "child" | null>(null);
+  const rowDropCommittedRef = useRef(false);
 
   // Range Selection State for bulk operations
   const [selectedRange] = useState<{
@@ -309,7 +306,8 @@ export const Matrix: React.FC<MatrixProps> = ({
       rowIndex,
       colIndex
     });
-  }, [formulaBarEditMode, columns, measures, cellMap, settings.manualData.edits]);
+    onRowSelectionForFormatChange?.([row.key]);
+  }, [formulaBarEditMode, columns, measures, cellMap, settings.manualData.edits, onRowSelectionForFormatChange]);
 
   const handleCommitEdit = useCallback((newValue: string) => {
     if (!activeCell) return;
@@ -339,22 +337,15 @@ export const Matrix: React.FC<MatrixProps> = ({
     });
 
     onPersistProperty("manualData", "edits", nextJson);
-    // Keep selection but update value
-    setActiveCell(prev => prev ? { ...prev, value: newValue } : null);
+    setActiveCell(null);
+    setFormulaBarEditMode(false);
   }, [activeCell, onPersistProperty, settings.manualData.edits, editHistoryIndex]);
 
   const handleCancelEdit = useCallback(() => {
-    // Just reset the input to original value
-    const key = activeCell ? `${activeCell.rowKey}|${activeCell.colKey}|${activeCell.measureIndex}` : "";
-    const edits = JSON.parse(settings.manualData.edits || "{}");
-    const editValue = edits[key];
-    const cellValue = activeCell ? getCellValue(cellMap, activeCell.rowKey, activeCell.colKey, activeCell.measureIndex) : null;
-
-    setActiveCell(prev => prev ? {
-      ...prev,
-      value: editValue || (cellValue?.value !== null ? String(cellValue?.value) : "")
-    } : null);
-  }, [activeCell, cellMap, settings.manualData.edits]);
+    setActiveCell(null);
+    setFormulaBarEditMode(false);
+    onRowSelectionForFormatChange?.([]);
+  }, [onRowSelectionForFormatChange]);
 
   const handleUndo = useCallback(() => {
     setEditHistoryIndex(prevIdx => {
@@ -381,6 +372,7 @@ export const Matrix: React.FC<MatrixProps> = ({
   }, [editHistory, onPersistProperty, settings.manualData.edits]);
 
   const handleRowDragStart = useCallback((e: React.DragEvent, rowKey: string) => {
+    rowDropCommittedRef.current = false;
     setDraggedRowKey(rowKey);
     e.dataTransfer.setData("text/plain", rowKey);
     e.dataTransfer.effectAllowed = "move";
@@ -390,17 +382,33 @@ export const Matrix: React.FC<MatrixProps> = ({
     e.preventDefault();
     if (rowKey === draggedRowKey) return;
 
-    // Auto-scroll when dragging near edges
+    // Auto-scroll gently when dragging near edges. Keep this deliberately
+    // conservative so long drags do not run away from the user's pointer.
     if (scrollContainerRef.current) {
       const container = scrollContainerRef.current;
       const rect = container.getBoundingClientRect();
-      const scrollSpeed = 15;
-      const threshold = 50;
+      const threshold = 42;
+      const maxSpeed = 6;
 
       if (e.clientY < rect.top + threshold) {
-        container.scrollTop -= scrollSpeed;
+        const distance = Math.max(0, rect.top + threshold - e.clientY);
+        container.scrollTop -= Math.max(1, Math.ceil((distance / threshold) * maxSpeed));
       } else if (e.clientY > rect.bottom - threshold) {
-        container.scrollTop += scrollSpeed;
+        const distance = Math.max(0, e.clientY - (rect.bottom - threshold));
+        container.scrollTop += Math.max(1, Math.ceil((distance / threshold) * maxSpeed));
+      }
+
+      // Horizontal edge auto-scroll for wide grids. The body is overflow-x:hidden,
+      // so route through the companion scrollbar element and scrollLeft state.
+      const hScroll = horizontalScrollRef.current;
+      if (hScroll) {
+        if (e.clientX < rect.left + threshold) {
+          const distance = Math.max(0, rect.left + threshold - e.clientX);
+          setSyncedScrollLeft(hScroll.scrollLeft - Math.max(1, Math.ceil((distance / threshold) * maxSpeed)));
+        } else if (e.clientX > rect.right - threshold) {
+          const distance = Math.max(0, e.clientX - (rect.right - threshold));
+          setSyncedScrollLeft(hScroll.scrollLeft + Math.max(1, Math.ceil((distance / threshold) * maxSpeed)));
+        }
       }
     }
 
@@ -416,8 +424,8 @@ export const Matrix: React.FC<MatrixProps> = ({
     setDropPosition(prev => prev === pos ? prev : pos);
   }, [draggedRowKey]);
 
-  const handleRowDragEnd = useCallback(() => {
-    if (draggedRowKey && dragOverRowKey && dropPosition && draggedRowKey !== dragOverRowKey) {
+  const commitRowDrop = useCallback((targetRowKey: string | null = dragOverRowKey, position: "before" | "after" | "child" | null = dropPosition) => {
+    if (draggedRowKey && targetRowKey && position && draggedRowKey !== targetRowKey) {
       let currentOrder: string[] = JSON.parse(settings.manualData.rowOrder || "[]");
 
       // If rowOrder is empty, populate with all current row keys to establish baseline
@@ -456,6 +464,12 @@ export const Matrix: React.FC<MatrixProps> = ({
       }
 
       const draggedKeySet = new Set(draggedKeysToMove);
+      if (draggedKeySet.has(targetRowKey)) {
+        setDraggedRowKey(null);
+        setDragOverRowKey(null);
+        setDropPosition(null);
+        return;
+      }
       const normalizedDraggedKeys = currentOrder.filter((key: string) => draggedKeySet.has(key));
       for (const key of draggedKeysToMove) {
         if (!normalizedDraggedKeys.includes(key)) {
@@ -463,11 +477,36 @@ export const Matrix: React.FC<MatrixProps> = ({
         }
       }
 
+      const rowParents = (() => {
+        try {
+          const parsed = JSON.parse(settings.manualData.rowParents || "{}");
+          return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? parsed as Record<string, string>
+            : {};
+        } catch {
+          return {} as Record<string, string>;
+        }
+      })();
+      const targetRowObj = rows.find(r => r.key === targetRowKey);
+      if (position === "child") {
+        rowParents[draggedRowKey] = targetRowKey;
+        if (targetRowObj && !targetRowObj.isExpanded) {
+          onToggleRowExpand(targetRowKey);
+        }
+      } else {
+        const siblingParentKey = getManualParentKey(targetRowObj);
+        if (siblingParentKey && siblingParentKey !== "root") {
+          rowParents[draggedRowKey] = siblingParentKey;
+        } else {
+          delete rowParents[draggedRowKey];
+        }
+      }
+
       // Remove dragged row and all its descendants from current order
       currentOrder = currentOrder.filter((k: string) => !draggedKeySet.has(k));
 
       // Find target position in current order
-      const targetIdx = currentOrder.indexOf(dragOverRowKey);
+      const targetIdx = currentOrder.indexOf(targetRowKey);
 
       if (targetIdx === -1) {
         // Target not in order, append dragged rows
@@ -475,12 +514,11 @@ export const Matrix: React.FC<MatrixProps> = ({
       } else {
         // Insert at appropriate position
         let insertIdx: number;
-        if (dropPosition === "before") {
+        if (position === "before") {
           insertIdx = targetIdx;
-        } else if (dropPosition === "after") {
+        } else if (position === "after") {
           // If inserting after, we need to skip past the target's descendants
           insertIdx = targetIdx + 1;
-          const targetRowObj = rows.find(r => r.key === dragOverRowKey);
           if (targetRowObj) {
             const targetLevel = targetRowObj.level;
             for (let i = targetIdx + 1; i < currentOrder.length; i++) {
@@ -500,11 +538,36 @@ export const Matrix: React.FC<MatrixProps> = ({
       }
 
       onPersistProperty("manualData", "rowOrder", JSON.stringify(currentOrder));
+      onPersistProperty("manualData", "rowParents", JSON.stringify(rowParents));
     }
     setDraggedRowKey(null);
     setDragOverRowKey(null);
     setDropPosition(null);
-  }, [draggedRowKey, dragOverRowKey, dropPosition, settings.manualData.rowOrder, onPersistProperty, rows]);
+  }, [draggedRowKey, dragOverRowKey, dropPosition, settings.manualData.rowOrder, settings.manualData.rowParents, onPersistProperty, rows, onToggleRowExpand]);
+
+  const handleRowDrop = useCallback((e: React.DragEvent, rowKey: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    let position = dropPosition;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const relY = e.clientY - rect.top;
+    if (!position) {
+      position = relY < rect.height * 0.3 ? "before" : relY > rect.height * 0.7 ? "after" : "child";
+    }
+    commitRowDrop(rowKey, position);
+    rowDropCommittedRef.current = true;
+  }, [commitRowDrop, dropPosition]);
+
+  const handleRowDragEnd = useCallback(() => {
+    if (rowDropCommittedRef.current) {
+      rowDropCommittedRef.current = false;
+      setDraggedRowKey(null);
+      setDragOverRowKey(null);
+      setDropPosition(null);
+      return;
+    }
+    commitRowDrop();
+  }, [commitRowDrop]);
 
   // Compute row height based on density setting
   const densityRowHeight = useMemo(() => {
@@ -550,13 +613,11 @@ export const Matrix: React.FC<MatrixProps> = ({
     setRowHeaderWidth(settings.general.rowHeaderWidth || 180);
   }, [settings.general.rowHeaderWidth]);
 
-  // Column header height based on merged header rows (hierarchy levels + measure row)
-  // Column header height based on measured content height
-  const columnHeaderHeight = measuredHeaderHeight;
+
 
   const FORMULA_BAR_HEIGHT = 52;
   const HORIZONTAL_SCROLLBAR_HEIGHT = 24;
-  const formulaBarHeight = FORMULA_BAR_HEIGHT;
+  const formulaBarHeight = showFormulaBar ? FORMULA_BAR_HEIGHT : 0;
 
   const minRowHeightPx = useMemo(() => {
     const headerFontPx = Math.max(8, Math.round(settings.headers.fontSize || 0));
@@ -569,187 +630,29 @@ export const Matrix: React.FC<MatrixProps> = ({
   const safeRowHeightPx = Math.max(minRowHeightPx, Math.round(rowHeightPx || 0));
   const safeColumnWidthPx = Math.max(60, Math.round(columnWidthPx || 0));
 
-  const visualColumnRules = useMemo(() => {
-    try {
-      const parsed = JSON.parse(settings.calculations.visualColumns || "[]");
-      return Array.isArray(parsed)
-        ? parsed.filter((rule: VisualColumnDefinition) => rule && rule.enabled !== false)
-        : [];
-    } catch {
-      return [] as VisualColumnDefinition[];
-    }
-  }, [settings.calculations.visualColumns]);
+  const visualColumnRules = useMemo(
+    () => parseVisualColumnRules(settings.calculations.visualColumns),
+    [settings.calculations.visualColumns]
+  );
 
-  const gridColumns: GridColumn[] = useMemo(() => {
-    if (columns.length === 0 || measures.length === 0) return [];
+  const levelAwareConfig = useMemo(
+    () => getLevelAwareConfig(settings),
+    [settings]
+  );
 
-    // Filter columns to only include those that should have a corresponding data cell in the grid.
-    // These are truly leaf columns OR nodes that are collapsed (acting as leaves) OR subtotal nodes.
-    const hiddenSet = new Set(
-      (() => { try { return JSON.parse(settings.manualData.hiddenCols || "[]") as string[]; } catch { return []; } })()
-    );
-    const hiddenColumnPaths = columns
-      .filter(col => hiddenSet.has(col.key))
-      .map(col => (col.path || []).map(value => String(value ?? "")))
-      .filter(path => path.length > 0);
-    const isHiddenColumn = (col: FlattenedNode) => {
-      if (hiddenSet.has(col.key)) return true;
-      const colPath = (col.path || []).map(value => String(value ?? ""));
-      return hiddenColumnPaths.some(hiddenPath =>
-        hiddenPath.length <= colPath.length &&
-        hiddenPath.every((part, index) => colPath[index] === part)
-      );
-    };
+  const gridColumns: GridColumn[] = useMemo(
+    () => buildGridColumns(columns, measures, settings, visualColumnRules, levelAwareConfig),
+    // Only colOrder/hiddenCols are read from settings; the full object is passed for typing.
+    [columns, measures, settings.manualData.colOrder, settings.manualData.hiddenCols, visualColumnRules, levelAwareConfig]
+  );
 
-    const visualLeafs: FlattenedNode[] = [];
-    const seenKeys = new Set<string>(); // Track keys to prevent duplicates
-
-    for (let i = 0; i < columns.length; i++) {
-      const col = columns[i];
-      const nextCol = columns[i + 1];
-      const isLast = i === columns.length - 1;
-      if (isHiddenColumn(col)) continue;
-
-      // It's a leaf for rendering purposes if:
-      // 1. It's a true leaf node (isLeaf=true)
-      // 2. It's a subtotal node (always acts as a leaf in the grid columns)
-      // 3. The next node in the flattened list is not a child of this node (meaning this node is collapsed)
-      if (col.isLeaf || col.isSubtotal || isLast || nextCol.level <= col.level) {
-        // Skip if we've already seen this key (prevents duplicates)
-        if (seenKeys.has(col.key)) {
-          continue;
-        }
-        seenKeys.add(col.key);
-        visualLeafs.push(col);
-      }
-    }
-
-    const firstLeafKey = visualLeafs[0]?.key;
-    const lastLeafKey = visualLeafs[visualLeafs.length - 1]?.key;
-    const yearKey = (col: FlattenedNode) => String(col.path?.[0] ?? col.label ?? "");
-    const quarterKey = (col: FlattenedNode) => {
-      const label = col.path?.map(String).join(" ") || col.label;
-      const explicit = label.match(/q([1-4])/i);
-      if (explicit) return `${yearKey(col)}::Q${explicit[1]}`;
-      const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-      const month = monthNames.findIndex(monthName => String(col.path?.[col.path.length - 1] ?? col.label).toLowerCase().startsWith(monthName));
-      return `${yearKey(col)}::Q${month >= 0 ? Math.floor(month / 3) + 1 : 1}`;
-    };
-    const isYearEnd = (col: FlattenedNode, index: number) => {
-      if (col.isSubtotal || col.isGrandTotal) return true;
-      const next = visualLeafs[index + 1];
-      return !next || yearKey(next) !== yearKey(col);
-    };
-    const isQuarterEnd = (col: FlattenedNode, index: number) => {
-      if (col.isSubtotal || col.isGrandTotal) return true;
-      const next = visualLeafs[index + 1];
-      return !next || quarterKey(next) !== quarterKey(col);
-    };
-    const ruleForMeasure = (measure: MeasureInfo, measureIndex: number) => {
-      return visualColumnRules.find(rule => {
-        if (rule.sourceMeasureIndex === measureIndex) return true;
-        if (rule.sourceMeasureId && rule.sourceMeasureId === measure.id) return true;
-        if (rule.sourceMeasureName && rule.sourceMeasureName.toLowerCase() === measure.name.toLowerCase()) return true;
-        return false;
-      });
-    };
-    const shouldShowMeasureAtColumn = (
-      measure: MeasureInfo,
-      measureIndex: number,
-      col: FlattenedNode,
-      colIndex: number
-    ) => {
-      const rule = ruleForMeasure(measure, measureIndex);
-      if (!rule) return true;
-      if (rule.hierarchyLevel !== undefined && col.level !== rule.hierarchyLevel) return false;
-      if (rule.position === "beginning" && col.key !== firstLeafKey) return false;
-      if (rule.position === "end" && col.key !== lastLeafKey) return false;
-      if (rule.position === "specific" && rule.positionIndex !== undefined && colIndex !== rule.positionIndex) return false;
-
-      switch (rule.frequency || "all") {
-        case "yearly":
-          return isYearEnd(col, colIndex);
-        case "quarterly":
-          return isQuarterEnd(col, colIndex);
-        case "specific":
-          return !!rule.specificColumnKeys?.includes(col.key);
-        case "all":
-        default:
-          return true;
-      }
-    };
-
-    let baseResult: GridColumn[] = [];
-    for (let colIndex = 0; colIndex < visualLeafs.length; colIndex++) {
-      const col = visualLeafs[colIndex];
-      for (let m = 0; m < measures.length; m++) {
-        if (!shouldShowMeasureAtColumn(measures[m], m, col, colIndex)) continue;
-        baseResult.push({
-          key: `${col.key}::m${m}`,
-          col,
-          measure: measures[m],
-          measureIndex: m,
-        });
-      }
-    }
-
-    const colOrder = JSON.parse(settings.manualData.colOrder || "[]");
-    if (colOrder.length > 0) {
-      const sorted: GridColumn[] = [];
-      const used = new Set<string>();
-
-      for (const key of colOrder) {
-        // If the key is a measure key (starts with "m_"), we filter for all columns with this measure.
-        if (key.startsWith("m_")) {
-          const mIdx = parseInt(key.replace("m_", ""), 10);
-          if (!isNaN(mIdx)) {
-            const matches = baseResult.filter(c => c.measureIndex === mIdx);
-            for (const match of matches) {
-              if (!used.has(match.key)) {
-                sorted.push(match);
-                used.add(match.key);
-              }
-            }
-          }
-        } else {
-          // Otherwise, it's a column key. Filter for all measures in this column.
-          const matches = baseResult.filter(c => c.col.key === key);
-          for (const match of matches) {
-            if (!used.has(match.key)) {
-              sorted.push(match);
-              used.add(match.key);
-            }
-          }
-        }
-      }
-
-      // Add remaining columns not in manual order
-      for (const col of baseResult) {
-        if (!used.has(col.key)) {
-          sorted.push(col);
-        }
-      }
-      baseResult = sorted;
-    }
-
-    let finalResult = baseResult;
-    if (hiddenSet.size > 0) {
-      finalResult = finalResult.filter(gc => {
-        const stableMeasureIndex = gc.measure.index ?? gc.measureIndex;
-        // hide by measure key ("m_N"). Check both visible index and stable measure index.
-        if (hiddenSet.has(`m_${gc.measureIndex}`)) return false;
-        if (hiddenSet.has(`m_${stableMeasureIndex}`)) return false;
-        if (hiddenSet.has(`m:${gc.measureIndex}`)) return false;
-        if (hiddenSet.has(`m:${stableMeasureIndex}`)) return false;
-        if (hiddenSet.has(gc.key)) return false;
-        // hide by exact column key or any hidden parent path.
-        if (isHiddenColumn(gc.col)) return false;
-        return true;
-      });
-    }
-
-    return finalResult;
-  }, [columns, measures, settings.manualData.colOrder, settings.manualData.hiddenCols, visualColumnRules]);
+  // Column header height based on merged header rows (hierarchy levels + measure row)
+  const columnHeaderHeight = useMemo(() => {
+    if (measures.length === 0) return 0;
+    const arrangement = ((settings.general as any).columnArrangement ?? "time-then-measure") as ColumnArrangement;
+    const headerRows = buildMergedHeaders(columns, measures, arrangement, sortConfig, gridColumns);
+    return headerRows.length * 28;
+  }, [columns, measures, settings.general, sortConfig, gridColumns]);
 
   const colWidths = useMemo(() => {
     try {
@@ -780,9 +683,13 @@ export const Matrix: React.FC<MatrixProps> = ({
     0,
     height - columnHeaderHeight - formulaBarHeight
   );
+  // Only reserve room for the horizontal scrollbar track when there is
+  // actually horizontal overflow. Reserving it unconditionally wasted a 24px
+  // strip and, combined with the absolutely-positioned shell, caused the
+  // grid body and scrollbar to fight over the same band at the bottom.
   const viewportHeight = Math.max(
     0,
-    rawViewportHeight - HORIZONTAL_SCROLLBAR_HEIGHT
+    rawViewportHeight - (hasHorizontalOverflow ? HORIZONTAL_SCROLLBAR_HEIGHT : 0)
   );
 
   const viewportConfig: ViewportConfig = useMemo(() => ({
@@ -801,6 +708,13 @@ export const Matrix: React.FC<MatrixProps> = ({
   const selectedColumnKeysSet = useMemo(() => new Set(selectedColumnKeysArr || []), [selectedColumnKeysArr]);
   const selectedRowKeysForFormatSet = useMemo(() => new Set(selectedRowKeysForFormatArr || []), [selectedRowKeysForFormatArr]);
   const rowFormats = useMemo(() => parseRowFormats(settings.manualData.rowFormats), [settings.manualData.rowFormats]);
+  const hiddenRowExpandIconSet = useMemo(() => {
+    try {
+      return new Set(JSON.parse(settings.manualData.hiddenRowExpandIcons || "[]") as string[]);
+    } catch {
+      return new Set<string>();
+    }
+  }, [settings.manualData.hiddenRowExpandIcons]);
 
   const handleColumnHeaderClick = useCallback((
     columnKey: string,
@@ -815,7 +729,20 @@ export const Matrix: React.FC<MatrixProps> = ({
     const allSelected = keys.every(key => currentSet.has(key));
     let next: string[];
     
-    if (modifiers.ctrl || modifiers.shift) {
+    if (modifiers.shift && current.length > 0) {
+      const order = gridColumns.map(c => c.key);
+      const anchor = current[current.length - 1];
+      const target = keys[keys.length - 1];
+      const anchorIndex = order.indexOf(anchor);
+      const targetIndex = order.indexOf(target);
+      if (anchorIndex >= 0 && targetIndex >= 0) {
+        const [start, end] = anchorIndex <= targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
+        const rangeKeys = order.slice(start, end + 1);
+        next = modifiers.ctrl ? Array.from(new Set([...current, ...rangeKeys])) : rangeKeys;
+      } else {
+        next = Array.from(new Set([...current, ...keys]));
+      }
+    } else if (modifiers.ctrl) {
       if (allSelected) {
         next = current.filter(key => !keys.includes(key));
       } else {
@@ -831,7 +758,17 @@ export const Matrix: React.FC<MatrixProps> = ({
     }
     
     onColumnSelectionChange?.(next);
-  }, [allowInteractions, selectedColumnKeysArr, onColumnSelectionChange]);
+  }, [allowInteractions, gridColumns, selectedColumnKeysArr, onColumnSelectionChange]);
+
+  const handleColumnReorder = useCallback((dragKey: string, targetKey: string) => {
+    const order = gridColumns.map(c => c.key);
+    const from = order.indexOf(dragKey);
+    const to = order.indexOf(targetKey);
+    if (from < 0 || to < 0 || from === to) return;
+    const [moved] = order.splice(from, 1);
+    order.splice(from < to ? to - 1 : to, 0, moved);
+    onPersistProperty("manualData", "colOrder", JSON.stringify(Array.from(new Set(order))));
+  }, [gridColumns, onPersistProperty]);
 
   const handleRowHeaderClick = useCallback((
     row: FlattenedNode,
@@ -850,7 +787,20 @@ export const Matrix: React.FC<MatrixProps> = ({
     const allSelected = keys.every(key => currentSet.has(key));
     let next: string[];
 
-    if (modifiers.ctrl || modifiers.shift) {
+    if (modifiers.shift && current.length > 0) {
+      const order = rows.map(candidate => candidate.key);
+      const anchor = current[current.length - 1];
+      const target = row.key;
+      const anchorIndex = order.indexOf(anchor);
+      const targetIndex = order.indexOf(target);
+      if (anchorIndex >= 0 && targetIndex >= 0) {
+        const [start, end] = anchorIndex <= targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
+        const rangeKeys = order.slice(start, end + 1);
+        next = modifiers.ctrl ? Array.from(new Set([...current, ...rangeKeys])) : rangeKeys;
+      } else {
+        next = Array.from(new Set([...current, ...keys]));
+      }
+    } else if (modifiers.ctrl) {
       if (allSelected) {
         next = current.filter(key => !keys.includes(key));
       } else {
@@ -866,6 +816,13 @@ export const Matrix: React.FC<MatrixProps> = ({
     
     onRowSelectionForFormatChange?.(next);
   }, [allowInteractions, rows, selectedRowKeysForFormatArr, onRowSelectionForFormatChange]);
+
+  const persistLevelAwareField = useCallback((measureIndex: number, patch: Partial<LevelAwareFieldConfig>) => {
+    const measure = measures[measureIndex];
+    if (!measure) return;
+    const next = upsertFieldConfig(levelAwareConfig, measure, measureIndex, patch);
+    onPersistProperty("calculations", "levelAwareColumns", serializeLevelAwareColumns(next));
+  }, [levelAwareConfig, measures, onPersistProperty]);
 
   const handleContextMenu = useCallback((
     e: React.MouseEvent,
@@ -915,6 +872,13 @@ export const Matrix: React.FC<MatrixProps> = ({
         (selectionManager && row.selectionId)
           ? () => selectionManager.showContextMenu(row.selectionId!, { x, y })
           : undefined
+      );
+      items.push(
+        { id: "cell-level-aware-detail", label: "Convert measure to detail column", action: () => persistLevelAwareField(measureIndex, { displayMode: "detail", rowVisibility: "leaf", columnGroupVisibility: "notRepeated", placement: "beforeDistributed", aggregation: "none" }) },
+        { id: "cell-level-aware-row-level", label: "Show only at this row level", action: () => persistLevelAwareField(measureIndex, { rowVisibility: "selected", selectedRowLevels: [row.level] }) },
+        { id: "cell-level-aware-leaf", label: "Show only on leaf rows", action: () => persistLevelAwareField(measureIndex, { rowVisibility: "leaf" }) },
+        { id: "cell-level-aware-parent", label: "Show only on parent rows", action: () => persistLevelAwareField(measureIndex, { rowVisibility: "parent" }) },
+        { id: "cell-level-aware-distribute", label: "Distribute across column group", action: () => persistLevelAwareField(measureIndex, { displayMode: "distributed", rowVisibility: "all", columnGroupVisibility: "all", placement: "beforeDistributed" }) }
       );
       setContextMenu({ x, y, type: "cell", items });
     } else if (row) {
@@ -989,6 +953,13 @@ export const Matrix: React.FC<MatrixProps> = ({
         JSON.parse(settings.manualData.locks || "[]").includes(row.key),
         !!row.isCalculatedRow,
         () => onHideRow?.(row.key),
+        hiddenRowExpandIconSet.has(row.key),
+        () => {
+          const next = new Set(hiddenRowExpandIconSet);
+          if (next.has(row.key)) next.delete(row.key);
+          else next.add(row.key);
+          onPersistProperty("manualData", "hiddenRowExpandIcons", JSON.stringify(Array.from(next)));
+        },
         () => onEditCalcRow?.(row.key),
         () => onDeleteCalcRow?.(row.key),
         (selectionManager && row.selectionId)
@@ -999,11 +970,9 @@ export const Matrix: React.FC<MatrixProps> = ({
     } else if (colKey !== undefined && measureIndex !== undefined) {
       // Column Header Context Menu
       const clickedColumnKey = `${colKey}::m${measureIndex}`;
-      const selectedStructuralKeys = (selectedColumnKeysArr || []).filter(
-        key => !key.startsWith("m:") && !key.startsWith("m_")
-      );
-      const effectiveColumnKeys = selectedStructuralKeys.length > 0
-        ? selectedStructuralKeys
+      const selectedContextKeys = (selectedColumnKeysArr || []).filter(Boolean);
+      const effectiveColumnKeys = selectedContextKeys.length > 0
+        ? selectedContextKeys
         : [clickedColumnKey];
       const items = buildColumnHeaderMenuItems(
         () => onSetSortDirection?.(colKey, measureIndex, "asc") ?? onSort(colKey, measureIndex),
@@ -1029,26 +998,20 @@ export const Matrix: React.FC<MatrixProps> = ({
         },
         () => {
           // Move Left
-          let colOrder = JSON.parse(settings.manualData.colOrder || "[]");
           const idx = gridColumns.findIndex(c => c.key === clickedColumnKey);
           if (idx > 0) {
-            const target = gridColumns[idx - 1].key;
-            colOrder = colOrder.filter((k: string) => k !== clickedColumnKey);
-            const targetIdx = colOrder.indexOf(target);
-            colOrder.splice(targetIdx === -1 ? 0 : targetIdx, 0, clickedColumnKey);
-            onPersistProperty("manualData", "colOrder", JSON.stringify(colOrder));
+            const nextOrder = gridColumns.map(c => c.key);
+            [nextOrder[idx - 1], nextOrder[idx]] = [nextOrder[idx], nextOrder[idx - 1]];
+            onPersistProperty("manualData", "colOrder", JSON.stringify(Array.from(new Set(nextOrder))));
           }
         },
         () => {
           // Move Right
-          let colOrder = JSON.parse(settings.manualData.colOrder || "[]");
           const idx = gridColumns.findIndex(c => c.key === clickedColumnKey);
           if (idx < gridColumns.length - 1) {
-            const target = gridColumns[idx + 1].key;
-            colOrder = colOrder.filter((k: string) => k !== clickedColumnKey);
-            const targetIdx = colOrder.indexOf(target);
-            colOrder.splice(targetIdx === -1 ? colOrder.length : targetIdx + 1, 0, clickedColumnKey);
-            onPersistProperty("manualData", "colOrder", JSON.stringify(colOrder));
+            const nextOrder = gridColumns.map(c => c.key);
+            [nextOrder[idx], nextOrder[idx + 1]] = [nextOrder[idx + 1], nextOrder[idx]];
+            onPersistProperty("manualData", "colOrder", JSON.stringify(Array.from(new Set(nextOrder))));
           }
         },
         () => onPersistProperty("general", "freezeFirstColumn", !settings.general.freezeFirstColumn),
@@ -1056,17 +1019,57 @@ export const Matrix: React.FC<MatrixProps> = ({
         settings.general.freezeFirstColumn,
         () => onHideColumns?.(effectiveColumnKeys)
       );
+      items.push(
+        { id: "level-aware-detail", label: "Convert to detail column", action: () => persistLevelAwareField(measureIndex, { displayMode: "detail", rowVisibility: "leaf", columnGroupVisibility: "notRepeated", placement: "beforeDistributed", aggregation: "none" }) },
+        { id: "level-aware-row-level", label: "Show only at this row level", action: () => persistLevelAwareField(measureIndex, { rowVisibility: "selected", selectedRowLevels: row ? [row.level] : [0] }) },
+        { id: "level-aware-leaf", label: "Show only on leaf rows", action: () => persistLevelAwareField(measureIndex, { rowVisibility: "leaf" }) },
+        { id: "level-aware-parent", label: "Show only on parent rows", action: () => persistLevelAwareField(measureIndex, { rowVisibility: "parent" }) },
+        { id: "level-aware-distribute", label: "Distribute across column group", action: () => persistLevelAwareField(measureIndex, { displayMode: "distributed", rowVisibility: "all", columnGroupVisibility: "all", placement: "beforeDistributed" }) }
+      );
       setContextMenu({ x, y, type: "columnHeader", items });
     }
-  }, [allowInteractions, cellMap, columns, measures, onToggleRowExpand, onOpenCalcMeasureWizard, onOpenCalcRowWizard, onSort, onPersistProperty, settings.manualData, settings.general, gridColumns, onAddQuickVariance, selectionManager, onExpandAllUnder, onCollapseAllUnder, rows, selectedColumnKeysArr, onHideColumns, onSetSortDirection]);
+  }, [allowInteractions, cellMap, columns, measures, onToggleRowExpand, onOpenCalcMeasureWizard, onOpenCalcRowWizard, onSort, onPersistProperty, settings.manualData, settings.general, gridColumns, onAddQuickVariance, selectionManager, onExpandAllUnder, onCollapseAllUnder, rows, selectedColumnKeysArr, onHideColumns, onSetSortDirection, persistLevelAwareField, hiddenRowExpandIconSet]);
 
   const visibleRange: ViewportRange = useMemo(() => {
     return computeVisibleRangeWithVariableWidths(scrollTop, scrollLeft, viewportConfig, columnWidthMap);
   }, [scrollTop, scrollLeft, viewportConfig, columnWidthMap]);
 
-  const visibleRows = useMemo(() => {
-    return rows.slice(visibleRange.startRow, visibleRange.endRow);
-  }, [rows, visibleRange.startRow, visibleRange.endRow]);
+  const rowBreakExtraHeight = settings.layout.rowBreak === "section"
+    ? safeRowHeightPx
+    : settings.layout.rowBreak === "page"
+      ? safeRowHeightPx * 2
+      : 0;
+
+  const rowTopOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let top = 0;
+    rows.forEach((row, index) => {
+      if (
+        index > 0 &&
+        rowBreakExtraHeight > 0 &&
+        rows[index - 1]?.path?.[0] !== row.path?.[0]
+      ) {
+        top += rowBreakExtraHeight;
+      }
+      offsets[index] = top;
+      top += safeRowHeightPx;
+    });
+    return offsets;
+  }, [rows, rowBreakExtraHeight, safeRowHeightPx]);
+
+  const rowContentHeight = useMemo(() => {
+    if (rows.length === 0) return 0;
+    return (rowTopOffsets[rowTopOffsets.length - 1] ?? 0) + safeRowHeightPx;
+  }, [rowTopOffsets, rows.length, safeRowHeightPx]);
+
+  const visibleRowItems = useMemo(() => {
+    const buffer = safeRowHeightPx * ROW_BUFFER;
+    const start = Math.max(0, scrollTop - buffer);
+    const end = scrollTop + viewportHeight + buffer;
+    return rows
+      .map((row, actualIndex) => ({ row, actualIndex, top: rowTopOffsets[actualIndex] ?? actualIndex * safeRowHeightPx }))
+      .filter(item => item.top + safeRowHeightPx >= start && item.top <= end);
+  }, [rows, rowTopOffsets, safeRowHeightPx, scrollTop, viewportHeight]);
 
   const renderedGridColumns = gridColumns;
   const renderedColumnRange: ViewportRange = useMemo(() => ({
@@ -1108,41 +1111,20 @@ export const Matrix: React.FC<MatrixProps> = ({
       : { min: undefined as number | undefined, max: undefined as number | undefined };
   }, [cellMap, measures.length, rows, settings.sparklines.enabled, settings.sparklines.normalizePerRow, sparklineColumns, sparklineMeasureIndex]);
 
-  const globalStats = useMemo(() => {
-    const stats = new Map<number, { min: number; max: number }>();
-    for (let m = 0; m < measures.length; m++) {
-      stats.set(m, computeGlobalStats(cellMap, m));
-    }
-    return stats;
-  }, [cellMap, measures.length]);
+  const globalStats = useMemo(
+    () => computeAllGlobalStats(cellMap, measures.length),
+    [cellMap, measures.length]
+  );
 
-  const columnStatsCacheRef = useRef<Map<string, { min: number; max: number }[]>>(new Map());
-  const rowStatsCacheRef = useRef<Map<string, { min: number; max: number }[]>>(new Map());
-  const conditionalStyleCacheRef = useRef<Map<string, CellStyle>>(new Map());
-
-  useEffect(() => {
-    columnStatsCacheRef.current.clear();
-    rowStatsCacheRef.current.clear();
-    conditionalStyleCacheRef.current.clear();
-  }, [
-    cellMap,
-    rows,
-    columns,
-    measures.length,
-    settings.conditionalFormatting.enabled,
-    settings.conditionalFormatting.ruleType,
-    settings.conditionalFormatting.lowColor,
-    settings.conditionalFormatting.midColor,
-    settings.conditionalFormatting.highColor,
-    settings.conditionalFormatting.lowThreshold,
-    settings.conditionalFormatting.highThreshold,
-    settings.conditionalFormatting.applyToAllMeasures,
-    settings.conditionalFormatting.targetMeasure,
-    settings.dataBars.normalizeBy,
-  ]);
+  // Stats caches are recreated whenever the data they summarize changes, so the
+  // first render after a change never reads stale min/max values.
+  const statsCaches = useMemo(() => ({
+    columns: new Map<string, { min: number; max: number }[]>(),
+    rows: new Map<string, { min: number; max: number }[]>(),
+  }), [cellMap, rows, columns, measures.length]);
 
   const getColumnStatsCached = useCallback((colKey: string, measureIndex: number): { min: number; max: number } => {
-    const cachedByMeasure = columnStatsCacheRef.current.get(colKey);
+    const cachedByMeasure = statsCaches.columns.get(colKey);
     if (cachedByMeasure && cachedByMeasure.length === measures.length) {
       return cachedByMeasure[measureIndex] ?? { min: 0, max: 0 };
     }
@@ -1167,12 +1149,12 @@ export const Matrix: React.FC<MatrixProps> = ({
       max: maxs[idx] === -Infinity ? 0 : maxs[idx],
     }));
 
-    columnStatsCacheRef.current.set(colKey, statsByMeasure);
+    statsCaches.columns.set(colKey, statsByMeasure);
     return statsByMeasure[measureIndex] ?? { min: 0, max: 0 };
-  }, [rows, cellMap, measures.length]);
+  }, [rows, cellMap, measures.length, statsCaches]);
 
   const getRowStatsCached = useCallback((rowKey: string, measureIndex: number): { min: number; max: number } => {
-    const cachedByMeasure = rowStatsCacheRef.current.get(rowKey);
+    const cachedByMeasure = statsCaches.rows.get(rowKey);
     if (cachedByMeasure && cachedByMeasure.length === measures.length) {
       return cachedByMeasure[measureIndex] ?? { min: 0, max: 0 };
     }
@@ -1196,9 +1178,9 @@ export const Matrix: React.FC<MatrixProps> = ({
       max: maxs[idx] === -Infinity ? 0 : maxs[idx],
     }));
 
-    rowStatsCacheRef.current.set(rowKey, statsByMeasure);
+    statsCaches.rows.set(rowKey, statsByMeasure);
     return statsByMeasure[measureIndex] ?? { min: 0, max: 0 };
-  }, [columns, cellMap, measures.length]);
+  }, [columns, cellMap, measures.length, statsCaches]);
 
   const scrollManagerRef = useRef<ScrollManager | null>(null);
 
@@ -1219,13 +1201,12 @@ export const Matrix: React.FC<MatrixProps> = ({
     const { scrollTop, scrollLeft } = target;
 
     // Update state immediately for perfect alignment during virtualization
-    setScrollTop(scrollTop);
-    setScrollLeft(scrollLeft);
-    if (rowHeadersInnerRef.current) {
-      rowHeadersInnerRef.current.style.transform = `translateY(-${scrollTop}px)`;
-    }
-    if (horizontalScrollRef.current && horizontalScrollRef.current.scrollLeft !== scrollLeft) {
-      horizontalScrollRef.current.scrollLeft = scrollLeft;
+    const roundedTop = Math.round(scrollTop);
+    const roundedLeft = Math.round(scrollLeft);
+    setScrollTop(roundedTop);
+    setScrollLeft(roundedLeft);
+    if (horizontalScrollRef.current && horizontalScrollRef.current.scrollLeft !== roundedLeft) {
+      horizontalScrollRef.current.scrollLeft = roundedLeft;
     }
 
     scrollManagerRef.current?.handleScroll(scrollTop, scrollLeft);
@@ -1255,14 +1236,15 @@ export const Matrix: React.FC<MatrixProps> = ({
 
   const handleMatrixWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     if (!hasHorizontalOverflow) return;
-    const container = scrollContainerRef.current;
-    if (!container) return;
 
     const horizontalDelta = e.deltaX !== 0 ? e.deltaX : (e.shiftKey ? e.deltaY : 0);
     if (horizontalDelta === 0) return;
 
-    container.scrollLeft += horizontalDelta;
-    setSyncedScrollLeft(container.scrollLeft);
+    // The body area is overflow-x:hidden — horizontal position lives in the
+    // companion scrollbar element / scrollLeft state, so drive it from there
+    // rather than the body's (pinned) scrollLeft.
+    const base = horizontalScrollRef.current?.scrollLeft ?? scrollContainerRef.current?.scrollLeft ?? 0;
+    setSyncedScrollLeft(base + horizontalDelta);
     e.preventDefault();
   }, [hasHorizontalOverflow, setSyncedScrollLeft]);
 
@@ -1271,6 +1253,12 @@ export const Matrix: React.FC<MatrixProps> = ({
     if (!container) return;
 
     const target = e.target as HTMLElement | null;
+    if (e.key === "Escape" && activeCell) {
+      e.preventDefault();
+      handleCancelEdit();
+      return;
+    }
+
     if (
       target &&
       target !== container &&
@@ -1280,13 +1268,16 @@ export const Matrix: React.FC<MatrixProps> = ({
     }
 
     const pageHeight = Math.max(safeRowHeightPx, container.clientHeight - safeRowHeightPx);
+    // Horizontal position lives in scrollLeft state / the companion scrollbar,
+    // not the (overflow-x:hidden) body — drive it through setSyncedScrollLeft.
+    const baseLeft = horizontalScrollRef.current?.scrollLeft ?? scrollLeft;
 
     switch (e.key) {
       case "ArrowLeft":
-        container.scrollBy({ left: -safeColumnWidthPx });
+        setSyncedScrollLeft(baseLeft - safeColumnWidthPx);
         break;
       case "ArrowRight":
-        container.scrollBy({ left: safeColumnWidthPx });
+        setSyncedScrollLeft(baseLeft + safeColumnWidthPx);
         break;
       case "ArrowUp":
         container.scrollBy({ top: -safeRowHeightPx });
@@ -1302,30 +1293,76 @@ export const Matrix: React.FC<MatrixProps> = ({
         break;
       case "Home":
         if (e.ctrlKey || e.metaKey) {
-          container.scrollTo({ top: 0, left: 0 });
-        } else {
-          container.scrollTo({ left: 0, top: container.scrollTop });
+          container.scrollTo({ top: 0 });
         }
+        setSyncedScrollLeft(0);
         break;
       case "End":
         if (e.ctrlKey || e.metaKey) {
-          container.scrollTo({
-            top: container.scrollHeight,
-            left: container.scrollWidth,
-          });
-        } else {
-          container.scrollTo({
-            left: container.scrollWidth,
-            top: container.scrollTop,
-          });
+          container.scrollTo({ top: container.scrollHeight });
         }
+        setSyncedScrollLeft(totalContentWidth);
         break;
       default:
         return;
     }
 
     e.preventDefault();
-  }, [safeColumnWidthPx, safeRowHeightPx]);
+  }, [activeCell, handleCancelEdit, safeColumnWidthPx, safeRowHeightPx, scrollLeft, setSyncedScrollLeft, totalContentWidth]);
+
+  // ── Find (Ctrl+F) ─────────────────────────────────────────────────────────
+  const [findOpen, setFindOpen] = useState(false);
+  const [findMatch, setFindMatch] = useState<SearchResult | null>(null);
+  const openFind = useCallback(() => setFindOpen(true), []);
+  useSearchShortcut(openFind, rows.length > 0);
+
+  // Open only when the request changes after mount, so a remount with a
+  // stale counter does not pop the panel open.
+  const lastFindRequestRef = useRef(findRequest);
+  useEffect(() => {
+    if (findRequest === lastFindRequestRef.current) return;
+    lastFindRequestRef.current = findRequest;
+    setFindOpen(true);
+  }, [findRequest]);
+
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    setFindMatch(null);
+    scrollContainerRef.current?.focus();
+  }, []);
+
+  // Search sees exactly the text the grid renders, so matches reflect what is on screen.
+  const searchTarget = useMemo(
+    () => createGridSearchTarget(rows, gridColumns, cellMap, settings, labelOverrides),
+    [rows, gridColumns, cellMap, settings, labelOverrides]
+  );
+
+  const handleFindNavigate = useCallback((result: SearchResult | null) => {
+    setFindMatch(result);
+    if (!result) return;
+
+    // Vertical: bring the row into view through the virtualized body scroll
+    // (handleScroll picks up the new scrollTop and re-renders the window).
+    const container = scrollContainerRef.current;
+    if (container) {
+      const top = rowTopOffsets[result.rowIndex] ?? result.rowIndex * safeRowHeightPx;
+      const viewTop = container.scrollTop;
+      const viewHeight = container.clientHeight || viewportHeight;
+      if (top < viewTop || top + safeRowHeightPx > viewTop + viewHeight) {
+        container.scrollTop = Math.max(0, top - Math.max(0, (viewHeight - safeRowHeightPx) / 2));
+      }
+    }
+
+    // Horizontal: centre the matched column when it is off screen.
+    if (result.gridColIndex >= 0) {
+      const left = getColumnOffsetWithVariableWidths(columnWidthMap, result.gridColIndex);
+      const colWidth = getColumnWidth(columnWidthMap, result.gridColIndex);
+      const viewLeft = horizontalScrollRef.current?.scrollLeft ?? scrollLeft;
+      if (left < viewLeft || left + colWidth > viewLeft + viewportWidth) {
+        setSyncedScrollLeft(left - Math.max(0, (viewportWidth - colWidth) / 2));
+      }
+    }
+  }, [columnWidthMap, rowTopOffsets, safeRowHeightPx, scrollLeft, setSyncedScrollLeft, viewportHeight, viewportWidth]);
 
   const handleMatrixPointerDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement | null;
@@ -1349,12 +1386,23 @@ export const Matrix: React.FC<MatrixProps> = ({
   const handleBackgroundClick = useCallback((e: React.MouseEvent) => {
     if (!allowInteractions) return;
     if (e.target === e.currentTarget) {
+      setActiveCell(null);
+      setFormulaBarEditMode(false);
       onClearSelection();
     }
   }, [onClearSelection, allowInteractions]);
 
+  const handleContainerScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (e.currentTarget.scrollTop !== 0) {
+      e.currentTarget.scrollTop = 0;
+    }
+    if (e.currentTarget.scrollLeft !== 0) {
+      e.currentTarget.scrollLeft = 0;
+    }
+  }, []);
+
   const SCROLL_BUFFER_BOTTOM = 40; // Extra room to scroll past the last row
-  const totalContentHeight = (rows.length * safeRowHeightPx) + SCROLL_BUFFER_BOTTOM;
+  const totalContentHeight = rowContentHeight + SCROLL_BUFFER_BOTTOM;
   const hasVScroll = totalContentHeight > viewportHeight;
   const hasHScroll = totalContentWidth > viewportWidth;
 
@@ -1452,47 +1500,19 @@ export const Matrix: React.FC<MatrixProps> = ({
     return getColumnStatsCached(colKey, measureIndex);
   }, [settings.dataBars.normalizeBy, globalStats, getRowStatsCached, getColumnStatsCached]);
 
-  const getCellStyle = useCallback((rowKey: string, colKey: string, measureIndex: number, value: number | null) => {
-    if (!settings.conditionalFormatting.enabled) {
-      return {};
-    }
-
-    const styleKey = `${rowKey}::${colKey}::m${measureIndex}`;
-    const cached = conditionalStyleCacheRef.current.get(styleKey);
-    if (cached) return cached;
-
-    // Locate the row so the rule engine can honor "values only / totals only" scope.
-    const rowNode = rows.find(r => r.key === rowKey);
-    const isSubtotal = !!rowNode?.isSubtotal;
-    const isGrandTotal = !!rowNode?.isGrandTotal;
-    const colNode = columns.find(c => c.key === colKey);
-    const isColumnGrandTotal = !!colNode?.isGrandTotal;
-
-    const ctx: EvaluationContext = {
-      value,
-      measureIndex,
-      isSubtotal,
-      isGrandTotal,
-      isColumnGrandTotal,
-      getStatsForMeasure: (m, scope) => {
-        if (scope === "tableWise") {
-          return globalStats.get(m) || { min: 0, max: 0 };
-        }
-        if (scope === "rowWise") {
-          return getRowStatsCached(rowKey, m);
-        }
-        return getColumnStatsCached(colKey, m);
-      },
-      getValueForMeasure: (m) => {
-        const c = getCellValue(cellMap, rowKey, colKey, m);
-        return c?.value ?? null;
-      },
-    };
-
-    const style = evaluateCellStyle(ctx, settings.conditionalFormatting);
-    conditionalStyleCacheRef.current.set(styleKey, style);
-    return style;
-  }, [settings.conditionalFormatting, getColumnStatsCached, getRowStatsCached, globalStats, rows, columns, cellMap]);
+  // A new evaluator (with empty caches) is created whenever any conditional
+  // formatting setting or the data changes, so edited rules apply immediately.
+  const getCellStyle = useMemo(
+    () => createCellStyleEvaluator({
+      rows,
+      columns,
+      cellMap,
+      measureCount: measures.length,
+      conditionalFormatting: settings.conditionalFormatting,
+      globalStats,
+    }),
+    [rows, columns, cellMap, measures.length, settings.conditionalFormatting, globalStats]
+  );
 
 
   const handleApplyBulkOperation = useCallback((
@@ -1632,67 +1652,101 @@ export const Matrix: React.FC<MatrixProps> = ({
     };
   }, [settings.appearance, toAlphaColor]);
 
-  const surfaceAlpha = Math.max(0.35, Math.min(0.98, (settings.appearance.surfaceOpacity ?? 92) / 100));
+  const surfaceAlpha = Math.max(0, Math.min(1, (settings.appearance.surfaceOpacity ?? 92) / 100));
   const shellBackground = settings.appearance.glassmorphism
-    ? toAlphaColor(settings.appearance.surfaceColor, Math.max(0.18, surfaceAlpha - 0.34), "rgba(255,255,255,0.18)")
+    ? toAlphaColor(settings.appearance.surfaceColor, Math.max(0.08, surfaceAlpha - 0.34), "rgba(255,255,255,0.12)")
     : toAlphaColor(settings.appearance.surfaceColor, surfaceAlpha, settings.appearance.surfaceColor);
   const shellStrongBackground = settings.appearance.glassmorphism
-    ? toAlphaColor(settings.appearance.surfaceColor, Math.max(0.24, surfaceAlpha - 0.22), "rgba(255,255,255,0.24)")
+    ? toAlphaColor(settings.appearance.surfaceColor, Math.max(0.12, surfaceAlpha - 0.2), "rgba(255,255,255,0.16)")
     : toAlphaColor(settings.appearance.surfaceColor, Math.min(1, surfaceAlpha + 0.04), settings.appearance.surfaceColor);
+  const gridCellBackground = surfaceAlpha < 0.98
+    ? "transparent"
+    : toAlphaColor(settings.appearance.surfaceColor, 0.86, settings.appearance.surfaceColor);
+  const rowBandBackground = surfaceAlpha < 0.98
+    ? toAlphaColor(settings.appearance.surfaceColor, Math.min(0.18, surfaceAlpha * 0.28), "transparent")
+    : "var(--mx-surface-subtle)";
+  const structuralStyleVars = useMemo(() => ({
+    "--mx-gt-bg": settings.totals.grandTotalBackgroundColor,
+    "--mx-gt-fg": settings.totals.grandTotalTextColor,
+    "--mx-gt-fw": settings.totals.grandTotalBold ? 700 : 400,
+    "--mx-st-bg": settings.totals.subtotalBackgroundColor,
+    "--mx-st-fg": settings.totals.subtotalTextColor,
+    "--mx-st-fw": settings.totals.subtotalBold ? 700 : 400,
+    "--mx-row-parent-fw": settings.headers.rowHeaderParentBold ? 700 : 400,
+    "--mx-row-parent-color": settings.headers.rowHeaderParentColor,
+    "--mx-row-child-color": settings.headers.rowHeaderChildColor,
+    "--mx-col-l0-color": settings.headers.colHeaderLevel0Color,
+    "--mx-col-l1-color": settings.headers.colHeaderLevel1Color,
+    "--mx-col-leaf-color": settings.headers.colHeaderLeafColor,
+    "--mx-header-bg": settings.headers.backgroundColor,
+    "--mx-header-fg": settings.headers.textColor,
+    "--mx-cell-bg": gridCellBackground,
+    "--mx-row-odd": rowBandBackground,
+    "--mx-row-header-bg": shellStrongBackground,
+  } as React.CSSProperties), [gridCellBackground, rowBandBackground, shellStrongBackground, settings.headers, settings.totals]);
 
   return (
-    <div className={`matrix-container ${formulaBarEditMode ? "formula-edit-mode" : ""} ${(settings.appearance as any).glassmorphism ? "is-glassmorphic" : ""}`} style={{ height, ...designStyles }} onClick={handleBackgroundClick}>
+    <div className={`matrix-container ${formulaBarEditMode ? "formula-edit-mode" : ""} ${(settings.appearance as any).glassmorphism ? "is-glassmorphic" : ""}`} style={{ height, ...designStyles, ...structuralStyleVars }} onClick={handleBackgroundClick} onScroll={handleContainerScroll}>
       <div style={{ position: "absolute", inset: 0, ...glassEffect, pointerEvents: "none", zIndex: 0 }} />
-      <div
-        className="matrix-formula-shell"
-        style={{ minHeight: FORMULA_BAR_HEIGHT, height: FORMULA_BAR_HEIGHT, position: "relative", zIndex: 1, background: shellStrongBackground }}
-      >
-        <FormulaBar
-          ref={formulaBarRef}
-          value={activeCell?.value || ""}
-          activeCellLabel={activeCell?.label || ""}
-          onCommit={handleCommitEdit}
-          onCancel={handleCancelEdit}
-          context={intelliSenseContextObj}
-          onEditModeChange={setFormulaBarEditMode}
-          onInsertReference={() => { }}
-          onUndo={handleUndo}
-          onRedo={handleRedo}
-          canUndo={canUndo}
-          canRedo={canRedo}
-        />
-      </div>
+      {showFormulaBar && (
+        <div
+          className="matrix-formula-shell"
+          style={{ minHeight: FORMULA_BAR_HEIGHT, height: FORMULA_BAR_HEIGHT, flexShrink: 0, position: "relative", zIndex: 3, background: shellStrongBackground, display: "flex", visibility: "visible", opacity: 1 }}
+        >
+          <FormulaBar
+            ref={formulaBarRef}
+            value={activeCell?.value || ""}
+            activeCellLabel={activeCell?.label || ""}
+            onCommit={handleCommitEdit}
+            onCancel={handleCancelEdit}
+            context={intelliSenseContextObj}
+            onEditModeChange={setFormulaBarEditMode}
+            onInsertReference={() => { }}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            canUndo={canUndo}
+            canRedo={canRedo}
+          />
+        </div>
+      )}
       <div className="matrix-header-area" style={{ height: columnHeaderHeight, position: "relative", zIndex: 1, background: shellStrongBackground }}>
         <div
           className="matrix-col-headers"
           style={{ height: columnHeaderHeight }}
         >
-          <div ref={contentRef}> {/* Observed content wrapper */}
             <MergedColumnHeaders
-        columns={columns}
-        measures={measures}
-        arrangement={((settings.general as any).columnArrangement ?? "time-then-measure") as ColumnArrangement}
-        sortConfig={sortConfig}
-        onSort={onSort}
-        onContextMenu={(e, c, m) => handleContextMenu(e, undefined, c, m)}
-        allowInteractions={allowInteractions}
-        rowHeaderWidth={rowHeaderWidth}
-        columnWidth={safeColumnWidthPx}
-        scrollLeft={scrollLeft}
-        totalContentWidth={totalContentWidth}
-        selectedColumnKeys={selectedColumnKeysSet}
-        onColumnHeaderClick={handleColumnHeaderClick}
-        onStartResize={startColumnResize}
-        onStartRowHeaderResize={startRowHeaderWidthResize}
-        colFormats={parseColFormats(settings.manualData.colFormats)}
-        colWidths={colWidths}
-        gridColumns={gridColumns}
-        settings={settings}
-        labelOverrides={labelOverrides}
-      />
-          </div>
+              columns={columns}
+              measures={measures}
+              arrangement={((settings.general as any).columnArrangement ?? "time-then-measure") as ColumnArrangement}
+              sortConfig={sortConfig}
+              onSort={onSort}
+              onContextMenu={(e, c, m) => handleContextMenu(e, undefined, c, m)}
+              onColumnReorder={handleColumnReorder}
+              allowInteractions={allowInteractions}
+              rowHeaderWidth={rowHeaderWidth}
+              columnWidth={safeColumnWidthPx}
+              scrollLeft={scrollLeft}
+              totalContentWidth={totalContentWidth}
+              selectedColumnKeys={selectedColumnKeysSet}
+              onColumnHeaderClick={handleColumnHeaderClick}
+              onStartResize={startColumnResize}
+              onStartRowHeaderResize={startRowHeaderWidthResize}
+              colFormats={parseColFormats(settings.manualData.colFormats)}
+              colWidths={colWidths}
+              gridColumns={gridColumns}
+              settings={settings}
+              labelOverrides={labelOverrides}
+              columnLevelNames={columnLevelNames}
+            />
         </div>
       </div>
+
+      <MatrixSearch
+        isOpen={findOpen}
+        onClose={closeFind}
+        target={searchTarget}
+        onNavigateToResult={handleFindNavigate}
+      />
 
       {contextMenu && (
         <ContextMenu
@@ -1721,28 +1775,28 @@ export const Matrix: React.FC<MatrixProps> = ({
           ref={rowHeadersRef}
           style={{
             width: rowHeaderWidth,
-            height: viewportHeight,
+            height: totalContentHeight,
             zIndex: 80,
             opacity: 1,
             background: shellStrongBackground,
             backdropFilter: settings.appearance.glassmorphism ? `blur(${Math.max(6, settings.appearance.backgroundBlur || 0)}px)` : undefined,
+            top: "auto",
           }}
         >
           <div
             className="matrix-row-headers-inner"
             ref={rowHeadersInnerRef}
-            style={{ height: totalContentHeight, transform: `translateY(-${scrollTop}px)`, willChange: "transform" }}
+            style={{ height: totalContentHeight }}
           >
-            {visibleRows.map((row, idx) => {
-              const actualIndex = visibleRange.startRow + idx;
+            {visibleRowItems.map(({ row, actualIndex, top }) => {
               const isSelected = selectedRowKeys.has(row.key);
               const prevRow = actualIndex > 0 ? rows[actualIndex - 1] : undefined;
-              const rowFormat = rowFormats[row.key];
+              const rowFormat = rowFormats[row.key] || (row.calcRowDefId ? rowFormats[`__calcrow__${row.calcRowDefId}`] || rowFormats[row.calcRowDefId] : undefined);
               const breakStyle = prevRow && prevRow.path?.[0] !== row.path?.[0]
                 ? settings.layout.rowBreak === "section"
-                  ? "3px double var(--mx-border, #cbd5e1)"
+                  ? "8px solid var(--mx-canvas-bg, transparent)"
                   : settings.layout.rowBreak === "page"
-                    ? "2px solid var(--mx-border, #cbd5e1)"
+                    ? "12px solid var(--mx-canvas-bg, transparent)"
                     : undefined
                 : undefined;
 
@@ -1781,8 +1835,9 @@ export const Matrix: React.FC<MatrixProps> = ({
                     ...(rowFormat?.italic !== undefined ? { fontStyle: rowFormat.italic ? "italic" : "normal" } : {}),
                     ...(rowFormat?.underline !== undefined ? { textDecoration: rowFormat.underline ? "underline" : "none" } : {}),
                     ...(breakStyle ? { borderTop: breakStyle } : {}),
+                    ...(breakStyle ? { boxSizing: "border-box" } : {}),
                     position: "absolute",
-                    top: actualIndex * safeRowHeightPx,
+                    top,
                     height: safeRowHeightPx,
                     width: rowHeaderWidth,
                   }}
@@ -1804,12 +1859,15 @@ export const Matrix: React.FC<MatrixProps> = ({
                   onContextMenu={(e, r) => handleContextMenu(e, r)}
                   onDragStart={handleRowDragStart}
                   onDragOver={handleRowDragOver}
+                  onDrop={handleRowDrop}
                   onDragEnd={handleRowDragEnd}
                   isDragOver={dragOverRowKey === row.key}
                   dropPosition={dragOverRowKey === row.key ? dropPosition : null}
                   sparklineGlobalMin={sparklineScale.min}
                   sparklineGlobalMax={sparklineScale.max}
                   labelOverrides={labelOverrides}
+                  hideExpandIcon={hiddenRowExpandIconSet.has(row.key)}
+                  isFindMatch={!!findMatch && findMatch.type === "label" && findMatch.rowKey === row.key}
                 />
               );
             })}
@@ -1828,8 +1886,7 @@ export const Matrix: React.FC<MatrixProps> = ({
               position: "relative",
             }}
           >
-            {visibleRows.map((row, idx) => {
-              const actualIndex = visibleRange.startRow + idx;
+            {visibleRowItems.map(({ row, actualIndex, top }) => {
               const prevRowKey = actualIndex > 0 ? rows[actualIndex - 1]?.key ?? null : null;
               const isSelected = selectedRowKeys.has(row.key);
               const showRowBreak = actualIndex > 0
@@ -1841,6 +1898,7 @@ export const Matrix: React.FC<MatrixProps> = ({
                   key={row.key}
                   row={row}
                   rowIndex={actualIndex}
+                  topOffset={top}
                   prevRowKey={prevRowKey}
                   visibleColumns={renderedGridColumns}
                   visibleRange={renderedColumnRange}
@@ -1848,6 +1906,7 @@ export const Matrix: React.FC<MatrixProps> = ({
                   measures={measures}
                   settings={settings}
                   isSelected={isSelected}
+                  isFormatSelected={selectedRowKeysForFormatSet.has(row.key)}
                   showRowBreak={showRowBreak}
                   sparklineMeasureIndex={sparklineMeasureIndex}
                   rowHeight={safeRowHeightPx}
@@ -1860,6 +1919,7 @@ export const Matrix: React.FC<MatrixProps> = ({
                   onContextMenu={(e, r, c, m) => handleContextMenu(e, r, c, m)}
                   onCellClick={(c, m, ci) => handleCellSelect(row, c, m, actualIndex, ci)}
                   activeCell={activeCell}
+                  findMatch={findMatch && findMatch.type === "value" && findMatch.rowKey === row.key ? findMatch : null}
                   selectedColumnKeys={selectedColumnKeysSet}
                   columnWidthMap={columnWidthMap}
                 />
@@ -1869,27 +1929,29 @@ export const Matrix: React.FC<MatrixProps> = ({
         </div>
       </div>
 
-      <div
-        className={`matrix-horizontal-scrollbar-shell ${hasHScroll ? "is-active" : "is-idle"}`}
-        style={{ height: HORIZONTAL_SCROLLBAR_HEIGHT }}
-        aria-hidden="true"
-      >
+      {hasHScroll && (
         <div
-          className="matrix-horizontal-scrollbar-spacer"
-          style={{ width: rowHeaderWidth }}
-        />
-        <div
-          ref={horizontalScrollRef}
-          className="matrix-horizontal-scrollbar"
-          style={{ width: viewportWidth, height: 18 }}
-          onScroll={handleHorizontalScroll}
+          className="matrix-horizontal-scrollbar-shell is-active"
+          style={{ height: HORIZONTAL_SCROLLBAR_HEIGHT }}
+          aria-hidden="true"
         >
           <div
-            className="matrix-horizontal-scrollbar-content"
-            style={{ width: Math.max(totalContentWidth, viewportWidth), height: 1 }}
+            className="matrix-horizontal-scrollbar-spacer"
+            style={{ width: rowHeaderWidth }}
           />
+          <div
+            ref={horizontalScrollRef}
+            className="matrix-horizontal-scrollbar"
+            style={{ width: viewportWidth, height: HORIZONTAL_SCROLLBAR_HEIGHT }}
+            onScroll={handleHorizontalScroll}
+          >
+            <div
+              className="matrix-horizontal-scrollbar-content"
+              style={{ width: Math.max(totalContentWidth, viewportWidth), height: 1 }}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {bulkOperationsOpen && (
         <BulkOperationsPanel

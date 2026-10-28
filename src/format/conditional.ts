@@ -21,13 +21,76 @@ export interface CellStyle {
   dataBarPct?: number;
   /** Data bar color from CF rule */
   dataBarColor?: string;
+  /** Hide the numeric/text value while leaving icon/fill/border visible */
+  hideText?: boolean;
+  borderColor?: string;
+  borderStyle?: "none" | "solid" | "dashed" | "dotted" | "double";
+  borderWidth?: number;
 }
 
 export type ClassificationIcon =
-  | { kind: "check"; color: string }
-  | { kind: "warn"; color: string }
-  | { kind: "cross"; color: string }
+  | { kind: ClassificationIconKind; color: string }
+  | { kind: "custom"; src: string; color?: string; name?: string }
   | { kind: "text"; label: string; color: string };
+
+export type ClassificationIconKind =
+  | "check"
+  | "warn"
+  | "cross"
+  | "up"
+  | "down"
+  | "flat"
+  | "upRight"
+  | "downRight"
+  | "profit"
+  | "loss"
+  | "target"
+  | "flag"
+  | "risk"
+  | "cash"
+  | "debt"
+  | "margin"
+  | "variance"
+  | "forecast"
+  | "budget"
+  | "chevronLeft"
+  | "chevronRight"
+  | "triangleUp"
+  | "triangleDown"
+  | "caretUp"
+  | "caretDown"
+  | "doubleUp"
+  | "doubleDown"
+  | "flagOutline"
+  | "flagFilled"
+  | "outlineSquare"
+  | "filledSquare"
+  | "quarterCircle"
+  | "halfCircle"
+  | "pie"
+  | "emptyCircle"
+  | "quarterFilledCircle"
+  | "halfFilledCircle"
+  | "threeQuarterCircle"
+  | "filledCircle"
+  | "diamond"
+  | "heart"
+  | "bulb"
+  | "info"
+  | "bold"
+  | "underline"
+  | "italic"
+  | "checkCircle"
+  | "crossCircle"
+  | "starOutline"
+  | "starHalf"
+  | "starFilled";
+
+export interface ClassificationIconSet {
+  id: string;
+  name: string;
+  icons: ClassificationIconKind[];
+}
 
 /**
  * A rule's scope controls which cells it applies to. It mirrors the Inforiver
@@ -39,6 +102,10 @@ export interface RuleScope {
    * Measure index the rule targets. -1 means "all measures".
    */
   targetMeasure: number;
+  /**
+   * Multiple target measures. When omitted, targetMeasure is used.
+   */
+  targetMeasures?: number[];
   /**
    * Which row categories the rule should touch.
    */
@@ -117,7 +184,8 @@ export type ClassificationRangeMode = "value" | "percentage";
 export interface ClassificationRange {
   from: number;
   to: number;
-  iconKind: "check" | "warn" | "cross";
+  iconKind: ClassificationIconKind;
+  icon?: ClassificationIcon;
   color: string;
 }
 
@@ -125,12 +193,86 @@ export interface ClassificationConfig {
   impactOn: ("label" | "chart")[];
   basedOnMeasure: number;
   displayIcons: boolean;
+  showValueText?: boolean;
+  iconSet?: string;
   applyToCharts: boolean;
   showAsNewColumn: boolean;
   iconPosition: "leftOfData" | "rightOfData";
   rangeMode: ClassificationRangeMode;
   ranges: ClassificationRange[];
 }
+
+export const CLASSIFICATION_ICON_SETS: ClassificationIconSet[] = [
+  { id: "variance-arrows", name: "Variance arrows", icons: ["down", "flat", "up"] },
+  { id: "trend-arrows", name: "Trend arrows", icons: ["downRight", "flat", "upRight"] },
+  { id: "profit-loss", name: "Profit / loss", icons: ["loss", "flat", "profit"] },
+  { id: "target-status", name: "Target status", icons: ["cross", "warn", "check"] },
+  { id: "budget-control", name: "Budget control", icons: ["cross", "warn", "budget"] },
+  { id: "cash-flow", name: "Cash flow", icons: ["debt", "flat", "cash"] },
+  { id: "risk-rating", name: "Risk rating", icons: ["risk", "warn", "check"] },
+  { id: "margin-health", name: "Margin health", icons: ["loss", "warn", "margin"] },
+  { id: "forecast-confidence", name: "Forecast confidence", icons: ["cross", "warn", "forecast"] },
+  { id: "revenue-growth", name: "Revenue growth", icons: ["downRight", "flat", "upRight"] },
+  { id: "expense-control", name: "Expense control", icons: ["up", "flat", "down"] },
+  { id: "working-capital", name: "Working capital", icons: ["debt", "warn", "cash"] },
+  { id: "audit-status", name: "Audit status", icons: ["cross", "flag", "check"] },
+  { id: "liquidity", name: "Liquidity", icons: ["risk", "flat", "cash"] },
+  { id: "covenant", name: "Covenant compliance", icons: ["risk", "warn", "check"] },
+];
+
+export const CLASSIFICATION_ICON_OPTIONS: { kind: ClassificationIconKind; label: string }[] = [
+  { kind: "check", label: "Check" },
+  { kind: "warn", label: "Warning" },
+  { kind: "cross", label: "Cross" },
+  { kind: "up", label: "Up arrow" },
+  { kind: "down", label: "Down arrow" },
+  { kind: "flat", label: "Flat" },
+  { kind: "upRight", label: "Up-right trend" },
+  { kind: "downRight", label: "Down-right trend" },
+  { kind: "profit", label: "Profit" },
+  { kind: "loss", label: "Loss" },
+  { kind: "target", label: "Target" },
+  { kind: "flag", label: "Flag" },
+  { kind: "risk", label: "Risk" },
+  { kind: "cash", label: "Cash" },
+  { kind: "debt", label: "Debt" },
+  { kind: "margin", label: "Margin" },
+  { kind: "variance", label: "Variance" },
+  { kind: "forecast", label: "Forecast" },
+  { kind: "budget", label: "Budget" },
+  { kind: "chevronLeft", label: "Chevron left" },
+  { kind: "chevronRight", label: "Chevron right" },
+  { kind: "triangleUp", label: "Triangle up" },
+  { kind: "triangleDown", label: "Triangle down" },
+  { kind: "caretUp", label: "Caret up" },
+  { kind: "caretDown", label: "Caret down" },
+  { kind: "doubleUp", label: "Double up" },
+  { kind: "doubleDown", label: "Double down" },
+  { kind: "flagOutline", label: "Flag outline" },
+  { kind: "flagFilled", label: "Flag filled" },
+  { kind: "outlineSquare", label: "Outline square" },
+  { kind: "filledSquare", label: "Filled square" },
+  { kind: "quarterCircle", label: "Quarter circle" },
+  { kind: "halfCircle", label: "Half circle" },
+  { kind: "pie", label: "Pie" },
+  { kind: "emptyCircle", label: "Empty circle" },
+  { kind: "quarterFilledCircle", label: "Quarter-filled circle" },
+  { kind: "halfFilledCircle", label: "Half-filled circle" },
+  { kind: "threeQuarterCircle", label: "Three-quarter circle" },
+  { kind: "filledCircle", label: "Filled circle" },
+  { kind: "diamond", label: "Diamond" },
+  { kind: "heart", label: "Heart" },
+  { kind: "bulb", label: "Bulb" },
+  { kind: "info", label: "Info" },
+  { kind: "bold", label: "Bold" },
+  { kind: "underline", label: "Underline" },
+  { kind: "italic", label: "Italic" },
+  { kind: "checkCircle", label: "Check circle" },
+  { kind: "crossCircle", label: "Cross circle" },
+  { kind: "starOutline", label: "Star outline" },
+  { kind: "starHalf", label: "Half star" },
+  { kind: "starFilled", label: "Filled star" },
+];
 
 // --- Format-by: Data Bars ----------------------------------------------------
 
@@ -179,10 +321,272 @@ export function parseRules(settings: ConditionalFormattingSettings): Conditional
   try {
     const parsed = JSON.parse(settings.rules || "[]");
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((r): r is ConditionalRule => !!r && typeof r === "object" && typeof r.id === "string");
+    return parsed
+      .filter((r): r is ConditionalRule => !!r && typeof r === "object" && typeof r.id === "string")
+      .map(normalizeRule);
   } catch {
     return [];
   }
+}
+
+const VALID_FORMAT_BY: FormatBy[] = ["rules", "colorScale", "classification", "dataBars", "ranking"];
+const VALID_TARGET_TYPES: RuleScope["targetType"][] = ["rows", "columns", "rowHeaders", "columnHeaders"];
+const VALID_ROW_LEVELS: RuleScope["rowHierarchyLevels"][] = ["valuesOnly", "totalsOnly", "valuesAndTotals"];
+const VALID_RULE_OPS: RuleOp[] = ["greaterThan", "greaterThanOrEqual", "lessThan", "lessThanOrEqual", "equals", "notEquals", "between"];
+const VALID_IMPACT_TARGETS: Array<"label" | "chart"> = ["label", "chart"];
+const VALID_HEAT_MAP_TYPES: HeatMapType[] = ["columnWise", "rowWise", "tableWise"];
+const VALID_SCALE_TYPES: ColorScaleType[] = ["sequential", "diverging"];
+const VALID_SCALE_APPLY: ColorScaleApplyTo[] = ["background", "foreground", "both", "dataBar"];
+const VALID_RANGE_MODES: ClassificationRangeMode[] = ["value", "percentage"];
+const VALID_ICON_POSITIONS: Array<"leftOfData" | "rightOfData"> = ["leftOfData", "rightOfData"];
+const VALID_AXIS_POSITIONS: DataBarsConfig["axisPosition"][] = ["auto", "middle", "left", "right"];
+const VALID_BAR_DIRECTIONS: DataBarsConfig["barDirection"][] = ["leftToRight", "rightToLeft"];
+const VALID_RANKING_MODES: RankingConfig["mode"][] = ["top", "bottom", "both"];
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function enumOr<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === "string" && allowed.includes(value as T) ? value as T : fallback;
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function booleanOr(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function normalizeTargetMeasures(value: unknown, fallback: number): number[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = Array.from(new Set(value
+    .map(item => Math.trunc(finiteNumber(item, fallback)))
+    .filter(item => item === -1 || item >= 0)));
+  return normalized.length ? normalized : undefined;
+}
+
+function hexOr(value: unknown, fallback: string): string {
+  return typeof value === "string" && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim())
+    ? value.trim()
+    : fallback;
+}
+
+function normalizeImpactOn(value: unknown, fallback: ("label" | "chart")[]): ("label" | "chart")[] {
+  if (!Array.isArray(value)) return fallback;
+  const next = value.filter((item): item is "label" | "chart" => VALID_IMPACT_TARGETS.includes(item as any));
+  return next.length ? Array.from(new Set(next)) : fallback;
+}
+
+function normalizeIconKind(value: unknown, fallback: ClassificationIconKind): ClassificationIconKind {
+  const valid = CLASSIFICATION_ICON_OPTIONS.some(option => option.kind === value);
+  return valid ? value as ClassificationIconKind : fallback;
+}
+
+function normalizeIcon(value: unknown, fallbackColor: string, fallbackKind: ClassificationIconKind): ClassificationIcon | undefined {
+  if (!isRecord(value)) return undefined;
+  if (value.kind === "custom") {
+    const src = typeof value.src === "string" ? value.src : "";
+    if (!src) return undefined;
+    return {
+      kind: "custom",
+      src,
+      color: typeof value.color === "string" ? value.color : undefined,
+      name: typeof value.name === "string" ? value.name : undefined,
+    };
+  }
+  if (value.kind === "text") {
+    return {
+      kind: "text",
+      label: typeof value.label === "string" && value.label ? value.label.slice(0, 4) : "A",
+      color: hexOr(value.color, fallbackColor),
+    };
+  }
+  return {
+    kind: normalizeIconKind(value.kind, fallbackKind),
+    color: hexOr(value.color, fallbackColor),
+  };
+}
+
+function normalizeStyle(value: unknown, fallback: CellStyle): CellStyle {
+  const raw = isRecord(value) ? value : {};
+  const style: CellStyle = { ...fallback };
+  if ("backgroundColor" in raw) style.backgroundColor = hexOr(raw.backgroundColor, fallback.backgroundColor ?? "#ffffff");
+  if ("color" in raw) style.color = hexOr(raw.color, fallback.color ?? "#111827");
+  if (typeof raw.fontWeight === "string") style.fontWeight = raw.fontWeight;
+  if (typeof raw.fontStyle === "string") style.fontStyle = raw.fontStyle;
+  if (typeof raw.textDecoration === "string") style.textDecoration = raw.textDecoration;
+  if (typeof raw.hatched === "boolean") style.hatched = raw.hatched;
+  if (raw.icon !== undefined) style.icon = normalizeIcon(raw.icon, style.color ?? "#111827", "check");
+  style.iconPosition = enumOr(raw.iconPosition, VALID_ICON_POSITIONS, fallback.iconPosition ?? "leftOfData");
+  if (typeof raw.hideText === "boolean") style.hideText = raw.hideText;
+  if (raw.borderColor !== undefined) style.borderColor = hexOr(raw.borderColor, fallback.borderColor ?? "#94a3b8");
+  style.borderStyle = enumOr(raw.borderStyle, ["none", "solid", "dashed", "dotted", "double"], fallback.borderStyle ?? "none");
+  style.borderWidth = Math.max(0, finiteNumber(raw.borderWidth, fallback.borderWidth ?? 1));
+  return style;
+}
+
+function normalizeConditions(value: unknown, fallback: RulesCondition[]): RulesCondition[] {
+  if (!Array.isArray(value)) return fallback;
+  const normalized = value
+    .filter(isRecord)
+    .map((condition): RulesCondition => ({
+      basedOnMeasure: Math.trunc(finiteNumber(condition.basedOnMeasure, -1)),
+      op: enumOr(condition.op, VALID_RULE_OPS, "greaterThan"),
+      value: finiteNumber(condition.value, 0),
+      value2: condition.value2 === undefined ? undefined : finiteNumber(condition.value2, finiteNumber(condition.value, 0)),
+    }));
+  return normalized.length ? normalized : fallback;
+}
+
+function normalizeColorScheme(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) return fallback;
+  const colors = value.map((color, index) => hexOr(color, fallback[index] ?? fallback[fallback.length - 1] ?? "#ffffff"));
+  return colors.length >= 2 ? colors : fallback;
+}
+
+function normalizeRanges(value: unknown, fallback: ClassificationRange[]): ClassificationRange[] {
+  if (!Array.isArray(value)) return fallback;
+  const normalized = value
+    .filter(isRecord)
+    .map((range, index): ClassificationRange => {
+      const fallbackRange = fallback[Math.min(index, fallback.length - 1)];
+      const color = hexOr(range.color, fallbackRange.color);
+      const iconKind = normalizeIconKind(range.iconKind, fallbackRange.iconKind);
+      return {
+        from: typeof range.from === "number" && Number.isFinite(range.from) ? range.from : fallbackRange.from,
+        to: typeof range.to === "number" && Number.isFinite(range.to) ? range.to : fallbackRange.to,
+        iconKind,
+        icon: normalizeIcon(range.icon, color, iconKind),
+        color,
+      };
+    });
+  return normalized.length ? normalized : fallback;
+}
+
+export function normalizeRule(rule: ConditionalRule): ConditionalRule {
+  const base: ConditionalRule = {
+    id: typeof rule.id === "string" && rule.id ? rule.id : `rule_${Date.now()}`,
+    title: "Rule",
+    enabled: true,
+    scope: {
+      targetType: "rows",
+      targetMeasure: -1,
+      rowHierarchyLevels: "valuesAndTotals",
+      excludeColumnGrandTotal: false,
+    },
+    formatBy: "rules",
+    rulesConfig: {
+      impactOn: ["label"],
+      conditions: [{ basedOnMeasure: -1, op: "greaterThan", value: 0 }],
+      style: { color: "#15803d", fontWeight: "600" },
+    },
+  };
+  const formatBy = enumOr((rule as any).formatBy, VALID_FORMAT_BY, "rules");
+  const normalized: ConditionalRule = {
+    ...base,
+    ...rule,
+    formatBy,
+    title: typeof rule.title === "string" && rule.title.trim() ? rule.title : base.title,
+    enabled: booleanOr((rule as any).enabled, true),
+    scope: {
+      ...base.scope,
+      ...(isRecord(rule.scope) ? rule.scope : {}),
+    },
+  };
+  normalized.scope = {
+    targetType: enumOr(normalized.scope.targetType, VALID_TARGET_TYPES, "rows"),
+    targetMeasure: Math.trunc(finiteNumber(normalized.scope.targetMeasure, -1)),
+    targetMeasures: normalizeTargetMeasures((normalized.scope as any).targetMeasures, normalized.scope.targetMeasure),
+    rowHierarchyLevels: enumOr(normalized.scope.rowHierarchyLevels, VALID_ROW_LEVELS, "valuesAndTotals"),
+    excludeColumnGrandTotal: booleanOr(normalized.scope.excludeColumnGrandTotal, false),
+  };
+  if (normalized.scope.targetMeasures?.includes(-1)) {
+    normalized.scope.targetMeasure = -1;
+    normalized.scope.targetMeasures = [-1];
+  }
+
+  switch (normalized.formatBy) {
+    case "rules":
+      {
+      const fallback = base.rulesConfig!;
+      const cfg: Record<string, any> = isRecord(rule.rulesConfig) ? rule.rulesConfig : {};
+      normalized.rulesConfig = {
+        impactOn: normalizeImpactOn(cfg.impactOn, fallback.impactOn),
+        conditions: normalizeConditions(cfg.conditions, fallback.conditions),
+        style: normalizeStyle(cfg.style, fallback.style),
+      };
+      break;
+      }
+    case "colorScale":
+      {
+      const cfg: Record<string, any> = isRecord(rule.colorScaleConfig) ? rule.colorScaleConfig : {};
+      normalized.colorScaleConfig = {
+        basedOnMeasure: Math.trunc(finiteNumber(cfg.basedOnMeasure, -1)),
+        applyTo: enumOr(cfg.applyTo, VALID_SCALE_APPLY, "background"),
+        heatMapType: enumOr(cfg.heatMapType, VALID_HEAT_MAP_TYPES, "columnWise"),
+        scaleType: enumOr(cfg.scaleType, VALID_SCALE_TYPES, "sequential"),
+        colorScheme: normalizeColorScheme(cfg.colorScheme, COLOR_SCHEME_PRESETS[0].colors),
+        reverse: booleanOr(cfg.reverse, false),
+        numberOfBands: Math.max(0, Math.trunc(finiteNumber(cfg.numberOfBands, 5))),
+        hideValue: booleanOr(cfg.hideValue, false),
+        autoFontColor: booleanOr(cfg.autoFontColor, true),
+        includeNull: booleanOr(cfg.includeNull, false),
+      };
+      break;
+      }
+    case "classification":
+      {
+      const fallbackRanges: ClassificationRange[] = [
+        { from: -Infinity, to: -10, iconKind: "cross", color: "#dc2626" },
+        { from: -10, to: 10, iconKind: "warn", color: "#eab308" },
+        { from: 10, to: Infinity, iconKind: "check", color: "#16a34a" },
+      ];
+      const cfg: Record<string, any> = isRecord(rule.classificationConfig) ? rule.classificationConfig : {};
+      normalized.classificationConfig = {
+        impactOn: normalizeImpactOn(cfg.impactOn, ["label"]),
+        basedOnMeasure: Math.trunc(finiteNumber(cfg.basedOnMeasure, -1)),
+        displayIcons: booleanOr(cfg.displayIcons, true),
+        showValueText: booleanOr(cfg.showValueText, true),
+        iconSet: typeof cfg.iconSet === "string" && CLASSIFICATION_ICON_SETS.some(set => set.id === cfg.iconSet) ? cfg.iconSet : "target-status",
+        applyToCharts: booleanOr(cfg.applyToCharts, true),
+        showAsNewColumn: booleanOr(cfg.showAsNewColumn, false),
+        iconPosition: enumOr(cfg.iconPosition, VALID_ICON_POSITIONS, "leftOfData"),
+        rangeMode: enumOr(cfg.rangeMode, VALID_RANGE_MODES, "percentage"),
+        ranges: normalizeRanges(cfg.ranges, fallbackRanges),
+      };
+      break;
+      }
+    case "dataBars":
+      {
+      const cfg: Record<string, any> = isRecord(rule.dataBarsConfig) ? rule.dataBarsConfig : {};
+      normalized.dataBarsConfig = {
+        basedOnMeasure: Math.trunc(finiteNumber(cfg.basedOnMeasure, -1)),
+        positiveColor: hexOr(cfg.positiveColor, "#2563eb"),
+        negativeColor: hexOr(cfg.negativeColor, "#dc2626"),
+        axisPosition: enumOr(cfg.axisPosition, VALID_AXIS_POSITIONS, "auto"),
+        showBarOnly: booleanOr(cfg.showBarOnly, false),
+        barDirection: enumOr(cfg.barDirection, VALID_BAR_DIRECTIONS, "leftToRight"),
+      };
+      break;
+      }
+    case "ranking":
+      {
+      const cfg: Record<string, any> = isRecord(rule.rankingConfig) ? rule.rankingConfig : {};
+      normalized.rankingConfig = {
+        basedOnMeasure: Math.trunc(finiteNumber(cfg.basedOnMeasure, -1)),
+        topCount: Math.max(1, finiteNumber(cfg.topCount, 10)),
+        mode: enumOr(cfg.mode, VALID_RANKING_MODES, "top"),
+        usePercentage: booleanOr(cfg.usePercentage, false),
+        style: normalizeStyle(cfg.style, { color: "#1d4ed8", fontWeight: "600" }),
+        impactOn: normalizeImpactOn(cfg.impactOn, ["label"]),
+      };
+      break;
+      }
+  }
+
+  return normalized;
 }
 
 export function stringifyRules(rules: ConditionalRule[]): string {
@@ -280,7 +684,10 @@ function ruleAppliesToCell(rule: ConditionalRule, ctx: EvaluationContext): boole
   if (scope.targetType !== targetType) {
     return false;
   }
-  if (scope.targetMeasure !== -1 && scope.targetMeasure !== ctx.measureIndex) {
+  const targetMeasures = scope.targetMeasures && scope.targetMeasures.length > 0
+    ? scope.targetMeasures
+    : [scope.targetMeasure];
+  if (!targetMeasures.includes(-1) && !targetMeasures.includes(ctx.measureIndex)) {
     return false;
   }
   if (scope.excludeColumnGrandTotal && ctx.isColumnGrandTotal) {
@@ -327,6 +734,12 @@ function evaluateRulesMode(
     if (cfg.style.fontStyle !== undefined) out.fontStyle = cfg.style.fontStyle;
     if (cfg.style.textDecoration !== undefined) out.textDecoration = cfg.style.textDecoration;
   }
+  if (cfg.style.hideText !== undefined) out.hideText = cfg.style.hideText;
+  if (cfg.style.icon !== undefined) out.icon = cfg.style.icon;
+  if (cfg.style.iconPosition !== undefined) out.iconPosition = cfg.style.iconPosition;
+  if (cfg.style.borderColor !== undefined) out.borderColor = cfg.style.borderColor;
+  if (cfg.style.borderStyle !== undefined) out.borderStyle = cfg.style.borderStyle;
+  if (cfg.style.borderWidth !== undefined) out.borderWidth = cfg.style.borderWidth;
   if (cfg.style.backgroundColor !== undefined && (impactsChart || !cfg.impactOn.length || impactsLabel)) {
     if (cfg.style.backgroundColor !== undefined) out.backgroundColor = cfg.style.backgroundColor;
   }
@@ -435,8 +848,11 @@ function evaluateClassification(
 
   const out: CellStyle = {};
   if (cfg.displayIcons) {
-    out.icon = { kind: matched.iconKind, color: matched.color };
+    out.icon = matched.icon ?? { kind: matched.iconKind, color: matched.color };
     out.iconPosition = cfg.iconPosition ?? "leftOfData";
+  }
+  if (cfg.showValueText === false) {
+    out.hideText = true;
   }
   if (cfg.impactOn.includes("label")) {
     out.color = matched.color;

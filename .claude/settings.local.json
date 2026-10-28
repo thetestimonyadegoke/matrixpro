@@ -26,7 +26,9 @@
       "Bash(python -c \"import json,sys; d=json.loads\\(sys.stdin.read\\(\\)\\); print\\('OK:', d['hookSpecificOutput']['hookEventName']\\); print\\('Context length:', len\\(d['hookSpecificOutput']['additionalContext']\\)\\)\")",
       "Bash(npx pbiviz:*)",
       "Bash(echo \"EXITCODE=$?\")",
-      "Bash(powershell -Command \"Get-Content src/ui/Ribbon.tsx | Select-Object -First 1484 | Set-Content -Encoding utf8 src/ui/Ribbon.tsx.tmp && Move-Item -Force src/ui/Ribbon.tsx.tmp src/ui/Ribbon.tsx\")"
+      "Bash(powershell -Command \"Get-Content src/ui/Ribbon.tsx | Select-Object -First 1484 | Set-Content -Encoding utf8 src/ui/Ribbon.tsx.tmp && Move-Item -Force src/ui/Ribbon.tsx.tmp src/ui/Ribbon.tsx\")",
+      "Bash(xargs wc -l)",
+      "Bash(npx jest *)"
     ]
   },
   "hooks": {

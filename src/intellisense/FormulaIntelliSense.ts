@@ -24,6 +24,7 @@ export interface Suggestion {
   documentation?: string;
   snippet?: boolean;
   cursorOffset?: number;
+  isCalculated?: boolean;
 }
 
 export interface FunctionSignature {
@@ -107,8 +108,10 @@ export class FormulaIntelliSense {
         return this.getRowScopedSuggestions(trigger.scope, trigger.filter);
       case "column":
         return this.getColumnSuggestions(trigger.filter);
+      case "row":
+        return this.getRowSuggestions(trigger.filter);
       case "function":
-        return this.getFunctionSuggestions(trigger.filter);
+        return this.getAllSuggestions(trigger.filter);
       case "general":
       default:
         return this.getAllSuggestions(trigger.filter);
@@ -188,6 +191,7 @@ export class FormulaIntelliSense {
           insertText: `[${row.label}]`,
           detail: row.calcRowKind ? `Calculated ${row.calcRowKind}` : "Row",
           documentation: `Path: ${row.path.join(" > ")}`,
+          isCalculated: !!row.calcRowKind,
         });
       }
     }
@@ -210,6 +214,30 @@ export class FormulaIntelliSense {
           insertText: `${scope}[${row.label}]`,
           detail: `Row at level ${row.level}`,
           documentation: `Path: ${row.path.join(" > ")}`,
+          isCalculated: !!row.calcRowKind,
+        });
+      }
+    }
+
+    return suggestions;
+  }
+
+  private getRowSuggestions(filter: string): Suggestion[] {
+    const suggestions: Suggestion[] = [];
+    const filterLower = filter.toLowerCase();
+    const seen = new Set<string>();
+
+    for (const row of this.context.rows) {
+      if (!row.label || seen.has(row.key)) continue;
+      if (row.label.toLowerCase().includes(filterLower) || row.path.join(" ").toLowerCase().includes(filterLower)) {
+        seen.add(row.key);
+        suggestions.push({
+          type: "row",
+          label: row.label,
+          insertText: `"${row.label}"`,
+          detail: row.calcRowKind ? `Calculated ${row.calcRowKind}` : `Level ${row.level + 1}`,
+          documentation: `Path: ${row.path.join(" > ")}`,
+          isCalculated: !!row.calcRowKind,
         });
       }
     }

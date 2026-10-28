@@ -127,6 +127,9 @@ export const matrixProStyles = `
 .matrix-formula-bar {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 3;
   padding: var(--matrix-spacing-sm) var(--matrix-spacing-md);
   background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,0.9));
   border-bottom: 1px solid var(--matrix-border-color);
@@ -420,6 +423,42 @@ export const matrixProStyles = `
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.matrix-cell.has-cf-icon-left .cell-value {
+  padding-left: 18px;
+}
+
+.matrix-cell.has-cf-icon-right .cell-value {
+  padding-right: 18px;
+}
+
+.matrix-cell .cf-icon {
+  position: absolute;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.matrix-cell .cf-icon-left {
+  left: 4px;
+}
+
+.matrix-cell .cf-icon-right {
+  right: 4px;
+}
+
+.matrix-cell .cf-icon svg,
+.matrix-cell .cf-icon img {
+  width: 16px;
+  height: 16px;
+  display: block;
 }
 
 .matrix-cell .edited-marker {

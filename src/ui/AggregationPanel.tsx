@@ -2,8 +2,17 @@ import React, { useState } from "react";
 import { MeasureInfo } from "../model/pivot";
 import { VisualSettings } from "../settings/settings";
 
-type AggType = "Sum" | "Average" | "Min" | "Max" | "Count" | "None";
-const AGG_OPTIONS: AggType[] = ["Sum", "Average", "Min", "Max", "Count", "None"];
+type AggType = "none" | "formula" | "sum" | "first" | "last" | "average" | "min" | "max";
+const AGG_OPTIONS: Array<{ value: AggType; label: string }> = [
+  { value: "none", label: "None" },
+  { value: "formula", label: "Formula" },
+  { value: "sum", label: "Sum" },
+  { value: "first", label: "First" },
+  { value: "last", label: "Last" },
+  { value: "average", label: "Average" },
+  { value: "min", label: "Min" },
+  { value: "max", label: "Max" },
+];
 
 interface AggregationPanelProps {
   measures: MeasureInfo[];
@@ -84,11 +93,11 @@ export const AggregationPanel: React.FC<AggregationPanelProps> = ({
                   border: "1px solid #d1d5db", borderRadius: 4, padding: "5px 8px",
                   fontSize: 12, background: "#fff", cursor: "pointer",
                 }}
-                value={overrides[String(m.index)] || "Sum"}
+                value={overrides[String(m.index)] || "sum"}
                 onChange={(e) => setAgg(m.index, e.target.value as AggType)}
               >
                 {AGG_OPTIONS.map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
             </div>

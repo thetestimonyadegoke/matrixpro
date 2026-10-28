@@ -73,6 +73,7 @@ import {
   IconGrid,
   IconChevronLeft,
   IconChevronRight,
+  IconSearch,
 } from "./icons";
 import { ConditionalFormattingDropdown } from "./ConditionalFormattingDropdown";
 
@@ -111,6 +112,8 @@ export interface RibbonProps {
   // New props
   onCopyToClipboard?: () => void;
   onOpenSortPanel?: () => void;
+  /** Opens the Find (Ctrl+F) panel over the matrix. */
+  onOpenFind?: () => void;
   onOpenThemeGallery?: () => void;
   onOpenHeaderFooter?: () => void;
   onOpenSmartAnalysis?: () => void;
@@ -179,6 +182,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   onToolbarPinChange,
   onCopyToClipboard,
   onOpenSortPanel,
+  onOpenFind,
   onOpenSmartAnalysis,
   onOpenGoalSeek,
   onOpenVariables,
@@ -206,6 +210,15 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   const contentRef = useRef<HTMLDivElement>(null);
   const [canScrollContentLeft, setCanScrollContentLeft] = useState(false);
   const [canScrollContentRight, setCanScrollContentRight] = useState(false);
+  const [openColorMenu, setOpenColorMenu] = useState<string | null>(null);
+  const [recentColors, setRecentColors] = useState<string[]>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem("matrixpro.recentColors") || "[]");
+      return Array.isArray(parsed) ? parsed.filter(c => typeof c === "string").slice(0, 8) : [];
+    } catch {
+      return [];
+    }
+  });
 
   useEffect(() => {
     const handleScroll = () => {
@@ -575,41 +588,101 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     title: string,
     value: string,
     onChange: (next: string) => void
-  ) => (
-    <label
-      className="ribbon-btn hover-scale"
-      title={title}
-      style={{ position: "relative", overflow: "hidden", cursor: allowInteractions ? "pointer" : "not-allowed" }}
-    >
-      {icon}
-      <span className="ribbon-btn-label">{label}</span>
+  ) => {
+    const menuId = title.replace(/\s+/g, "-").toLowerCase();
+    const presets = ["#111827", "#374151", "#ffffff", "#f8fafc", "#0ea5e9", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6"];
+    const applyColor = (next: string) => {
+      onChange(next);
+      setRecentColors(prev => {
+        const updated = [next, ...prev.filter(c => c.toLowerCase() !== next.toLowerCase())].slice(0, 8);
+        try { localStorage.setItem("matrixpro.recentColors", JSON.stringify(updated)); } catch { /* ignore */ }
+        return updated;
+      });
+    };
+    const swatches = Array.from(new Set([...recentColors, ...presets]));
+    return (
       <span
-        aria-hidden="true"
-        style={{
-          width: 12,
-          height: 12,
-          borderRadius: 3,
-          border: "1px solid rgba(0,0,0,0.18)",
-          background: value || "transparent",
-          display: "inline-block",
-          marginLeft: 2,
-          boxSizing: "border-box",
-        }}
-      />
-      <input
-        type="color"
-        value={value && value !== "transparent" ? value : "#ffffff"}
-        disabled={!allowInteractions}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          position: "absolute",
-          inset: 0,
-          opacity: 0,
-          cursor: allowInteractions ? "pointer" : "not-allowed",
-        }}
-      />
-    </label>
-  );
+        className="ribbon-color-picker"
+        style={{ position: "relative", display: "inline-flex" }}
+        onMouseLeave={() => setOpenColorMenu(current => current === menuId ? null : current)}
+      >
+        <label
+          className="ribbon-btn hover-scale"
+          title={title}
+          style={{ position: "relative", overflow: "hidden", cursor: allowInteractions ? "pointer" : "not-allowed" }}
+          onMouseEnter={() => setOpenColorMenu(menuId)}
+        >
+          {icon}
+          <span className="ribbon-btn-label">{label}</span>
+          <span
+            aria-hidden="true"
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: 3,
+              border: "1px solid rgba(0,0,0,0.18)",
+              background: value || "transparent",
+              display: "inline-block",
+              marginLeft: 2,
+              boxSizing: "border-box",
+            }}
+          />
+          <input
+            type="color"
+            value={value && value !== "transparent" ? value : "#ffffff"}
+            disabled={!allowInteractions}
+            onChange={(e) => applyColor(e.target.value)}
+            style={{
+              position: "absolute",
+              inset: 0,
+              opacity: 0,
+              cursor: allowInteractions ? "pointer" : "not-allowed",
+            }}
+          />
+        </label>
+        {allowInteractions && openColorMenu === menuId && (
+          <div
+            className="ribbon-color-menu"
+            style={{
+              position: "absolute",
+              top: "100%",
+              left: 0,
+              zIndex: 10000,
+              display: "grid",
+              gridTemplateColumns: "repeat(6, 18px)",
+              gap: 5,
+              padding: 8,
+              background: "var(--mx-surface, #fff)",
+              border: "1px solid var(--mx-border, #d1d5db)",
+              borderRadius: 10,
+              boxShadow: "0 12px 28px rgba(15,23,42,0.18)",
+            }}
+          >
+            {swatches.map(color => (
+              <button
+                key={color}
+                type="button"
+                title={color}
+                onClick={(e) => {
+                  e.preventDefault();
+                  applyColor(color);
+                  setOpenColorMenu(null);
+                }}
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: 5,
+                  border: color.toLowerCase() === (value || "").toLowerCase() ? "2px solid var(--mx-accent, #0ea5e9)" : "1px solid rgba(0,0,0,0.2)",
+                  background: color,
+                  cursor: "pointer",
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </span>
+    );
+  };
 
   const dropdownItems: DropdownItem[] = [
     {
@@ -670,7 +743,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 onClick={() => scrollTabs("left")}
                 style={{ position: 'absolute', left: 0, zIndex: 10, background: 'rgba(255,255,255,0.8)', border: 'none', height: '100%', cursor: 'pointer', padding: '0 4px' }}
               >
-                â€¹
+                &lt;
               </button>
             )}
             <div className="mx-ribbon-tabs" role="tablist" aria-label="Ribbon tabs" ref={tabsRef} style={{ display: 'flex', overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
@@ -685,7 +758,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 onClick={() => scrollTabs("right")}
                 style={{ position: 'absolute', right: 0, zIndex: 10, background: 'rgba(255,255,255,0.8)', border: 'none', height: '100%', cursor: 'pointer', padding: '0 4px' }}
               >
-                â€º
+                &gt;
               </button>
             )}
           </div>
@@ -779,7 +852,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                   <div className="curated-group" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <button className={`ribbon-format-btn sm ${effNumberFormat === "0.0%" ? "active" : ""}`} onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "0.0%" ? "" : "0.0%" })} title="Percentage">%</button>
                     <button className={`ribbon-format-btn sm ${effNumberFormat === "$#,##0.00" ? "active" : ""}`} onClick={() => handleFormatUpdate({ numberFormat: effNumberFormat === "$#,##0.00" ? "" : "$#,##0.00" })} title="Currency">$</button>
-                    {/* Decimals â€” using .0 .00 as labels per user preference */}
+                    {/* Decimals - using .0 .00 as labels per user preference */}
                     <button className="ribbon-format-btn sm" onClick={() => handleFormatUpdate({ decimals: Math.min(10, effDecimals + 1) })} title="Increase decimals">.00</button>
                     <button className="ribbon-format-btn sm" onClick={() => handleFormatUpdate({ decimals: Math.max(0, effDecimals - 1) })} title="Decrease decimals">.0</button>
                   </div>
@@ -822,7 +895,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                onClick={() => setMinimalTabsExpanded(true)}
                style={{ height: 24, fontSize: 10, fontWeight: 700 }}
              >
-               EXPAND FULL â–¾
+               EXPAND FULL v
              </button>
            </div>
         </div>
@@ -879,7 +952,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 {toolbarBtn(<IconItalic size={13} />, "", () => handleFormatUpdate({ italic: !effItalic }), !!effItalic, !allowInteractions, "Italic")}
                 {toolbarBtn(<IconUnderline size={13} />, "", () => handleFormatUpdate({ underline: !effUnderline }), !!effUnderline, !allowInteractions, "Underline")}
                 {toolbarBtn(<span style={{ fontFamily: "serif", fontSize: 12, textDecoration: "line-through", fontWeight: 700, lineHeight: 1 }}>S</span>, "", () => onPersistProperty("general", "strikethrough", !settings.general.strikethrough), settings.general.strikethrough, !allowInteractions, "Strikethrough")}
-                {toolbarBtn(<span style={{ fontSize: 11, fontWeight: 700 }}>â†µ</span>, "", () => onPersistProperty("general", "wrapText", !settings.general.wrapText), settings.general.wrapText, !allowInteractions, "Wrap Text")}
+                {toolbarBtn(<span style={{ fontSize: 11, fontWeight: 700 }}>↵</span>, "", () => onPersistProperty("general", "wrapText", !settings.general.wrapText), settings.general.wrapText, !allowInteractions, "Wrap Text")}
               </div>
               <span className="ribbon-divider-v" />
               {/* Colors */}
@@ -928,6 +1001,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 {toolbarBtn(<IconTopN size={13} />, "Top N", () => onOpenTopNPanel?.(), false, !hasData, "Top N Analysis")}
                 {toolbarBtn(<IconSort size={13} />, "Sort", onOpenSortPanel, false, !allowInteractions || !hasData, "Sort")}
                 {toolbarBtn(<IconFilter size={13} />, "Filter", () => onOpenFilterPanel?.(), false, !allowInteractions || !hasData, "Filter")}
+                {toolbarBtn(<IconSearch size={13} />, "Find", () => onOpenFind?.(), false, !hasData || !onOpenFind, "Find (Ctrl+F)")}
                 {toolbarBtn(<IconRows size={13} />, "Levels", () => onOpenLevelPanel?.(), false, !allowInteractions || !hasData, "Hierarchy Levels")}
               </div>
               <span className="ribbon-divider-v" />
@@ -988,7 +1062,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
           )}
 
           {/* ============================================================
-              MINIMAL-TABS MODE â€” condensed per-tab content
+              MINIMAL-TABS MODE - condensed per-tab content
               ============================================================ */}
           {toolbarMode === "minimal-tabs" && minimalTabsExpanded && (
             <div className="mx-ribbon-minimal-row mx-ribbon-minimal-tabs-content" style={{ display: "flex", alignItems: "center", gap: 2, padding: "3px 8px", width: "100%", overflowX: "auto", overflowY: "visible", flexWrap: "nowrap", minHeight: 32 }}>
@@ -1030,6 +1104,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                     {toolbarBtn(<IconTotals size={13} />, "Totals", () => onOpenTotalsPanel?.(), settings.totals.showGrandTotals, !allowInteractions, "Totals")}
                     {toolbarBtn(<IconSort size={13} />, "Sort", onOpenSortPanel, false, !allowInteractions || !hasData, "Sort")}
                     {toolbarBtn(<IconFilter size={13} />, "Filter", () => onOpenFilterPanel?.(), false, !allowInteractions || !hasData, "Filter")}
+                    {toolbarBtn(<IconSearch size={13} />, "Find", () => onOpenFind?.(), false, !hasData || !onOpenFind, "Find (Ctrl+F)")}
                     {toolbarBtn(<IconTopN size={13} />, "Top N", () => onOpenTopNPanel?.(), false, !hasData, "Top N")}
                     {toolbarBtn(<IconExplorer size={13} />, "Explorer", onToggleExplorer, explorerOpen, !allowInteractions, "Toggle Explorer")}
                   </div>
@@ -1201,7 +1276,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                       "Strikethrough"
                     )}
                     {toolbarBtn(
-                      <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1 }}>â†µ</span>,
+                      <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1 }}>↵</span>,
                       "",
                       () => onPersistProperty("general", "wrapText", !settings.general.wrapText),
                       settings.general.wrapText,
@@ -1296,7 +1371,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                   <div ref={cfAnchorRef} style={{ position: "relative", display: "inline-block" }}>
                     {toolbarBtn(
                       <IconCondFormat size={16} />,
-                      "Cond. Format â–¾",
+                      "Cond. Format",
                       () => {
                         if (cfAnchorRef.current) {
                           setCfAnchorRect(cfAnchorRef.current.getBoundingClientRect());
@@ -1315,21 +1390,21 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                           // Quick Rule
                           if (id === "quick-positive") quickPositive();
                           else if (id === "quick-negative") quickNegative();
-                          // Color Scales â€” sequential
+                          // Color Scales - sequential
                           else if (id === "scale-seq-blue") quickColorScale(["#dbeafe", "#93c5fd", "#60a5fa", "#3b82f6", "#1d4ed8"], "Sequential Blue");
                           else if (id === "scale-seq-orange") quickColorScale(["#ffedd5", "#fdba74", "#fb923c", "#ea580c", "#9a3412"], "Sequential Orange");
                           else if (id === "scale-seq-green") quickColorScale(["#dcfce7", "#86efac", "#4ade80", "#16a34a", "#14532d"], "Sequential Green");
-                          // Color Scales â€” qualitative
+                          // Color Scales - qualitative
                           else if (id === "scale-qual-cool") quickColorScale(["#10b981", "#7c3aed", "#ef4444", "#eab308", "#3b82f6", "#6b7280"], "Qualitative Cool");
                           else if (id === "scale-qual-earth") quickColorScale(["#93c5fd", "#86efac", "#fdba74", "#c4b5fd", "#fca5a5", "#a8a29e"], "Qualitative Earth");
-                          // Color Scales â€” diverging
-                          else if (id === "scale-div-rwg") quickColorScale(["#b91c1c", "#f87171", "#fef3c7", "#86efac", "#166534"], "Diverging Redâ€“Yellowâ€“Green");
-                          else if (id === "scale-div-rwb") quickColorScale(["#b91c1c", "#fca5a5", "#fef9c3", "#bae6fd", "#1d4ed8"], "Diverging Redâ€“Blue");
-                          else if (id === "scale-div-byg") quickColorScale(["#854d0e", "#d97706", "#ecfeff", "#22d3ee", "#0e7490"], "Diverging Brownâ€“Teal");
-                          // Color Scales â€” continuous
+                          // Color Scales - diverging
+                          else if (id === "scale-div-rwg") quickColorScale(["#b91c1c", "#f87171", "#fef3c7", "#86efac", "#166534"], "Diverging Red-Yellow-Green");
+                          else if (id === "scale-div-rwb") quickColorScale(["#b91c1c", "#fca5a5", "#fef9c3", "#bae6fd", "#1d4ed8"], "Diverging Red-Blue");
+                          else if (id === "scale-div-byg") quickColorScale(["#854d0e", "#d97706", "#ecfeff", "#22d3ee", "#0e7490"], "Diverging Brown-Teal");
+                          // Color Scales - continuous
                           else if (id === "scale-cont-warm") quickColorScale(["#f97316", "#be123c"], "Continuous Warm");
                           else if (id === "scale-cont-div") quickColorScale(["#ef4444", "#ffffff", "#6366f1"], "Continuous Diverging");
-                          // Classification â€” icons / text
+                          // Classification - icons / text
                           else if (id === "class-icon-check" || id === "class-icon-flags" || id === "class-icon-arrows3" || id === "class-icon-arrows5" || id === "class-text-abc" || id === "class-text-levels" || id === "class-rating-squares" || id === "class-rating-stars" || id === "class-rating-circles") quickClassification();
                           // Data Bars
                           else if (id === "bar-blue") quickDataBars();
@@ -1337,7 +1412,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                           else if (id === "bar-red") quickColorScale(["#fee2e2", "#dc2626"], "Data Bar Red");
                           else if (id === "bar-orange") quickColorScale(["#ffedd5", "#f59e0b"], "Data Bar Orange");
                           else if (id === "bar-pink") quickColorScale(["#fce7f3", "#ec4899"], "Data Bar Pink");
-                          // Action Analysis â€” open full panel for configuration
+                          // Action Analysis - open full panel for configuration
                           else if (id === "action-dot" || id === "action-color" || id === "action-bubble-chart" || id === "action-bubble-only") {
                             onOpenCondFormatPanel?.();
                           }
@@ -1363,6 +1438,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                   })(), !hasData, "Top N Analysis")}
                   {toolbarBtn(<IconExplorer size={16} />, "Explorer", onToggleExplorer, explorerOpen, !allowInteractions, "Toggle Explorer panel")}
                   {toolbarBtn(<IconSort size={16} />, "Sort", onOpenSortPanel, false, !allowInteractions || !hasData, "Configure Sort Rules")}
+                  {toolbarBtn(<IconSearch size={16} />, "Find", () => onOpenFind?.(), false, !hasData || !onOpenFind, "Find in labels and values (Ctrl+F)")}
                   {toolbarBtn(<IconFilter size={16} />, "Filter", () => onOpenFilterPanel?.(), (() => {
                     try { const r = JSON.parse(settings.manualData.filterRules || "[]"); return Array.isArray(r) && r.length > 0; } catch { return false; }
                   })(), !allowInteractions || !hasData, "Filter rows by value")}
@@ -1544,6 +1620,8 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
                 <div className="ribbon-btn-group">
                   {toolbarBtn(<IconPageBreak size={16} />, "Single Page", () => onPersistProperty("layout", "mode", "hierarchy"), settings.layout.mode === "hierarchy", !allowInteractions, "Single Page")}
                   {toolbarBtn(<IconPageBreak size={16} />, "Outline", () => onPersistProperty("layout", "mode", "outline"), settings.layout.mode === "outline", !allowInteractions, "Outline")}
+                  {toolbarBtn(<IconRows size={16} />, "Table", () => onPersistProperty("layout", "mode", "table"), settings.layout.mode === "table", !allowInteractions, "Table Layout")}
+                  {toolbarBtn(<IconRows size={16} />, "Stepped", () => onPersistProperty("layout", "mode", "stepped"), settings.layout.mode === "stepped", !allowInteractions, "Stepped Layout")}
                   <select className="ribbon-select" value={settings.layout.rowBreak} onChange={(e) => onPersistProperty("layout", "rowBreak", e.target.value)} disabled={!allowInteractions} title="Row Break">
                     <option value="none">Row None</option>
                     <option value="page">Row Page</option>

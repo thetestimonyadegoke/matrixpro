@@ -18,6 +18,7 @@ export interface RowHeaderProps {
   onContextMenu: (e: React.MouseEvent, row: FlattenedNode) => void;
   onDragStart: (e: React.DragEvent, rowKey: string) => void;
   onDragOver: (e: React.DragEvent, rowKey: string) => void;
+  onDrop: (e: React.DragEvent, rowKey: string) => void;
   onDragEnd: (e: React.DragEvent) => void;
   dropPosition?: "before" | "after" | "child" | null;
   isDragOver?: boolean;
@@ -26,6 +27,23 @@ export interface RowHeaderProps {
   sparklineGlobalMin?: number;
   sparklineGlobalMax?: number;
   labelOverrides?: Record<string, string>;
+  hideExpandIcon?: boolean;
+  /** Row label is the current Find (Ctrl+F) match. */
+  isFindMatch?: boolean;
+}
+
+/** The label text a row header shows for the current layout mode. */
+export function getRowDisplayLabel(
+  row: FlattenedNode,
+  settings: VisualSettings,
+  labelOverrides?: Record<string, string>
+): string {
+  const rawLabel = labelOverrides?.[row.key] || row.label;
+  return settings.layout.mode === "table"
+    ? row.path.map(v => String(v)).join(" / ")
+    : settings.layout.mode === "drilldown"
+      ? row.path[row.path.length - 1]?.toString() || rawLabel
+      : rawLabel;
 }
 
 export const RowHeader: React.FC<RowHeaderProps> = memo(({
@@ -42,6 +60,7 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
   onContextMenu,
   onDragStart,
   onDragOver,
+  onDrop,
   onDragEnd,
   dropPosition,
   isDragOver,
@@ -50,6 +69,8 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
   sparklineGlobalMin,
   sparklineGlobalMax,
   labelOverrides,
+  hideExpandIcon,
+  isFindMatch,
 }) => {
   const resolvedHeaderBackground =
     typeof style.backgroundColor === "string" && style.backgroundColor !== "transparent"
@@ -57,24 +78,27 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
       : "var(--mx-row-header-bg, var(--mx-surface, #ffffff))";
 
   const indentUnit = settings.layout.mode === "outline"
-    ? 12
+    ? 18
     : settings.layout.mode === "stepped"
-      ? 20
+      ? 24
       : settings.layout.mode === "table"
         ? 0
         : settings.layout.mode === "drilldown"
           ? 0
-          : 16;
+          : 20;
   const indentPadding = row.indent * indentUnit;
 
   // Display label varies by layout mode
-  const rawLabel = labelOverrides?.[row.key] || row.label; const displayLabel = settings.layout.mode === "table" ? row.path.map(v => String(v)).join(" / ") : settings.layout.mode === "drilldown" ? row.path[row.path.length - 1]?.toString() || rawLabel : settings.layout.mode === "stepped" ? rawLabel : rawLabel;
+  const displayLabel = getRowDisplayLabel(row, settings, labelOverrides);
 
   // Stepped mode shows level indicator
   const showLevelIndicator = settings.layout.mode === "stepped" && row.level > 0;
 
   // Outline mode uses compact styling
   const isOutlineMode = settings.layout.mode === "outline";
+  const shouldReserveExpandSlot =
+    settings.layout.mode !== "table" &&
+    (row.hasChildren || (row.isCalculatedRow && row.indent === 0));
 
   // Drilldown mode shows breadcrumb for context
   const showBreadcrumb = settings.layout.mode === "drilldown" && row.path.length > 1;
@@ -85,8 +109,41 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
     row.isGrandTotal ? "grandtotal-row" : "",
     isSelected ? "selected" : "",
     isFormatSelected ? "format-selected" : "",
+    isFindMatch ? "find-match" : "",
     isDragOver ? `drag-over ${dropPosition}` : "",
   ].filter(Boolean).join(" ");
+  const manualTextColor =
+    typeof style.color === "string" && style.color && style.color !== "inherit"
+      ? style.color
+      : undefined;
+  const manualLabelBackground =
+    typeof style.backgroundColor === "string" && style.backgroundColor !== "transparent"
+      ? style.backgroundColor
+      : undefined;
+
+  if (row.calcRowKind === "blank") {
+    return (
+      <div
+        className={`${className} blank-row`}
+        style={{
+          ...style,
+          backgroundColor: "transparent",
+          paddingLeft: 0,
+        }}
+        onClick={onClick}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onContextMenu(e, row);
+        }}
+        draggable
+        onDragStart={(e) => onDragStart(e, row.key)}
+        onDragOver={(e) => onDragOver(e, row.key)}
+        onDrop={(e) => onDrop(e, row.key)}
+        onDragEnd={onDragEnd}
+        title="Blank row"
+      />
+    );
+  }
 
   return (
     <div
@@ -104,6 +161,7 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
       draggable
       onDragStart={(e) => onDragStart(e, row.key)}
       onDragOver={(e) => onDragOver(e, row.key)}
+      onDrop={(e) => onDrop(e, row.key)}
       onDragEnd={onDragEnd}
       tabIndex={0}
       onKeyDown={(e) => {
@@ -135,45 +193,45 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
       }}
       title={row.path.join(" > ")}
     >
-      <span className="row-drag-handle" title="Drag to reorder">⋮⋮</span>
+      <span className="row-drag-handle" title="Drag to reorder">::</span>
 
       {showLevelIndicator && (
         <span className="level-indicator" aria-hidden="true">
-          {"│".repeat(row.level - 1)}└
+          {"|".repeat(row.level - 1)}-
         </span>
       )}
       {showBreadcrumb && (
         <span className="breadcrumb-context" title={row.path.slice(0, -1).join(" > ")}>
-          {row.path.slice(0, -1).map(v => String(v).charAt(0)).join("")} ›
+          {row.path.slice(0, -1).map(v => String(v).charAt(0)).join("")} /
         </span>
       )}
-      {settings.layout.mode !== "table" && row.hasChildren && (
+      {shouldReserveExpandSlot && (
         <span
-          className={`expand-toggle ${isOutlineMode ? "compact" : ""}`}
+          className={`expand-toggle ${isOutlineMode ? "compact" : ""} ${(!row.hasChildren || hideExpandIcon) ? "placeholder" : ""}`}
           role="button"
           tabIndex={0}
           title={row.isExpanded ? "Collapse" : "Expand"}
           onClick={(e) => {
             e.stopPropagation();
-            onToggleExpand(row.key);
+            if (row.hasChildren && !hideExpandIcon) onToggleExpand(row.key);
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               e.stopPropagation();
-              onToggleExpand(row.key);
+              if (row.hasChildren && !hideExpandIcon) onToggleExpand(row.key);
             }
           }}
         >
-          {row.isExpanded ? "−" : "+"}
+          {!row.hasChildren || hideExpandIcon ? "" : (row.isExpanded ? "-" : "+")}
         </span>
       )}
       <span 
         className={`row-label ${isOutlineMode ? "outline-label" : ""}`}
         style={{
           fontWeight: row.isGrandTotal ? "var(--mx-gt-fw)" : (row.isSubtotal ? "var(--mx-st-fw)" : (row.hasChildren ? "var(--mx-row-parent-fw)" : "inherit")),
-          color: row.isGrandTotal ? "var(--mx-gt-fg)" : (row.isSubtotal ? "var(--mx-st-fg)" : (row.hasChildren ? "var(--mx-row-parent-color)" : "var(--mx-row-child-color)")),
-          backgroundColor: row.isGrandTotal ? "var(--mx-gt-bg)" : (row.isSubtotal ? "var(--mx-st-bg)" : "transparent"),
+          color: manualTextColor || (row.isGrandTotal ? "var(--mx-gt-fg)" : (row.isSubtotal ? "var(--mx-st-fg)" : (row.hasChildren ? "var(--mx-row-parent-color)" : "var(--mx-row-child-color)"))),
+          backgroundColor: manualLabelBackground || (row.isGrandTotal ? "var(--mx-gt-bg)" : (row.isSubtotal ? "var(--mx-st-bg)" : "transparent")),
         }}
       >
         {displayLabel}
@@ -187,6 +245,7 @@ export const RowHeader: React.FC<RowHeaderProps> = memo(({
             flex: settings.sparklines.showInDedicatedColumn ? "0 0 112px" : "0 0 84px",
             opacity: row.isSubtotal || row.isGrandTotal ? 0.85 : 1,
           }}
+          aria-hidden={!row.hasChildren || hideExpandIcon}
         >
           <Sparkline
             values={sparklineValues}

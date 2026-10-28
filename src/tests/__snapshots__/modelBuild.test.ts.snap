@@ -1,0 +1,5 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`buildMatrixModel output is stable large matrix 1`] = `"4081r/147c/477225v/b33398318cd2"`;
+
+exports[`buildMatrixModel output is stable small matrix 1`] = `"29r/20c/460v/eef40b14b6d2"`;

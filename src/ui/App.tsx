@@ -1,15 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import powerbi from "powerbi-visuals-api";
-import { MatrixModel, CellValue } from "../model/pivot";
+import { MatrixModel, getCellValue } from "../model/pivot";
 import { VisualSettings } from "../settings/settings";
 import { SortConfig, SortDirection, toggleSortDirection, sortFlattenedRows, sortFlattenedRowsMulti } from "../model/sorting";
 import { SelectionManagerWrapper, SelectionState, updateSelectionState } from "../powerbi/selection";
 import { Matrix } from "./Matrix";
 import { EmptyState } from "./EmptyState";
-import { exportToCSV } from "../export/csv";
+import { buildCSVContent, exportToCSV } from "../export/csv";
 import { exportToXLSX } from "../export/xlsx";
 import { exportToPDF } from "../export/pdf";
 import { exportToJSON } from "../export/json";
+import { copyTextToClipboard, ExportDownloadBlockedError, ExportOutcome } from "../export/download";
+import { StatusMessage } from "./accessibility";
 import { TooltipServiceWrapper } from "../powerbi/tooltip";
 import { createQuickCalcView } from "../analytics/quickCalcs";
 import { Ribbon, RibbonTab, RowInsertAction, ToolbarMode } from "./Ribbon";
@@ -37,6 +39,7 @@ import { ThemeGallery } from "./ThemeGallery";
 import { HeaderOptionsPanel } from "./HeaderOptionsPanel";
 import { TitleBar } from "./TitleBar";
 import { getNodeAndDescendantKeys } from "../model/tree";
+import { applyAggregationOverrides } from "../model/aggregationOverrides";
 import { generateCalcRowId } from "../calculations/calculatedRows";
 
 export interface AppProps {
@@ -63,6 +66,9 @@ export interface AppProps {
   onDrillColumnToLevel: (level: number) => void;
   onExpandAllUnder: (nodeKey: string) => void;
   onCollapseAllUnder: (nodeKey: string) => void;
+  downloadService?: powerbi.extensibility.IDownloadService;
+  /** True while Power BI is still streaming further data segments. */
+  isLoadingMoreData?: boolean;
 }
 
 type QuickInsertedRowKind = Exclude<RowInsertAction, "panel">;
@@ -128,6 +134,7 @@ function createQuickInsertedRow(kind: QuickInsertedRowKind, order: number): Inse
 
 export const App: React.FC<AppProps> = ({
   model,
+  isLoadingMoreData = false,
   settings,
   selectionManager,
   tooltipService,
@@ -252,6 +259,8 @@ export const App: React.FC<AppProps> = ({
 
   // New panel states
   const [sortPanelOpen, setSortPanelOpen] = useState(false);
+  // Bumped by the Ribbon's Find button; Matrix opens its Find panel on change.
+  const [findRequest, setFindRequest] = useState(0);
   const [smartAnalysisOpen, setSmartAnalysisOpen] = useState(false);
   const [goalSeekOpen, setGoalSeekOpen] = useState(false);
   const [variablesPanelOpen, setVariablesPanelOpen] = useState(false);
@@ -449,7 +458,7 @@ export const App: React.FC<AppProps> = ({
           return rules.every(rule => {
             // At least one leaf cell for this measure must satisfy
             return leafCols.some(col => {
-              const cell = model.cellMap.get(`${row.key}__${col.key}__${rule.measureIndex}`);
+              const cell = getCellValue(model.cellMap, row.key, col.key, rule.measureIndex);
               return cell ? evalRule(cell.value, rule) : false;
             });
           });
@@ -470,13 +479,14 @@ export const App: React.FC<AppProps> = ({
           const dataRows = rows.filter(r => !r.isSubtotal && !r.isGrandTotal && !(r as any).isCalculatedRow);
           const otherRows = rows.filter(r => r.isSubtotal || r.isGrandTotal || (r as any).isCalculatedRow);
           const scored = dataRows.map(row => {
-            const cell = model.cellMap.get(`${row.key}__${firstLeafCol.key}__${mi}`);
+            const cell = getCellValue(model.cellMap, row.key, firstLeafCol.key, mi);
             return { row, score: cell?.value ?? 0 };
           });
           scored.sort((a, b) => direction === "top" ? (b.score - a.score) : (a.score - b.score));
           const selected = scored.slice(0, n).map(s => s.row);
           const selectedSet = new Set(selected.map(r => r.key));
-          rows = rows.filter(r => selectedSet.has(r.key) || otherRows.includes(r));
+          const otherRowSet = new Set(otherRows);
+          rows = rows.filter(r => selectedSet.has(r.key) || otherRowSet.has(r));
         }
       }
     } catch { /* ignore parse errors */ }
@@ -591,52 +601,18 @@ export const App: React.FC<AppProps> = ({
     // Apply aggregation overrides to total/subtotal cells
     if (Object.keys(aggregationOverrides).length === 0) return base;
 
-    const patchedCellMap = new Map<string, CellValue>();
-    for (const v of base.cellMap.values()) {
-      const key = `${v.rowKey}__${v.colKey}__${v.measureIndex}`;
-      patchedCellMap.set(key, v);
-    }
-    const leafRows = displayRows.filter(r => !r.isSubtotal && !r.isGrandTotal && !r.key.startsWith("__group__"));
-    const totalRows = displayRows.filter(r => r.isSubtotal || r.isGrandTotal);
-
-    for (const totalRow of totalRows) {
-      for (const col of model.flattenedColumns) {
-        for (const measure of base.measures) {
-          const override = aggregationOverrides[measure.index];
-          if (!override || override === "sum") continue; // sum is the default
-
-          // Collect leaf values for this column+measure
-          const values: number[] = [];
-          for (const leafRow of leafRows) {
-            const key = `${leafRow.key}__${col.key}__${measure.index}`;
-            const cell = base.cellMap.get(key);
-            if (cell && cell.value !== null) values.push(cell.value);
-          }
-          if (values.length === 0) continue;
-
-          let newValue: number | null = null;
-          switch (override) {
-            case "avg": newValue = values.reduce((a, b) => a + b, 0) / values.length; break;
-            case "min": newValue = Math.min(...values); break;
-            case "max": newValue = Math.max(...values); break;
-            case "count": newValue = values.length; break;
-            case "none": newValue = null; break;
-            default: newValue = values.reduce((a, b) => a + b, 0);
-          }
-
-          const cellKey = `${totalRow.key}__${col.key}__${measure.index}`;
-          const existing = base.cellMap.get(cellKey);
-          patchedCellMap.set(cellKey, {
-            ...(existing ?? { measureIndex: measure.index, rowKey: totalRow.key, colKey: col.key }),
-            value: newValue,
-            formattedValue: newValue !== null ? String(Math.round(newValue * 100) / 100) : "",
-          });
-        }
-      }
-    }
-
-    return { ...base, cellMap: patchedCellMap as unknown as import("../analytics/quickCalcs").CellMapLike };
-  }, [displayRows, model.flattenedColumns, model.cellMap, model.measures, settings.quickCalcs, aggregationOverrides]);
+    return {
+      ...base,
+      cellMap: applyAggregationOverrides(
+        base.cellMap,
+        displayRows,
+        model.flattenedColumns,
+        base.measures,
+        model.fullRowTree ?? model.rowTree,
+        aggregationOverrides
+      ),
+    };
+  }, [displayRows, model.flattenedColumns, model.cellMap, model.measures, model.fullRowTree, model.rowTree, settings.quickCalcs, aggregationOverrides]);
 
   const handleSort = useCallback((columnKey: string, measureIndex: number) => {
     if (!allowInteractions) return;
@@ -687,29 +663,77 @@ export const App: React.FC<AppProps> = ({
     onCollapseAllUnder(nodeKey);
   }, [onCollapseAllUnder]);
 
-  const handleExportCSV = useCallback(() => {
+  const [exportNotice, setExportNotice] = useState<{
+    type: "info" | "success" | "warning" | "error";
+    message: string;
+    action?: { label: string; run: () => void };
+  } | null>(null);
+
+  useEffect(() => {
+    if (!exportNotice || exportNotice.type === "warning" || exportNotice.type === "error" || exportNotice.message.endsWith("…")) return undefined;
+    const timer = setTimeout(() => setExportNotice(null), 6000);
+    return () => clearTimeout(timer);
+  }, [exportNotice]);
+
+  const exportBaseName = useMemo(() => {
+    const title = effectiveSettings.title.show ? String(effectiveSettings.title.text || "") : "";
+    const slug = title.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+    return slug || "matrix-export";
+  }, [effectiveSettings.title.show, effectiveSettings.title.text]);
+
+  const copyCsvFallback = useCallback(async (text: string) => {
+    const copied = await copyTextToClipboard(text);
+    setExportNotice(copied
+      ? { type: "success", message: "Data copied to the clipboard as CSV. Paste it into Excel or another app." }
+      : { type: "error", message: "The clipboard isn’t available here either. Ask a Power BI admin to allow downloads from custom visuals." });
+  }, []);
+
+  /**
+   * Runs an export and reports the outcome. When the host blocks downloads,
+   * the user gets the reason and can still copy the data as CSV.
+   */
+  const runExport = useCallback(async (label: string, run: () => Promise<ExportOutcome>) => {
     if (!allowInteractions) return;
-    console.log("MatrixPro: Exporting to CSV...");
-    exportToCSV(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
-  }, [displayRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
+    setExportNotice({ type: "info", message: `Preparing ${label} export…` });
+    // Let the notice paint before the export work starts.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    try {
+      const outcome = await run();
+      setExportNotice(outcome.completed
+        ? { type: "success", message: `${label} export saved as ${outcome.filename}.` }
+        : { type: "info", message: `${label} export was cancelled.` });
+    } catch (error) {
+      const csvFallback = () => buildCSVContent(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, effectiveSettings, model.rowLevelNames);
+      if (error instanceof ExportDownloadBlockedError) {
+        setExportNotice({
+          type: "warning",
+          message: error.userMessage,
+          action: error.reason === "tooLarge"
+            ? undefined
+            : { label: "Copy data to clipboard", run: () => { void copyCsvFallback(error.canCopyToClipboard ? error.content.replace(/^\uFEFF/, "") : csvFallback()); } },
+        });
+      } else {
+        console.error(`MatrixPro: ${label} export failed`, error);
+        setExportNotice({ type: "error", message: `${label} export failed: ${error instanceof Error ? error.message : String(error)}` });
+      }
+    }
+  }, [allowInteractions, copyCsvFallback, displayRows, model.flattenedColumns, model.rowLevelNames, quickCalcView, effectiveSettings]);
+
+  const handleExportCSV = useCallback(() => {
+    void runExport("CSV", () => exportToCSV(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, effectiveSettings, model.rowLevelNames, `${exportBaseName}.csv`));
+  }, [runExport, displayRows, model.flattenedColumns, model.rowLevelNames, quickCalcView, effectiveSettings, exportBaseName]);
 
   const handleExportXLSX = useCallback(() => {
-    if (!allowInteractions) return;
-    console.log("MatrixPro: Exporting to XLSX...");
-    exportToXLSX(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
-  }, [displayRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
+    void runExport("Excel", () => exportToXLSX(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, effectiveSettings, model.rowLevelNames, `${exportBaseName}.xlsx`));
+  }, [runExport, displayRows, model.flattenedColumns, model.rowLevelNames, quickCalcView, effectiveSettings, exportBaseName]);
 
   const handleExportPDF = useCallback(() => {
-    if (!allowInteractions) return;
-    console.log("MatrixPro: Exporting to PDF...");
-    exportToPDF(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
-  }, [displayRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
+    void runExport("PDF", () => exportToPDF(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, effectiveSettings, model.rowLevelNames, `${exportBaseName}.pdf`));
+  }, [runExport, displayRows, model.flattenedColumns, model.rowLevelNames, quickCalcView, effectiveSettings, exportBaseName]);
 
   const handleExportJSON = useCallback(() => {
-    if (!allowInteractions) return;
-    console.log("MatrixPro: Exporting to JSON...");
-    exportToJSON(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, settings);
-  }, [displayRows, model.flattenedColumns, quickCalcView, settings, allowInteractions]);
+    void runExport("JSON", () => exportToJSON(displayRows, model.flattenedColumns, quickCalcView.cellMap, quickCalcView.measures, effectiveSettings, model.rowLevelNames, `${exportBaseName}.json`));
+  }, [runExport, displayRows, model.flattenedColumns, model.rowLevelNames, quickCalcView, effectiveSettings, exportBaseName]);
 
   const openSmartAnalysis = useCallback(() => {
     if (!allowInteractions) return;
@@ -845,8 +869,10 @@ export const App: React.FC<AppProps> = ({
   }) => {
     try {
       const currentRows = JSON.parse(settings.calculations.rows || "[]");
+      const existingRow = row.id ? currentRows.find((r: any) => r.id === row.id) || {} : {};
 
       const rowDef: any = {
+        ...existingRow,
         id: row.id || `row_${Date.now()}`,
         name: row.name,
         formulaType: row.formulaType,
@@ -858,11 +884,11 @@ export const App: React.FC<AppProps> = ({
         style: {
           bold: row.style === "bold" || row.style === "sectionHeader",
           italic: false,
-          backgroundColor: row.style === "sectionHeader" ? "rgba(0,0,0,0.05)" : "",
-          textColor: "",
-          borderTop: "none",
-          borderBottom: row.style === "underline" ? "single" : row.style === "doubleUnderline" ? "double" : "none",
-          indentOverride: null,
+          backgroundColor: row.style === "sectionHeader" ? "rgba(0,0,0,0.05)" : (existingRow.style?.backgroundColor || ""),
+          textColor: existingRow.style?.textColor || "",
+          borderTop: existingRow.style?.borderTop || "none",
+          borderBottom: row.style === "underline" ? "single" : row.style === "doubleUnderline" ? "double" : (existingRow.style?.borderBottom || "none"),
+          indentOverride: existingRow.style?.indentOverride !== undefined ? existingRow.style.indentOverride : null,
         },
         includeInTotals: true,
         isSubtotal: row.style === "sectionHeader",
@@ -903,6 +929,10 @@ export const App: React.FC<AppProps> = ({
       console.error("Failed to delete calculated row", e);
     }
   }, [settings.calculations.rows, onPersistProperty]);
+
+  const handleRefresh = useCallback(() => {
+    window.dispatchEvent(new Event("resize"));
+  }, []);
 
   const handleEditCalcRow = useCallback((rowKey: string) => {
     const id = rowKey.startsWith("__calcrow__") ? rowKey.replace("__calcrow__", "") : null;
@@ -1226,6 +1256,7 @@ export const App: React.FC<AppProps> = ({
             onOpenManageColumnsPanel={() => setManageColumnsPanelOpen(true)}
             onOpenCondFormatPanel={() => setCondFormatPanelOpen(true)}
             onOpenSortPanel={() => setSortPanelOpen(true)}
+            onOpenFind={() => setFindRequest(n => n + 1)}
             onOpenGoalSeek={() => setGoalSeekOpen(true)}
             onOpenVariables={() => setVariablesPanelOpen(true)}
             onOpenGroupPanel={() => setGroupPanelOpen(true)}
@@ -1324,6 +1355,7 @@ export const App: React.FC<AppProps> = ({
           }}
           onCopyToClipboard={handleCopyToClipboard}
           onOpenSortPanel={() => setSortPanelOpen(true)}
+          onOpenFind={() => setFindRequest(n => n + 1)}
           onOpenGoalSeek={() => setGoalSeekOpen(true)}
           onOpenVariables={() => setVariablesPanelOpen(true)}
           onOpenGroupPanel={() => setGroupPanelOpen(true)}
@@ -1438,6 +1470,7 @@ export const App: React.FC<AppProps> = ({
               onEditCalcRow={handleEditCalcRow}
               onDeleteCalcRow={handleDeleteCalcRow}
               onToggleGroupCollapsed={handleToggleGroupCollapsed}
+              findRequest={findRequest}
             />
           </div>
         </div>
@@ -1456,6 +1489,45 @@ export const App: React.FC<AppProps> = ({
         </button>
       )}
 
+      {isLoadingMoreData && (
+        <div style={{ position: "absolute", left: 12, bottom: 36, zIndex: 5500, pointerEvents: "none", background: "var(--mx-surface, #ffffff)", borderRadius: 6, boxShadow: "0 2px 8px rgba(0, 0, 0, 0.12)" }}>
+          <StatusMessage type="info" message="Loading more data from Power BI… totals update when it finishes." />
+        </div>
+      )}
+
+      {exportNotice && (
+        <div
+          className="mx-export-notice"
+          style={{
+            position: "absolute",
+            right: 12,
+            bottom: 36,
+            zIndex: 6000,
+            maxWidth: Math.max(240, Math.min(440, width - 24)),
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            background: "var(--mx-surface, #ffffff)",
+            borderRadius: 8,
+            boxShadow: "0 6px 20px rgba(0, 0, 0, 0.18)",
+          }}
+        >
+          <StatusMessage message={exportNotice.message} type={exportNotice.type} />
+          {(exportNotice.action || exportNotice.type !== "info") && (
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, padding: "0 8px 8px" }}>
+              {exportNotice.action && (
+                <button type="button" onClick={exportNotice.action.run} style={{ fontSize: 12, padding: "4px 10px", cursor: "pointer" }}>
+                  {exportNotice.action.label}
+                </button>
+              )}
+              <button type="button" onClick={() => setExportNotice(null)} style={{ fontSize: 12, padding: "4px 10px", cursor: "pointer" }}>
+                Dismiss
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       <Footer
         rowCount={displayRows.length}
         zoomLevel={zoomLevel}
@@ -1471,6 +1543,7 @@ export const App: React.FC<AppProps> = ({
         canRedo={redoStack.length > 0}
         onUndo={handleUndo}
         onRedo={handleRedo}
+        onRefresh={handleRefresh}
         allowInteractions={allowInteractions}
         titleVisible={effectiveSettings.title.show}
         onToggleTitle={() => onPersistProperty("title", "show", !effectiveSettings.title.show)}

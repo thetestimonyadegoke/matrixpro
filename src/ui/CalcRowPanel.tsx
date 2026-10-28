@@ -746,6 +746,76 @@ const RowDetailForm: React.FC<RowDetailFormProps> = ({ row, sourceRows, measures
               Include in column totals
             </label>
           </div>
+
+          <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+            <div style={{ ...sectionStyle, flex: 1 }}>
+              <label style={labelStyle}>Scaling Factor</label>
+              <select
+                style={selectStyle}
+                value={(row as any).scalingFactor ?? "none"}
+                onChange={e => onChange({ scalingFactor: e.target.value as any })}
+              >
+                <option value="none">None</option>
+                <option value="thousands">Thousands</option>
+                <option value="millions">Millions</option>
+                <option value="billions">Billions</option>
+                <option value="trillions">Trillions</option>
+                <option value="auto">Auto</option>
+              </select>
+            </div>
+            <div style={{ ...sectionStyle, flex: 1 }}>
+              <label style={labelStyle}>Quick Format</label>
+              <select
+                style={selectStyle}
+                value={(row as any).quickFormat ?? "none"}
+                onChange={e => onChange({ quickFormat: e.target.value as any })}
+              >
+                <option value="none">None</option>
+                <option value="number">Number</option>
+                <option value="currency">Currency</option>
+                <option value="percentage">Percentage</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ ...sectionStyle, flex: 1 }}>
+              <label style={labelStyle}>Number Format</label>
+              <select
+                style={selectStyle}
+                value={(row as any).numberFormat ?? ""}
+                onChange={e => onChange({ numberFormat: e.target.value })}
+              >
+                <option value="">General</option>
+                <option value="#,##0">Number</option>
+                <option value="#,##0.00">Number, 2 decimals</option>
+                <option value="$#,##0.00">Currency</option>
+                <option value="0.0%">Percentage</option>
+              </select>
+            </div>
+            <div style={{ ...sectionStyle, flex: 1 }}>
+              <label style={labelStyle}>Decimals</label>
+              <input
+                type="number"
+                min={0}
+                max={8}
+                style={inputStyle}
+                value={(row as any).decimals ?? 1}
+                onChange={e => onChange({ decimals: Math.max(0, Math.min(8, Number(e.target.value) || 0)) })}
+              />
+            </div>
+          </div>
+
+          <div style={sectionStyle}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#374151" }}>
+              <input
+                type="checkbox"
+                checked={!!(row as any).overrideColumnFormat}
+                onChange={e => onChange({ overrideColumnFormat: e.target.checked })}
+              />
+              Override column formatting
+            </label>
+          </div>
         </>
       )}
 

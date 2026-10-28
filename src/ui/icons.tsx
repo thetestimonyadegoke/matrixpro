@@ -242,6 +242,13 @@ export const IconFilter: React.FC<IconProps> = (props) => (
   </Svg>
 );
 
+export const IconSearch: React.FC<IconProps> = (props) => (
+  <Svg {...props}>
+    <circle {...stroke} cx="7" cy="7" r="4.5" />
+    <path {...stroke} d="M10.5 10.5L14 14" />
+  </Svg>
+);
+
 export const IconNote: React.FC<IconProps> = (props) => (
   <Svg {...props}>
     <path {...stroke} d="M4 2.5h8a1.5 1.5 0 011.5 1.5v9A1.5 1.5 0 0112 14.5H4A1.5 1.5 0 012.5 13V4A1.5 1.5 0 014 2.5z" />

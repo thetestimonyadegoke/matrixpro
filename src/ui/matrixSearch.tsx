@@ -1,19 +1,27 @@
 /**
  * Matrix Search and Find Component
- * Provides Excel-like search functionality within the matrix
+ * Provides Excel-like Find (Ctrl+F) over row labels and displayed cell text.
+ *
+ * The matching logic (`findMatches`, `textMatches`) is pure so it can be unit
+ * tested; the grid supplies the text each row/cell shows on screen through a
+ * `SearchTarget`, so matches always reflect what the user sees.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { CellValue } from '../model/pivot';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { FlattenedNode } from '../model/tree';
+import { CellValue } from '../model/pivot';
+import { GridColumn } from '../model/gridColumns';
+import { VisualSettings } from '../settings/settings';
+import { CalcRowFormat, resolveCalcRowFormat, resolveCellDisplay } from '../format/cellDisplay';
+import { parseColFormats, parseRowFormats } from '../format/directFormats';
+import { parseJsonObjectCached } from '../utils/jsonCache';
+import { getRowDisplayLabel } from './RowHeader';
 
 export interface SearchOptions {
   caseSensitive: boolean;
   matchWholeWord: boolean;
   searchInValues: boolean;
   searchInLabels: boolean;
-  searchInFormulas: boolean;
-  direction: 'forward' | 'backward';
 }
 
 export const DEFAULT_SEARCH_OPTIONS: SearchOptions = {
@@ -21,47 +29,197 @@ export const DEFAULT_SEARCH_OPTIONS: SearchOptions = {
   matchWholeWord: false,
   searchInValues: true,
   searchInLabels: true,
-  searchInFormulas: true,
-  direction: 'forward',
 };
+
+/** Upper bound on collected matches so a one-character search on a huge grid stays responsive. */
+export const MAX_SEARCH_RESULTS = 5000;
 
 export interface SearchResult {
   rowKey: string;
-  colKey: string;
-  measureIndex: number;
+  /** Index into the flattened rows array (drives vertical scrolling). */
   rowIndex: number;
-  colIndex: number;
-  value: string;
-  type: 'value' | 'label' | 'formula';
+  /** Grid column key, or null for a row-label match. */
+  colKey: string | null;
+  measureIndex: number | null;
+  /** Index into the grid columns array, or -1 for a row-label match. */
+  gridColIndex: number;
+  /** The displayed text that matched. */
+  text: string;
+  type: 'label' | 'value';
 }
+
+/** What the grid shows, as seen by the search. */
+export interface SearchTarget {
+  rows: FlattenedNode[];
+  gridColumns: GridColumn[];
+  getRowLabel: (row: FlattenedNode) => string;
+  getCellText: (row: FlattenedNode, gridCol: GridColumn) => string;
+}
+
+const WORD_CHAR = /[\p{L}\p{N}_]/u;
+
+/** True when `term` occurs in `text` under the given case / whole-word options. */
+export function textMatches(text: string, term: string, options: Pick<SearchOptions, 'caseSensitive' | 'matchWholeWord'>): boolean {
+  if (!term || !text) return false;
+  const haystack = options.caseSensitive ? text : text.toLowerCase();
+  const needle = options.caseSensitive ? term : term.toLowerCase();
+  if (!options.matchWholeWord) return haystack.includes(needle);
+
+  let from = 0;
+  for (;;) {
+    const idx = haystack.indexOf(needle, from);
+    if (idx < 0) return false;
+    const before = idx > 0 ? haystack[idx - 1] : '';
+    const after = haystack[idx + needle.length] ?? '';
+    if (!(before && WORD_CHAR.test(before)) && !(after && WORD_CHAR.test(after))) return true;
+    from = idx + 1;
+  }
+}
+
+/**
+ * All matches in display order: row by row, the row label first and then
+ * each grid column left to right. Spacer rows (blank / divider) are skipped
+ * and group header rows only expose their label, mirroring what the grid renders.
+ */
+export function findMatches(
+  target: SearchTarget,
+  term: string,
+  options: SearchOptions,
+  limit: number = MAX_SEARCH_RESULTS
+): SearchResult[] {
+  const results: SearchResult[] = [];
+  if (!term.trim()) return results;
+
+  const { rows, gridColumns, getRowLabel, getCellText } = target;
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex];
+    if (row.calcRowKind === 'blank' || row.calcRowKind === 'divider') continue;
+
+    if (options.searchInLabels) {
+      const label = getRowLabel(row);
+      if (textMatches(label, term, options)) {
+        results.push({ rowKey: row.key, rowIndex, colKey: null, measureIndex: null, gridColIndex: -1, text: label, type: 'label' });
+        if (results.length >= limit) return results;
+      }
+    }
+
+    if (!options.searchInValues || row.calcRowKind === 'group') continue;
+    for (let gridColIndex = 0; gridColIndex < gridColumns.length; gridColIndex++) {
+      const gridCol = gridColumns[gridColIndex];
+      const text = getCellText(row, gridCol);
+      if (textMatches(text, term, options)) {
+        results.push({
+          rowKey: row.key,
+          rowIndex,
+          colKey: gridCol.col.key,
+          measureIndex: gridCol.measureIndex,
+          gridColIndex,
+          text,
+          type: 'value',
+        });
+        if (results.length >= limit) return results;
+      }
+    }
+  }
+  return results;
+}
+
+/** Placeholder the grid shows for a missing value; never a search hit. */
+const MISSING_CELL_TEXT = '—';
+
+/**
+ * Search target over the live grid: row labels as the row header renders
+ * them and cell text from `resolveCellDisplay` (the same path Row.tsx and
+ * the exporters use), so matches are exactly what is on screen.
+ */
+export function createGridSearchTarget(
+  rows: FlattenedNode[],
+  gridColumns: GridColumn[],
+  cellMap: { get: (key: string) => CellValue | undefined },
+  settings: VisualSettings,
+  labelOverrides?: Record<string, string>
+): SearchTarget {
+  const colFormats = parseColFormats(settings.manualData.colFormats);
+  const rowFormats = parseRowFormats(settings.manualData.rowFormats);
+  const manualEdits = parseJsonObjectCached<Record<string, unknown>>(settings.manualData.edits);
+  const calcRowFormats = new Map<string, CalcRowFormat | null>();
+
+  return {
+    rows,
+    gridColumns,
+    getRowLabel: row => getRowDisplayLabel(row, settings, labelOverrides),
+    getCellText: (row, gridCol) => {
+      let calcRowFormat = calcRowFormats.get(row.key);
+      if (calcRowFormat === undefined) {
+        calcRowFormat = resolveCalcRowFormat(row.key, settings.calculations.rows);
+        calcRowFormats.set(row.key, calcRowFormat);
+      }
+      const thisRowFormat = rowFormats[row.key]
+        || (row.calcRowDefId ? rowFormats[`__calcrow__${row.calcRowDefId}`] || rowFormats[row.calcRowDefId] : undefined);
+      const { displayFormatted } = resolveCellDisplay({
+        row,
+        gridCol,
+        cellMap,
+        settings,
+        manualEdits,
+        colFormats,
+        thisRowFormat,
+        calcRowFormat,
+      });
+      return displayFormatted === MISSING_CELL_TEXT ? '' : displayFormatted;
+    },
+  };
+}
+
+/** Index of the next / previous result, wrapping around. -1 when there are no results. */
+export function stepResultIndex(current: number, count: number, direction: 'next' | 'prev'): number {
+  if (count <= 0) return -1;
+  if (current < 0 || current >= count) return direction === 'next' ? 0 : count - 1;
+  return direction === 'next' ? (current + 1) % count : (current - 1 + count) % count;
+}
+
+/** True when keyboard focus is in a text-entry control that should keep its own shortcuts. */
+export function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || typeof el.closest !== 'function') return false;
+  return !!el.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"]');
+}
+
+/** Ctrl/Cmd+F without Shift/Alt (Ctrl+Shift+F etc. stay free for other uses). */
+export function isFindShortcut(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>): boolean {
+  return (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'f' || e.key === 'F');
+}
+
+const PANEL_BORDER = 'var(--matrix-border-color, var(--mx-border, #e0e0e0))';
+const PANEL_TEXT_MUTED = 'var(--matrix-text-muted, var(--mx-text-muted, #8a8a8a))';
+const PANEL_BUTTON_BG = 'var(--matrix-bg-secondary, var(--mx-surface-subtle, #f5f5f5))';
 
 interface MatrixSearchProps {
   isOpen: boolean;
   onClose: () => void;
-  rows: FlattenedNode[];
-  columns: FlattenedNode[];
-  measures: { index: number; name: string }[];
-  cellMap: { get: (key: string) => CellValue | undefined };
-  currentPosition?: { rowKey: string; colKey: string; measureIndex: number };
-  onNavigateToResult: (result: SearchResult) => void;
+  target: SearchTarget;
+  onNavigateToResult: (result: SearchResult | null) => void;
+  /** Debounce before re-running the search after typing (ms). */
+  debounceMs?: number;
 }
 
 export const MatrixSearch: React.FC<MatrixSearchProps> = ({
   isOpen,
   onClose,
-  rows,
-  columns,
-  measures,
-  cellMap,
-  currentPosition: _currentPosition,
+  target,
   onNavigateToResult,
+  debounceMs = 200,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedTerm, setDebouncedTerm] = useState('');
   const [options, setOptions] = useState<SearchOptions>(DEFAULT_SEARCH_OPTIONS);
-  const [results, setResults] = useState<SearchResult[]>([]);
   const [currentResultIndex, setCurrentResultIndex] = useState(-1);
-  const [isSearching, setIsSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Keep the latest callback without making it a dependency of the search
+  // effects (parents often pass an inline function).
+  const navigateRef = useRef(onNavigateToResult);
+  navigateRef.current = onNavigateToResult;
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -70,145 +228,92 @@ export const MatrixSearch: React.FC<MatrixSearchProps> = ({
     }
   }, [isOpen]);
 
-  // Handle keyboard shortcuts
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isOpen) return;
-      
-      if (e.key === 'Escape') {
-        onClose();
-      } else if (e.key === 'Enter' && e.shiftKey) {
-        e.preventDefault();
-        navigateResult('prev');
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        navigateResult('next');
-      } else if (e.key === 'F3' || (e.key === 'g' && e.ctrlKey)) {
-        e.preventDefault();
-        navigateResult(e.shiftKey ? 'prev' : 'next');
-      }
-    };
+    const timer = setTimeout(() => setDebouncedTerm(searchTerm), debounceMs);
+    return () => clearTimeout(timer);
+  }, [searchTerm, debounceMs]);
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, results, currentResultIndex, onClose]);
+  const results = useMemo(
+    () => (isOpen ? findMatches(target, debouncedTerm, options) : []),
+    [isOpen, target, debouncedTerm, options]
+  );
 
-  const performSearch = useCallback(() => {
-    if (!searchTerm.trim()) {
-      setResults([]);
-      setCurrentResultIndex(-1);
-      return;
+  // A new query (or reopening) jumps to the first match; a data refresh
+  // with the same query only keeps the current index in range.
+  const lastQueryRef = useRef<{ term: string; options: SearchOptions; open: boolean } | null>(null);
+  useEffect(() => {
+    const last = lastQueryRef.current;
+    const queryChanged = !last || last.term !== debouncedTerm || last.options !== options || last.open !== isOpen;
+    lastQueryRef.current = { term: debouncedTerm, options, open: isOpen };
+    if (!isOpen) return;
+    if (queryChanged) {
+      const next = results.length > 0 ? 0 : -1;
+      setCurrentResultIndex(next);
+      navigateRef.current(next >= 0 ? results[0] : null);
+    } else {
+      setCurrentResultIndex(idx => (idx >= results.length ? results.length - 1 : idx));
     }
-
-    setIsSearching(true);
-    
-    const searchResults: SearchResult[] = [];
-    const term = options.caseSensitive ? searchTerm : searchTerm.toLowerCase();
-
-    // Search in row labels
-    if (options.searchInLabels) {
-      rows.forEach((row, rowIndex) => {
-        const label = options.caseSensitive ? row.label : row.label.toLowerCase();
-        if (options.matchWholeWord ? label === term : label.includes(term)) {
-          searchResults.push({
-            rowKey: row.key,
-            colKey: columns[0]?.key || '',
-            measureIndex: 0,
-            rowIndex,
-            colIndex: 0,
-            value: row.label,
-            type: 'label',
-          });
-        }
-      });
-    }
-
-    // Search in cell values and formulas
-    rows.forEach((row, rowIndex) => {
-      columns.forEach((col, colIndex) => {
-        measures.forEach((measure, _measureIndex) => {
-          const cellKey = `${row.key}|${col.key}|${measure.index}`;
-          const cell = cellMap.get(cellKey);
-          
-          if (!cell) return;
-
-          // Search in values
-          if (options.searchInValues && cell.value !== null && cell.value !== undefined) {
-            const value = String(cell.value);
-            const compareValue = options.caseSensitive ? value : value.toLowerCase();
-            if (options.matchWholeWord ? compareValue === term : compareValue.includes(term)) {
-              searchResults.push({
-                rowKey: row.key,
-                colKey: col.key,
-                measureIndex: measure.index,
-                rowIndex,
-                colIndex,
-                value,
-                type: 'value',
-              });
-            }
-          }
-
-          // Search in formatted values (display)
-          if (options.searchInValues && cell.formattedValue) {
-            const formatted = options.caseSensitive 
-              ? cell.formattedValue 
-              : cell.formattedValue.toLowerCase();
-            if (options.matchWholeWord ? formatted === term : formatted.includes(term)) {
-              // Only add if not already added as raw value
-              const alreadyAdded = searchResults.some(
-                r => r.rowKey === row.key && r.colKey === col.key && r.measureIndex === measure.index
-              );
-              if (!alreadyAdded) {
-                searchResults.push({
-                  rowKey: row.key,
-                  colKey: col.key,
-                  measureIndex: measure.index,
-                  rowIndex,
-                  colIndex,
-                  value: cell.formattedValue,
-                  type: 'value',
-                });
-              }
-            }
-          }
-        });
-      });
-    });
-
-    setResults(searchResults);
-    setCurrentResultIndex(searchResults.length > 0 ? 0 : -1);
-    setIsSearching(false);
-
-    // Auto-navigate to first result
-    if (searchResults.length > 0) {
-      onNavigateToResult(searchResults[0]);
-    }
-  }, [searchTerm, options, rows, columns, measures, cellMap, onNavigateToResult]);
+  }, [results, debouncedTerm, options, isOpen]);
 
   const navigateResult = useCallback((direction: 'next' | 'prev') => {
     if (results.length === 0) return;
-
-    let newIndex: number;
-    if (direction === 'next') {
-      newIndex = currentResultIndex + 1;
-      if (newIndex >= results.length) newIndex = 0;
-    } else {
-      newIndex = currentResultIndex - 1;
-      if (newIndex < 0) newIndex = results.length - 1;
-    }
-
+    const newIndex = stepResultIndex(currentResultIndex, results.length, direction);
     setCurrentResultIndex(newIndex);
-    onNavigateToResult(results[newIndex]);
-  }, [results, currentResultIndex, onNavigateToResult]);
+    navigateRef.current(results[newIndex]);
+  }, [results, currentResultIndex]);
 
-  // Debounced search
-  useEffect(() => {
-    const timer = setTimeout(performSearch, 300);
-    return () => clearTimeout(timer);
-  }, [searchTerm, options, performSearch]);
+  // Keys are handled on the panel itself (not the document) so Enter/Escape
+  // elsewhere in the visual keep their normal meaning.
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    } else if (e.key === 'Enter' || e.key === 'F3') {
+      if (e.key === 'Enter' && e.target !== inputRef.current) return; // let buttons/checkboxes activate
+      e.preventDefault();
+      e.stopPropagation();
+      navigateResult(e.shiftKey ? 'prev' : 'next');
+    } else if (isFindShortcut(e.nativeEvent)) {
+      // Ctrl+F while open re-selects the query instead of opening the browser's find.
+      e.preventDefault();
+      e.stopPropagation();
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [navigateResult, onClose]);
 
   if (!isOpen) return null;
+
+  const isPending = searchTerm !== debouncedTerm;
+  const capped = results.length >= MAX_SEARCH_RESULTS;
+  const countLabel = !debouncedTerm.trim()
+    ? ''
+    : results.length > 0
+      ? `${currentResultIndex + 1} of ${results.length}${capped ? '+' : ''}`
+      : 'No results';
+
+  const checkbox = (key: keyof SearchOptions, label: string) => (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+      <input
+        type="checkbox"
+        checked={options[key]}
+        onChange={(e) => setOptions({ ...options, [key]: e.target.checked })}
+      />
+      {label}
+    </label>
+  );
+
+  const navButtonStyle = (enabled: boolean): React.CSSProperties => ({
+    padding: '4px 10px',
+    backgroundColor: PANEL_BUTTON_BG,
+    color: 'inherit',
+    border: `1px solid ${PANEL_BORDER}`,
+    borderRadius: 4,
+    cursor: enabled ? 'pointer' : 'not-allowed',
+    opacity: enabled ? 1 : 0.5,
+    fontSize: 12,
+  });
 
   return (
     <div
@@ -216,177 +321,134 @@ export const MatrixSearch: React.FC<MatrixSearchProps> = ({
       style={{
         position: 'absolute',
         top: 8,
-        right: 8,
-        width: 380,
-        backgroundColor: 'var(--matrix-bg-primary)',
-        border: '1px solid var(--matrix-border-color)',
+        right: 16,
+        width: 340,
+        maxWidth: 'calc(100% - 32px)',
+        boxSizing: 'border-box',
+        backgroundColor: 'var(--matrix-bg-primary, var(--mx-surface, #ffffff))',
+        color: 'var(--matrix-text-primary, var(--mx-text, #1a1a1a))',
+        fontFamily: 'var(--mx-font-family, inherit)',
+        border: `1px solid ${PANEL_BORDER}`,
         borderRadius: 8,
-        boxShadow: 'var(--matrix-shadow-lg)',
+        boxShadow: 'var(--matrix-shadow-lg, var(--mx-shadow-elevated, 0 8px 24px rgba(0, 0, 0, 0.16)))',
         zIndex: 1000,
-        padding: 16,
+        padding: 12,
       }}
       role="search"
       aria-label="Find in matrix"
+      onKeyDown={handleKeyDown}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <input
           ref={inputRef}
           type="text"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Find..."
+          placeholder="Find in labels and values..."
           style={{
             flex: 1,
-            padding: '8px 12px',
-            border: '1px solid var(--matrix-border-color)',
+            minWidth: 0,
+            padding: '6px 10px',
+            border: `1px solid ${PANEL_BORDER}`,
             borderRadius: 4,
-            fontSize: 14,
-            outline: 'none',
+            fontSize: 13,
+            background: 'transparent',
+            color: 'inherit',
           }}
           aria-label="Search term"
         />
-        <span style={{ fontSize: 12, color: 'var(--matrix-text-muted)' }}>
-          {results.length > 0 ? `${currentResultIndex + 1} of ${results.length}` : '0 results'}
+        <span
+          style={{ fontSize: 12, color: PANEL_TEXT_MUTED, whiteSpace: 'nowrap', minWidth: 60, textAlign: 'right' }}
+          role="status"
+          aria-live="polite"
+        >
+          {isPending ? '…' : countLabel}
         </span>
       </div>
 
-      {/* Options */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={options.caseSensitive}
-            onChange={(e) => setOptions({ ...options, caseSensitive: e.target.checked })}
-          />
-          Match case
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={options.matchWholeWord}
-            onChange={(e) => setOptions({ ...options, matchWholeWord: e.target.checked })}
-          />
-          Whole word
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={options.searchInValues}
-            onChange={(e) => setOptions({ ...options, searchInValues: e.target.checked })}
-          />
-          Values
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={options.searchInLabels}
-            onChange={(e) => setOptions({ ...options, searchInLabels: e.target.checked })}
-          />
-          Labels
-        </label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 8, fontSize: 12 }}>
+        {checkbox('caseSensitive', 'Match case')}
+        {checkbox('matchWholeWord', 'Whole word')}
+        {checkbox('searchInLabels', 'Labels')}
+        {checkbox('searchInValues', 'Values')}
       </div>
 
-      {/* Navigation */}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
+            type="button"
             onClick={() => navigateResult('prev')}
             disabled={results.length === 0}
-            style={{
-              padding: '6px 12px',
-              backgroundColor: 'var(--matrix-bg-secondary)',
-              border: '1px solid var(--matrix-border-color)',
-              borderRadius: 4,
-              cursor: results.length > 0 ? 'pointer' : 'not-allowed',
-              opacity: results.length > 0 ? 1 : 0.5,
-              fontSize: 12,
-            }}
+            style={navButtonStyle(results.length > 0)}
             title="Previous (Shift+Enter)"
           >
             ← Prev
           </button>
           <button
+            type="button"
             onClick={() => navigateResult('next')}
             disabled={results.length === 0}
-            style={{
-              padding: '6px 12px',
-              backgroundColor: 'var(--matrix-bg-secondary)',
-              border: '1px solid var(--matrix-border-color)',
-              borderRadius: 4,
-              cursor: results.length > 0 ? 'pointer' : 'not-allowed',
-              opacity: results.length > 0 ? 1 : 0.5,
-              fontSize: 12,
-            }}
+            style={navButtonStyle(results.length > 0)}
             title="Next (Enter)"
           >
             Next →
           </button>
         </div>
         <button
+          type="button"
           onClick={onClose}
-          style={{
-            padding: '6px 12px',
-            backgroundColor: 'transparent',
-            border: '1px solid var(--matrix-border-color)',
-            borderRadius: 4,
-            cursor: 'pointer',
-            fontSize: 12,
-          }}
+          style={{ ...navButtonStyle(true), backgroundColor: 'transparent' }}
+          title="Close (Esc)"
         >
-          Close (Esc)
+          Close
         </button>
       </div>
-
-      {isSearching && (
-        <div style={{ marginTop: 12, fontSize: 12, color: 'var(--matrix-text-muted)' }}>
-          Searching...
-        </div>
-      )}
-
-      {results.length === 0 && searchTerm && !isSearching && (
-        <div style={{ marginTop: 12, fontSize: 12, color: 'var(--matrix-text-muted)' }}>
-          No results found
-        </div>
-      )}
     </div>
   );
 };
 
-// Hook for keyboard shortcut to open search
-export function useSearchShortcut(onOpen: () => void): void {
+/**
+ * Opens search on Ctrl/Cmd+F anywhere in the document, except while the
+ * user is typing in an input (formula bar, panels, ...), which keeps its
+ * own Ctrl+F behaviour.
+ */
+export function useSearchShortcut(onOpen: () => void, enabled = true): void {
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
+
   useEffect(() => {
+    if (!enabled || typeof document === 'undefined') return undefined;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        e.preventDefault();
-        onOpen();
-      }
+      if (e.defaultPrevented || !isFindShortcut(e) || isEditableTarget(e.target)) return;
+      e.preventDefault();
+      onOpenRef.current();
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onOpen]);
+  }, [enabled]);
 }
 
 // Highlight matching text
 export function highlightText(text: string, searchTerm: string, caseSensitive = false): React.ReactNode {
   if (!searchTerm) return text;
 
-  const parts = caseSensitive
-    ? text.split(new RegExp(`(${escapeRegExp(searchTerm)})`, 'g'))
-    : text.split(new RegExp(`(${escapeRegExp(searchTerm)})`, 'gi'));
+  const parts = text.split(new RegExp(`(${escapeRegExp(searchTerm)})`, caseSensitive ? 'g' : 'gi'));
 
   return parts.map((part, i) => {
     const isMatch = caseSensitive
       ? part === searchTerm
       : part.toLowerCase() === searchTerm.toLowerCase();
-    
+
     if (isMatch) {
       return (
         <mark
           key={i}
           style={{
-            backgroundColor: 'var(--matrix-primary)',
-            color: 'white',
+            backgroundColor: 'var(--matrix-primary, var(--mx-accent, #2d74da))',
+            color: 'var(--mx-text-inverse, #ffffff)',
             padding: '0 2px',
             borderRadius: 2,
           }}
@@ -407,6 +469,7 @@ export const MatrixSearchComponent = {
   MatrixSearch,
   useSearchShortcut,
   highlightText,
+  findMatches,
   DEFAULT_SEARCH_OPTIONS,
 };
 

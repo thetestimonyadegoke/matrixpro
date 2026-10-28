@@ -315,6 +315,48 @@ export function getFormattingModel(settings: VisualSettings): powerbi.visuals.Fo
                   },
                 },
               },
+              {
+                uid: "headers_colHeaderLevel0Bg",
+                displayName: "Level 1 Header Background",
+                control: {
+                  type: powerbi.visuals.FormattingComponent.ColorPicker,
+                  properties: {
+                    descriptor: {
+                      objectName: "headers",
+                      propertyName: "colHeaderLevel0Bg",
+                    },
+                    value: { value: settings.headers.colHeaderLevel0Bg },
+                  },
+                },
+              },
+              {
+                uid: "headers_colHeaderLevel1Bg",
+                displayName: "Level 2 Header Background",
+                control: {
+                  type: powerbi.visuals.FormattingComponent.ColorPicker,
+                  properties: {
+                    descriptor: {
+                      objectName: "headers",
+                      propertyName: "colHeaderLevel1Bg",
+                    },
+                    value: { value: settings.headers.colHeaderLevel1Bg },
+                  },
+                },
+              },
+              {
+                uid: "headers_colHeaderLeafBg",
+                displayName: "Measure Header Background",
+                control: {
+                  type: powerbi.visuals.FormattingComponent.ColorPicker,
+                  properties: {
+                    descriptor: {
+                      objectName: "headers",
+                      propertyName: "colHeaderLeafBg",
+                    },
+                    value: { value: settings.headers.colHeaderLeafBg },
+                  },
+                },
+              },
             ],
           },
         ],

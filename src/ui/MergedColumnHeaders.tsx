@@ -19,6 +19,7 @@ export interface MergedColumnHeadersProps {
   sortConfig: SortConfig;
   onSort: (columnKey: string, measureIndex: number) => void;
   onContextMenu: (e: React.MouseEvent, columnKey?: string, measureIndex?: number) => void;
+  onColumnReorder?: (dragKey: string, targetKey: string) => void;
   allowInteractions: boolean;
   rowHeaderWidth: number;
   columnWidth: number;
@@ -39,6 +40,8 @@ export interface MergedColumnHeadersProps {
   gridColumns?: { key: string; col: FlattenedNode; measure: MeasureInfo; measureIndex: number }[];
   settings: VisualSettings;
   labelOverrides?: Record<string, string>;
+  /** Hierarchy field names for columns (e.g. ["Year", "Month"]). Used for corner labels. */
+  columnLevelNames?: string[];
 }
 
 interface HeaderCell {
@@ -81,6 +84,7 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
   gridColumns = [],
   settings,
   labelOverrides,
+  columnLevelNames = [],
 }) => {
   const headerRows = useMemo(() => {
     return buildMergedHeaders(columns, measures, arrangement, sortConfig, gridColumns);
@@ -114,13 +118,32 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
           {/* Fixed row header corner for all header rows */}
           <div
             className="merged-header-cell corner"
-            style={{ width: rowHeaderWidth, minWidth: rowHeaderWidth }}
+            style={{
+              width: rowHeaderWidth,
+              minWidth: rowHeaderWidth,
+              backgroundColor: (() => {
+                const isMeasureRow = arrangement === "measure-then-time" ? rowIndex === 0 : rowIndex === headerRows.length - 1;
+                if (isMeasureRow) {
+                  return settings.headers.colHeaderLeafBg || settings.headers.backgroundColor;
+                }
+                const levelIndex = arrangement === "measure-then-time" ? rowIndex - 1 : rowIndex;
+                if (levelIndex === 0 && settings.headers.colHeaderLevel0Bg) {
+                  return settings.headers.colHeaderLevel0Bg;
+                }
+                if (levelIndex === 1 && settings.headers.colHeaderLevel1Bg) {
+                  return settings.headers.colHeaderLevel1Bg;
+                }
+                return settings.headers.backgroundColor;
+              })(),
+            }}
           >
-            {rowIndex === headerRows.length - 2
-              ? "Columns"
-              : rowIndex === headerRows.length - 1
-                ? "Rows"
-                : ""}
+            {(() => {
+              const isMeasureRow = arrangement === "measure-then-time" ? rowIndex === 0 : rowIndex === headerRows.length - 1;
+              if (isMeasureRow) return "";
+              const levelIndex = arrangement === "measure-then-time" ? rowIndex - 1 : rowIndex;
+              const levelName = columnLevelNames[levelIndex];
+              return levelName || "";
+            })()}
             <div 
               className="row-header-width-resize-handle" 
               style={{
@@ -164,22 +187,63 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
                   ? resolveColumnFormat(colFormats || {}, firstSelectionParts[0], firstSelectionMeasure)
                   : undefined;
               const totalStyle = getTotalHeaderStyle(settings, cell.isSubtotal, cell.isGrandTotal);
-              const suffix = quickFormatHeaderLabel(colFmt?.quickFormat);
+              // Only show quick format suffix ("in Thousands" etc.) on leaf-level
+              // measure headers — NOT on hierarchy level headers (Year, Month)
+              const suffix = cell.isLeaf ? quickFormatHeaderLabel(colFmt?.quickFormat) : "";
               const baseLabel = (labelOverrides && (cell.columnKey ? labelOverrides[cell.columnKey] : (cell.measureIndex !== undefined ? labelOverrides[`m_${cell.measureIndex}`] : undefined))) || cell.label;
               const displayLabel = suffix ? `${baseLabel} ${suffix}` : baseLabel;
-              const headerBreakStyle = row.level === 0 && cellIndex > 0 && settings.layout.columnBreak !== "none"
-                ? settings.layout.columnBreak === "section"
-                  ? "3px double var(--mx-border, #cbd5e1)"
-                  : "2px solid var(--mx-border, #cbd5e1)"
-                : undefined;
+
+              // Resolve background color:
+              // 1. Direct column format override
+              let resolvedBg = colFmt?.backgroundColor;
+
+              // 2. Level-specific overrides
+              if (!resolvedBg) {
+                if (row.level === 0 && settings.headers.colHeaderLevel0Bg) {
+                  resolvedBg = settings.headers.colHeaderLevel0Bg;
+                } else if (row.level === 1 && settings.headers.colHeaderLevel1Bg) {
+                  resolvedBg = settings.headers.colHeaderLevel1Bg;
+                } else if (cell.isLeaf && settings.headers.colHeaderLeafBg) {
+                  resolvedBg = settings.headers.colHeaderLeafBg;
+                }
+              }
+
+              // 3. Total/Subtotal backgrounds, falling back to header background if totals are defaults
+              if (!resolvedBg) {
+                if (cell.isGrandTotal) {
+                  resolvedBg = settings.totals.grandTotalBackgroundColor !== "#d1d5db"
+                    ? settings.totals.grandTotalBackgroundColor
+                    : settings.headers.backgroundColor;
+                } else if (cell.isSubtotal) {
+                  resolvedBg = settings.totals.subtotalBackgroundColor !== "#f3f4f6"
+                    ? settings.totals.subtotalBackgroundColor
+                    : settings.headers.backgroundColor;
+                } else {
+                  // 4. General header background color fallback
+                  resolvedBg = settings.headers.backgroundColor;
+                }
+              }
+
+              const hasCustomBg = colFmt?.backgroundColor || 
+                                  settings.headers.colHeaderLevel0Bg || 
+                                  settings.headers.colHeaderLevel1Bg || 
+                                  settings.headers.colHeaderLeafBg ||
+                                  settings.headers.backgroundColor !== "#f5f5f5";
+
               const presetBackground =
-                !cell.isSubtotal && !cell.isGrandTotal && !colFmt?.backgroundColor
+                !cell.isSubtotal && !cell.isGrandTotal && !hasCustomBg
                   ? settings.layout.stylePreset === "ledger"
                     ? row.level === 0 ? "#f8fafc" : undefined
                     : settings.layout.stylePreset === "editorial"
                       ? row.level === 0 ? "#fcfaf7" : row.level === 1 ? "#fffaf0" : undefined
                       : undefined
                   : undefined;
+
+              const headerBreakStyle = row.level === 0 && cellIndex > 0 && settings.layout.columnBreak !== "none"
+                ? settings.layout.columnBreak === "section"
+                  ? "3px double var(--mx-border, #cbd5e1)"
+                  : "2px solid var(--mx-border, #cbd5e1)"
+                : undefined;
 
               // Calculate width based on underlying columns
               let currentIdx = 0;
@@ -206,7 +270,7 @@ export const MergedColumnHeaders: React.FC<MergedColumnHeadersProps> = memo(({
                   minWidth: width,
                   ...totalStyle,
                   ...(presetBackground ? { backgroundColor: presetBackground } : {}),
-                  ...(colFmt?.backgroundColor ? { backgroundColor: colFmt.backgroundColor } : {}),
+                  ...(resolvedBg ? { backgroundColor: resolvedBg } : {}),
                   ...(headerBreakStyle ? { borderLeft: headerBreakStyle } : {}),
                 }}
                 onClick={(e) => handleHeaderClick(e, cell)}
@@ -284,7 +348,7 @@ function getTotalHeaderStyle(
   return {};
 }
 
-function buildMergedHeaders(
+export function buildMergedHeaders(
   columns: FlattenedNode[],
   measures: MeasureInfo[],
   arrangement: ColumnArrangement,
@@ -382,9 +446,12 @@ function buildContiguousHeaderCells(
 
   while (index < gridColumns.length) {
     const current = gridColumns[index];
+    const pathLength = current.col.path ? current.col.path.length : 1;
     const groupPath = (current.col.path || []).slice(0, level + 1).map(value => String(value ?? ""));
     const groupKey = groupPath.join("\u0001") || current.col.key;
-    const groupLabel = groupPath[groupPath.length - 1] || current.col.label || "";
+    const groupLabel = level < pathLength
+      ? (groupPath[groupPath.length - 1] || current.col.label || "")
+      : "";
     let span = 1;
 
     while (index + span < gridColumns.length) {
@@ -462,6 +529,18 @@ function buildTimeFirstHeaders(
           level,
           isLeaf: false,
           selectionKeys: collectLegacySelectionKeys(i, columns, measures),
+          isSubtotal: col.isSubtotal,
+          isGrandTotal: col.isGrandTotal,
+        });
+      } else if (col.level < level && isVisualLeaf(col, i, columns)) {
+        // Render placeholder cell for visual leaf from a higher level to maintain layout alignment
+        cells.push({
+          key: `col-placeholder-${col.key}-${level}`,
+          label: "", // Empty placeholder
+          colSpan: measures.length,
+          level,
+          isLeaf: false,
+          selectionKeys: [],
           isSubtotal: col.isSubtotal,
           isGrandTotal: col.isGrandTotal,
         });
@@ -553,6 +632,20 @@ function buildMeasureFirstHeaders(
             sortDirection: level === maxLevel && sortConfig.columnKey === col.key && sortConfig.measureIndex === m
               ? sortConfig.direction
               : "none",
+          });
+        } else if (col.level < level && isVisualLeaf(col, i, columns)) {
+          // Render placeholder cell for visual leaf from a higher level to maintain layout alignment
+          cells.push({
+            key: `col-placeholder-${col.key}-${level}-m${m}`,
+            label: "", // Empty placeholder
+            colSpan: 1,
+            level: level + 1,
+            isLeaf: level === maxLevel,
+            columnKey: level === maxLevel ? col.key : undefined,
+            measureIndex: level === maxLevel ? m : undefined,
+            selectionKeys: [],
+            isSubtotal: col.isSubtotal,
+            isGrandTotal: col.isGrandTotal,
           });
         }
       }

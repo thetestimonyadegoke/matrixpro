@@ -63,6 +63,15 @@ export interface CalculatedRowDefinition {
   lineColor?: string;
   /** Child / group hierarchy — references the parent group's `id`. */
   parentGroupId?: string;
+  /** Row-level numeric display override. Wins over column formatting in the renderer. */
+  numberFormat?: string;
+  /** Optional decimals for row-level numeric display. */
+  decimals?: number;
+  /** Row-level quick formatting for inserted/calculated row forms. */
+  quickFormat?: "none" | "number" | "currency" | "percentage";
+  scalingFactor?: "none" | "thousands" | "millions" | "billions" | "trillions" | "auto";
+  /** When true, this row's scaling/format completely replaces column-level formatting. */
+  overrideColumnFormat?: boolean;
 }
 
 export interface CalculatedRowsConfig {
@@ -137,8 +146,8 @@ function createVirtualRowNode(
   const childIndent = (safeStyle.indentOverride ?? indent) + (kind === "child" ? 1 : 0);
   return {
     key: `__calcrow__${def.id}`,
-    label: def.name,
-    value: def.name,
+    label: kind === "blank" ? "" : def.name,
+    value: kind === "blank" ? "" : def.name,
     level: 1,
     path: [def.name],
     children: [],
@@ -253,9 +262,9 @@ function computeCalculatedRowValues(
         value,
         formattedValue: formatValue(
           value, 
-          colFmt?.numberFormat || measure.format || "", 
+          def.numberFormat || colFmt?.numberFormat || measure.format || "", 
           settings,
-          colFmt
+          def.numberFormat ? { ...colFmt, numberFormat: def.numberFormat, decimals: def.decimals } : colFmt
         ),
         measureIndex: measure.index,
         rowKey: virtualRowKey,
@@ -480,7 +489,7 @@ export function applyCalculatedRows(
       insertIndex = 0;
     } else if (targetRowKey) {
       const normalizedTargetKey = calcRowKeyById.get(targetRowKey) ?? targetRowKey;
-      let targetRow = rowKeyMap.get(normalizedTargetKey);
+      let targetRow = resultRows.find(r => r.key === normalizedTargetKey) || rowKeyMap.get(normalizedTargetKey);
       
       // If not found by key, try matching by label as a fallback
       if (!targetRow && typeof targetRowKey === "string") {
@@ -493,13 +502,18 @@ export function applyCalculatedRows(
 
       if (targetRow) {
         if (placement === "before") {
-          const idx = resultRows.findIndex(r => r.key === targetRow.key);
+          const idx = resultRows.findIndex(r => r.key === targetRow.key || r.label.toLowerCase() === targetRow.label.toLowerCase());
           if (idx >= 0) {
             insertIndex = idx;
             indent = targetRow.indent;
           }
         } else if (placement === "child") {
-          const lastDescendantIndex = findLastDescendantIndex(targetRow.key);
+          let lastDescendantIndex = findLastDescendantIndex(targetRow.key);
+          if (lastDescendantIndex < 0) {
+            const visibleTarget = resultRows.find(r => r.label.toLowerCase() === targetRow.label.toLowerCase());
+            lastDescendantIndex = visibleTarget ? findLastDescendantIndex(visibleTarget.key) : -1;
+            if (visibleTarget) targetRow = visibleTarget;
+          }
           if (lastDescendantIndex >= 0) {
             insertIndex = lastDescendantIndex + 1;
             indent = targetRow.indent + 1;
@@ -512,7 +526,12 @@ export function applyCalculatedRows(
             }
           }
         } else {
-          const idx = findLastDescendantIndex(targetRow.key);
+          let idx = findLastDescendantIndex(targetRow.key);
+          if (idx < 0) {
+            const visibleTarget = resultRows.find(r => r.label.toLowerCase() === targetRow.label.toLowerCase());
+            idx = visibleTarget ? findLastDescendantIndex(visibleTarget.key) : -1;
+            if (visibleTarget) targetRow = visibleTarget;
+          }
           if (idx >= 0) {
             insertIndex = idx + 1;
             indent = targetRow.indent;

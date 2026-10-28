@@ -69,8 +69,11 @@ export const FormulaBar = forwardRef<FormulaBarRef, FormulaBarProps>(({
       onCommit(internalValue);
       setIsEditing(false);
     } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
       onCancel();
       setIsEditing(false);
+      editorRef.current?.blur();
     }
   }, [internalValue, onCommit, onCancel]);
 
@@ -110,7 +113,19 @@ export const FormulaBar = forwardRef<FormulaBarRef, FormulaBarProps>(({
   }), [insertCellReference]);
 
   return (
-    <div className="matrix-formula-bar" onClick={handleFocus}>
+    <div
+      className="matrix-formula-bar"
+      style={{
+        display: "flex",
+        visibility: "visible",
+        opacity: 1,
+        width: "100%",
+        height: "100%",
+        minHeight: 40,
+        flexShrink: 0,
+      }}
+      onClick={handleFocus}
+    >
       <div className="formula-bar-address">
         {activeCellLabel || "A1"}
       </div>

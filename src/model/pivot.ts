@@ -13,6 +13,7 @@ import { VisualSettings } from "../settings/settings";
 import { parseCalculatedMeasures, computeCalculatedMeasures, CalculatedMeasureDefinition } from "../calculations/calculatedMeasures";
 import { applyCalculatedRows, CalculatedRowDefinition } from "../calculations/calculatedRows";
 import { FormulaEngine } from "../calculations/FormulaEngine";
+import { parseManualEditNumber } from "../utils/manualEditValue";
 
 export interface MeasureInfo {
   index: number;
@@ -258,13 +259,14 @@ function buildCellMap(
   measures: MeasureInfo[]
 ): Map<string, CellValue> {
   const cellMap = new Map<string, CellValue>();
-  traverseRowsForCells(rowRoot, columnTree, measures, cellMap, []);
+  const leafColumns = getLeafColumnsWithIndex(columnTree);
+  traverseRowsForCells(rowRoot, leafColumns, measures, cellMap, []);
   return cellMap;
 }
 
 function traverseRowsForCells(
   rowNode: powerbi.DataViewMatrixNode,
-  columnTree: TreeNode,
+  leafColumns: TreeNode[],
   measures: MeasureInfo[],
   cellMap: Map<string, CellValue>,
   rowPath: powerbi.PrimitiveValue[]
@@ -280,12 +282,12 @@ function traverseRowsForCells(
   const rowKey = generateRowKey(keyedPath as (string | number)[]);
 
   if (rowNode.values) {
-    extractCellValues(rowNode.values, rowKey, columnTree, measures, cellMap);
+    extractCellValues(rowNode.values, rowKey, leafColumns, measures, cellMap);
   }
 
   if (rowNode.children) {
     for (const child of rowNode.children) {
-      traverseRowsForCells(child, columnTree, measures, cellMap, currentRowPath as powerbi.PrimitiveValue[]);
+      traverseRowsForCells(child, leafColumns, measures, cellMap, currentRowPath as powerbi.PrimitiveValue[]);
     }
   }
 }
@@ -293,11 +295,10 @@ function traverseRowsForCells(
 function extractCellValues(
   values: { [id: number]: powerbi.DataViewMatrixNodeValue },
   rowKey: string,
-  columnTree: TreeNode,
+  leafColumns: TreeNode[],
   measures: MeasureInfo[],
   cellMap: Map<string, CellValue>
 ): void {
-  const leafColumns = getLeafColumnsWithIndex(columnTree);
 
   for (const [valueIndex, nodeValue] of Object.entries(values)) {
     const idx = parseInt(valueIndex, 10);
@@ -337,8 +338,208 @@ function getLeafColumnsWithIndex(node: TreeNode): TreeNode[] {
   return leaves;
 }
 
+// Number#toLocaleString with an options bag constructs a new Intl.NumberFormat
+// on every call, which dominated model-build time (one call per cell). These
+// cached instances produce identical output.
+let defaultNumberFormat: Intl.NumberFormat | null = null;
+let twoDecimalNumberFormat: Intl.NumberFormat | null = null;
+let integerNumberFormat: Intl.NumberFormat | null = null;
+
+function formatDefault(value: number): string {
+  if (!defaultNumberFormat) defaultNumberFormat = new Intl.NumberFormat();
+  return defaultNumberFormat.format(value);
+}
+
+function formatTwoDecimals(value: number): string {
+  if (!twoDecimalNumberFormat) {
+    twoDecimalNumberFormat = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  return twoDecimalNumberFormat.format(value);
+}
+
+function formatInteger(value: number): string {
+  if (!integerNumberFormat) integerNumberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+  return integerNumberFormat.format(value);
+}
+
+const numberFormatCache = new Map<string, Intl.NumberFormat>();
+
+/** Cached default-locale formatter for the given precision and grouping. */
+export function getNumberFormat(minDecimals: number, maxDecimals: number, grouping = true): Intl.NumberFormat {
+  const key = `${minDecimals}|${maxDecimals}|${grouping ? 1 : 0}`;
+  let nf = numberFormatCache.get(key);
+  if (!nf) {
+    nf = new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: minDecimals,
+      maximumFractionDigits: maxDecimals,
+      useGrouping: grouping,
+    });
+    numberFormatCache.set(key, nf);
+  }
+  return nf;
+}
+
+interface CurrencySection {
+  prefix: string;
+  suffix: string;
+  minDecimals: number;
+  maxDecimals: number;
+  grouping: boolean;
+  /** Divisor from trailing thousands-scaling commas (`#,0,` = 1000). */
+  divisor: number;
+}
+
+interface CurrencyFormatSpec {
+  positive: CurrencySection;
+  /** Explicit negative section (`;(...)`); rendered with the absolute value. */
+  negative?: CurrencySection;
+}
+
+const CURRENCY_SYMBOL = /[$€£¥₦₹₩₽₺₫₱₪₴₵₸₲₡¢฿₭₮₼₾]/;
+const currencySpecCache = new Map<string, CurrencyFormatSpec | null>();
+
+/** Split a format string on unescaped, unquoted `;`. */
+function splitFormatSections(format: string): string[] {
+  const sections: string[] = [];
+  let current = "";
+  let inQuote = false;
+  for (let i = 0; i < format.length; i++) {
+    const ch = format[i];
+    if (ch === "\\" && !inQuote && i + 1 < format.length) {
+      current += ch + format[++i];
+    } else if (ch === "\"") {
+      inQuote = !inQuote;
+      current += ch;
+    } else if (ch === ";" && !inQuote) {
+      sections.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  sections.push(current);
+  return sections;
+}
+
+/**
+ * Parse one Power BI / Excel format section into the literal text around its
+ * number and the number's precision. `isCurrency` reports whether the section
+ * carries a currency symbol (bare, `\`-escaped, quoted or `[$sym-lcid]`).
+ */
+function parseCurrencySection(section: string): { spec: CurrencySection; isCurrency: boolean } {
+  let prefix = "";
+  let suffix = "";
+  let numeric = "";
+  let isCurrency = false;
+  const addLiteral = (text: string) => {
+    if (CURRENCY_SYMBOL.test(text)) isCurrency = true;
+    if (numeric) suffix += text;
+    else prefix += text;
+  };
+
+  for (let i = 0; i < section.length; i++) {
+    const ch = section[i];
+    if (ch === "\\") {
+      if (i + 1 < section.length) addLiteral(section[++i]);
+    } else if (ch === "\"") {
+      const end = section.indexOf("\"", i + 1);
+      const stop = end === -1 ? section.length : end;
+      addLiteral(section.slice(i + 1, stop));
+      i = stop;
+    } else if (ch === "[") {
+      const end = section.indexOf("]", i + 1);
+      const stop = end === -1 ? section.length : end;
+      const body = section.slice(i + 1, stop);
+      // `[$€-466]` → "€"; `[$-409]` is a locale tag only; `[Red]` etc. ignored.
+      if (body.startsWith("$")) {
+        const dash = body.indexOf("-");
+        const symbol = dash === -1 ? body.slice(1) : body.slice(1, dash);
+        if (symbol) {
+          isCurrency = true;
+          if (numeric) suffix += symbol;
+          else prefix += symbol;
+        }
+      }
+      i = stop;
+    } else if (ch === "_" || ch === "*") {
+      i++; // padding / fill directives take the next char; no output.
+    } else if ("0#?,.".includes(ch) && (numeric === "" || !suffix)) {
+      // A `.` or `,` with no number yet is literal text (e.g. "Rs.").
+      if (numeric === "" && (ch === "," || ch === ".")) addLiteral(ch);
+      else numeric += ch;
+    } else {
+      addLiteral(ch);
+    }
+  }
+
+  // A bare symbol with no digit placeholders (e.g. "$") keeps the legacy
+  // grouped two-decimal rendering.
+  if (numeric === "") numeric = "#,0.00";
+
+  const dot = numeric.indexOf(".");
+  let intPart = dot === -1 ? numeric : numeric.slice(0, dot);
+  const fracPart = dot === -1 ? "" : numeric.slice(dot + 1);
+  let divisor = 1;
+  if (dot === -1) {
+    while (intPart.endsWith(",")) {
+      intPart = intPart.slice(0, -1);
+      divisor *= 1000;
+    }
+  } else {
+    let trailing = fracPart.length;
+    while (trailing > 0 && fracPart[trailing - 1] === ",") trailing--;
+    for (let k = trailing; k < fracPart.length; k++) divisor *= 1000;
+  }
+  const minDecimals = (fracPart.match(/0/g) || []).length;
+  const maxDecimals = minDecimals + (fracPart.match(/[#?]/g) || []).length;
+
+  return {
+    spec: { prefix, suffix, minDecimals, maxDecimals, grouping: intPart.includes(","), divisor },
+    isCurrency,
+  };
+}
+
+function getCurrencySpec(format: string): CurrencyFormatSpec | null {
+  const cached = currencySpecCache.get(format);
+  if (cached !== undefined) return cached;
+
+  const sections = splitFormatSections(format);
+  const positive = parseCurrencySection(sections[0]);
+  const spec: CurrencyFormatSpec | null = positive.isCurrency
+    ? {
+        positive: positive.spec,
+        negative: sections.length > 1 && sections[1].trim() !== ""
+          ? parseCurrencySection(sections[1]).spec
+          : undefined,
+      }
+    : null;
+  // Format strings come from a small, fixed set of measures and columns;
+  // the bound only guards against unbounded growth from free-text input.
+  if (currencySpecCache.size > 500) currencySpecCache.clear();
+  currencySpecCache.set(format, spec);
+  return spec;
+}
+
+/**
+ * Render `value` with the currency symbol, position, grouping, decimals and
+ * negative pattern of a Power BI format string (`\$#,0.00;(\$#,0.00)`,
+ * `€#,0.00`, `[$₦-466]#,0.00`, `#,0.00 €`, …). Returns null when the format
+ * has no currency symbol. `decimalsOverride` replaces the format's precision.
+ */
+export function formatCurrency(value: number, format: string, decimalsOverride?: number): string | null {
+  const spec = getCurrencySpec(format);
+  if (!spec) return null;
+  const negative = value < 0;
+  const section = negative && spec.negative ? spec.negative : spec.positive;
+  const minDec = decimalsOverride ?? section.minDecimals;
+  const maxDec = decimalsOverride ?? section.maxDecimals;
+  const body = getNumberFormat(minDec, maxDec, section.grouping).format(Math.abs(value) / section.divisor);
+  const sign = negative && !spec.negative ? "-" : "";
+  return sign + section.prefix + body + section.suffix;
+}
+
 export function formatValue(
-  value: number | null, 
+  value: number | null,
   format: string,
   settings?: any,
   colFormat?: any
@@ -349,17 +550,20 @@ export function formatValue(
 
   if (!format) {
     if (Number.isInteger(value)) {
-      return value.toLocaleString();
+      return formatDefault(value);
     }
-    return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return formatTwoDecimals(value);
   }
 
   if (format.includes("%")) {
     return (value * 100).toFixed(1) + "%";
   }
 
-  if (format.includes("$") || format.toLowerCase().includes("currency")) {
-    return "$" + value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const currency = formatCurrency(value, format);
+  if (currency !== null) return currency;
+
+  if (format.toLowerCase().includes("currency")) {
+    return "$" + formatTwoDecimals(value);
   }
 
   if (format.includes("0.00")) {
@@ -371,10 +575,10 @@ export function formatValue(
   }
 
   if (format.includes("#,##0") || format.includes(",0")) {
-    return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    return formatInteger(value);
   }
 
-  return value.toLocaleString();
+  return formatDefault(value);
 }
 
 export function getCellValue(
@@ -547,8 +751,8 @@ export function applyManualOverrides(
       }
     } else {
       // Direct value
-      const value = parseFloat(editStr);
-      if (!isNaN(value)) {
+      const value = parseManualEditNumber(editStr);
+      if (value !== null) {
         const existing = cellMap.get(cellMapKey);
         if (existing) {
           cellMap.set(cellMapKey, {
@@ -675,6 +879,22 @@ export function applyManualOverrides(
   return { rows: reorderedRows, cellMap };
 }
 
+/**
+ * Power BI emits one measure-level leaf per measure beneath each column member,
+ * and those leaves share the member's key. Aggregations iterate measures
+ * separately, so source lists must contain each column key only once.
+ */
+function uniqueByKey<T extends { key: string }>(nodes: T[]): T[] {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  for (const node of nodes) {
+    if (seen.has(node.key)) continue;
+    seen.add(node.key);
+    result.push(node);
+  }
+  return result;
+}
+
 function applyHierarchyRollupsFromTree(
   flattenedRows: FlattenedNode[],
   cellMap: Map<string, CellValue>,
@@ -700,11 +920,11 @@ function applyHierarchyRollupsFromTree(
   }
 
   // Get all leaf columns from the full column tree (exclude subtotal/grand total nodes)
-  const leafColumns: TreeNode[] = [];
+  const allLeafColumns: TreeNode[] = [];
   const collectLeafColumns = (node: TreeNode): void => {
     if (node.isSubtotal || node.isGrandTotal) return;
     if (node.isLeaf && node.level > 0) {
-      leafColumns.push(node);
+      allLeafColumns.push(node);
     }
     for (const child of node.children) {
       collectLeafColumns(child);
@@ -713,6 +933,7 @@ function applyHierarchyRollupsFromTree(
   for (const child of columnTree.children) {
     collectLeafColumns(child);
   }
+  const leafColumns = uniqueByKey(allLeafColumns);
 
   // For each visible (flattened) row that has children, compute rollups from the full tree
   for (const parent of flattenedRows) {
@@ -825,15 +1046,16 @@ function applyHierarchyRollupsFromTree(
         }
       };
       collectColLeaves(treeNode);
+      const uniqueLeafDescendants = uniqueByKey(leafDescendants);
 
-      if (leafDescendants.length === 0) continue;
+      if (uniqueLeafDescendants.length === 0) continue;
 
       // Aggregate values for each row and measure
       for (const row of leafRows) {
         const rowKey = row.key;
         for (let m = 0; m < measures.length; m++) {
           const values: number[] = [];
-          for (const child of leafDescendants) {
+          for (const child of uniqueLeafDescendants) {
             const childCell = getCellValue(cellMap, rowKey, child.key, m);
             const v = childCell?.value;
             if (v !== null && v !== undefined && !Number.isNaN(v)) {
@@ -860,6 +1082,134 @@ function applyHierarchyRollupsFromTree(
             formattedValue: formatValue(sum, measures[m]?.format || ""),
           });
         }
+      }
+    }
+  }
+
+  const isSamePathPrefix = (prefix: any[], path: any[] | undefined): boolean => {
+    if (prefix.length === 0) return true;
+    if (!path || path.length < prefix.length) return false;
+    return prefix.every((part, index) => path[index] === part);
+  };
+
+  // Mirror the row subtotal repair for column subtotal nodes. Normal column
+  // rollups intentionally skip these synthetic nodes, so populate them from
+  // real leaf columns only and let the row-subtotal pass below aggregate them.
+  const allColumnNodes: TreeNode[] = [];
+  const collectAllColumns = (node: TreeNode): void => {
+    allColumnNodes.push(node);
+    for (const child of node.children) {
+      collectAllColumns(child);
+    }
+  };
+  for (const child of columnTree.children) {
+    collectAllColumns(child);
+  }
+
+  const subtotalColumns = allColumnNodes.filter(col => col.isSubtotal || col.isGrandTotal);
+  const rowTargetsForColumnSubtotals = flattenedRows.filter(row => !row.isSubtotal && !row.isGrandTotal);
+
+  for (const subtotalCol of subtotalColumns) {
+    const subtotalBasePath = subtotalCol.isGrandTotal ? [] : (subtotalCol.path || []);
+    const sourceColumns = uniqueByKey(allColumnNodes.filter(col => {
+      if (col.isSubtotal || col.isGrandTotal) return false;
+      if (!isSamePathPrefix(subtotalBasePath, col.path)) return false;
+      return col.isLeaf || col.children.every(child => child.isSubtotal || child.isGrandTotal);
+    }));
+
+    if (sourceColumns.length === 0) continue;
+
+    for (const row of rowTargetsForColumnSubtotals) {
+      for (let m = 0; m < measures.length; m++) {
+        const values: number[] = [];
+        for (const sourceCol of sourceColumns) {
+          const sourceCell = getCellValue(cellMap, row.key, sourceCol.key, m);
+          const value = sourceCell?.value;
+          if (value !== null && value !== undefined && !Number.isNaN(value)) {
+            values.push(value);
+          }
+        }
+
+        if (values.length === 0) continue;
+
+        const sum = values.reduce((acc, value) => acc + value, 0);
+        const cellKey = generateCellKey(row.key, subtotalCol.key, m);
+        const existing = cellMap.get(cellKey);
+        const base: CellValue = existing || {
+          value: null,
+          formattedValue: "—",
+          measureIndex: m,
+          rowKey: row.key,
+          colKey: subtotalCol.key,
+        };
+
+        cellMap.set(cellKey, {
+          ...base,
+          value: sum,
+          formattedValue: formatValue(sum, measures[m]?.format || ""),
+        });
+      }
+    }
+  }
+
+  // Power BI exposes subtotal rows as synthetic nodes. We deliberately exclude
+  // them from the normal rollup passes above to avoid double-counting, so fill
+  // their displayed cells in a final pass from the real leaf rows only.
+  const allRowNodes: TreeNode[] = [];
+  const collectAllRows = (node: TreeNode): void => {
+    allRowNodes.push(node);
+    for (const child of node.children) {
+      collectAllRows(child);
+    }
+  };
+  for (const child of rowTree.children) {
+    collectAllRows(child);
+  }
+
+  const subtotalRows = allRowNodes.filter(row => row.isSubtotal || row.isGrandTotal);
+  const columnsForSubtotalRows = flattenedColumns && flattenedColumns.length > 0
+    ? uniqueByKey(flattenedColumns)
+    : leafColumns;
+
+  for (const subtotalRow of subtotalRows) {
+    const subtotalBasePath = subtotalRow.isGrandTotal ? [] : (subtotalRow.keyPath || subtotalRow.path || []);
+    const sourceRows = allRowNodes.filter(row => {
+      if (row.isSubtotal || row.isGrandTotal) return false;
+      if (!isSamePathPrefix(subtotalBasePath, row.keyPath || row.path)) return false;
+      return row.isLeaf || row.children.every(child => child.isSubtotal || child.isGrandTotal);
+    });
+
+    if (sourceRows.length === 0) continue;
+
+    for (const col of columnsForSubtotalRows) {
+      for (let m = 0; m < measures.length; m++) {
+        const values: number[] = [];
+        for (const sourceRow of sourceRows) {
+          const sourceCell = getCellValue(cellMap, sourceRow.key, col.key, m);
+          const value = sourceCell?.value;
+          if (value !== null && value !== undefined && !Number.isNaN(value)) {
+            values.push(value);
+          }
+        }
+
+        if (values.length === 0) continue;
+
+        const sum = values.reduce((acc, value) => acc + value, 0);
+        const cellKey = generateCellKey(subtotalRow.key, col.key, m);
+        const existing = cellMap.get(cellKey);
+        const base: CellValue = existing || {
+          value: null,
+          formattedValue: "—",
+          measureIndex: m,
+          rowKey: subtotalRow.key,
+          colKey: col.key,
+        };
+
+        cellMap.set(cellKey, {
+          ...base,
+          value: sum,
+          formattedValue: formatValue(sum, measures[m]?.format || ""),
+        });
       }
     }
   }

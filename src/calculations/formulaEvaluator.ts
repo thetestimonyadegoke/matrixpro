@@ -21,7 +21,7 @@ export function evaluateFormula(
   context: EvaluationContext
 ): EvaluationResult {
   try {
-    const value = evaluate(ast, context);
+    const value = sanitizeResult(evaluate(ast, context));
     return { value };
   } catch (error) {
     return {
@@ -56,7 +56,7 @@ function evaluate(node: ASTNode, context: EvaluationContext): number | null {
     case "UnaryOp": {
       if (node.operator === "-" && node.right) {
         const val = evaluate(node.right, context);
-        return val !== null ? -val : null;
+        return -zeroIfNull(val);
       }
       return null;
     }
@@ -68,24 +68,23 @@ function evaluate(node: ASTNode, context: EvaluationContext): number | null {
 
       // Comparison operators return 1 or 0
       if (["==", "!=", ">", "<", ">=", "<="].includes(node.operator)) {
-        if (left === null || right === null) return null;
+        const l = zeroIfNull(left);
+        const r = zeroIfNull(right);
         switch (node.operator) {
-          case "==": return left === right ? 1 : 0;
-          case "!=": return left !== right ? 1 : 0;
-          case ">": return left > right ? 1 : 0;
-          case "<": return left < right ? 1 : 0;
-          case ">=": return left >= right ? 1 : 0;
-          case "<=": return left <= right ? 1 : 0;
+          case "==": return l === r ? 1 : 0;
+          case "!=": return l !== r ? 1 : 0;
+          case ">": return l > r ? 1 : 0;
+          case "<": return l < r ? 1 : 0;
+          case ">=": return l >= r ? 1 : 0;
+          case "<=": return l <= r ? 1 : 0;
         }
       }
 
-      // Arithmetic operators
-      if (left === null || right === null) return null;
       switch (node.operator) {
-        case "+": return left + right;
-        case "-": return left - right;
-        case "*": return left * right;
-        case "/": return right !== 0 ? left / right : (left >= 0 ? Infinity : -Infinity);
+        case "+": return zeroIfNull(left) + zeroIfNull(right);
+        case "-": return zeroIfNull(left) - zeroIfNull(right);
+        case "*": return zeroIfNull(left) * zeroIfNull(right);
+        case "/": return safeDivide(left, right);
         default: return null;
       }
     }
@@ -109,6 +108,28 @@ function evaluate(node: ASTNode, context: EvaluationContext): number | null {
   }
 }
 
+function zeroIfNull(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function safeDivide(left: number | null | undefined, right: number | null | undefined): number | null {
+  if (
+    typeof left !== "number" ||
+    typeof right !== "number" ||
+    !Number.isFinite(left) ||
+    !Number.isFinite(right) ||
+    right === 0
+  ) {
+    return null;
+  }
+  const result = left / right;
+  return Number.isFinite(result) ? result : null;
+}
+
+function sanitizeResult(value: number | null): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function evaluateFunction(
   funcName: string,
   args: ASTNode[],
@@ -118,26 +139,26 @@ function evaluateFunction(
 
   switch (funcName) {
     case "ABS": {
-      if (evaluatedArgs.length < 1 || evaluatedArgs[0] === null) return null;
-      return Math.abs(evaluatedArgs[0]);
+      if (evaluatedArgs.length < 1) return 0;
+      return Math.abs(zeroIfNull(evaluatedArgs[0]));
     }
 
     case "ROUND": {
-      if (evaluatedArgs.length < 1 || evaluatedArgs[0] === null) return null;
-      const decimals = evaluatedArgs[1] ?? 0;
-      if (decimals === null) return null;
+      if (evaluatedArgs.length < 1) return 0;
+      const value = zeroIfNull(evaluatedArgs[0]);
+      const decimals = zeroIfNull(evaluatedArgs[1]);
       const factor = Math.pow(10, decimals);
-      return Math.round(evaluatedArgs[0] * factor) / factor;
+      return Math.round(value * factor) / factor;
     }
 
     case "FLOOR": {
-      if (evaluatedArgs.length < 1 || evaluatedArgs[0] === null) return null;
-      return Math.floor(evaluatedArgs[0]);
+      if (evaluatedArgs.length < 1) return 0;
+      return Math.floor(zeroIfNull(evaluatedArgs[0]));
     }
 
     case "CEIL": {
-      if (evaluatedArgs.length < 1 || evaluatedArgs[0] === null) return null;
-      return Math.ceil(evaluatedArgs[0]);
+      if (evaluatedArgs.length < 1) return 0;
+      return Math.ceil(zeroIfNull(evaluatedArgs[0]));
     }
 
     case "MIN": {
@@ -153,9 +174,7 @@ function evaluateFunction(
     }
 
     case "SUM": {
-      const validArgs = evaluatedArgs.filter((v): v is number => v !== null);
-      if (validArgs.length === 0) return null;
-      return validArgs.reduce((a, b) => a + b, 0);
+      return evaluatedArgs.reduce((a, b) => a + zeroIfNull(b), 0);
     }
 
     case "AVG": {

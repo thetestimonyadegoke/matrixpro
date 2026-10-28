@@ -46,6 +46,10 @@ export interface RowFormat {
   textColor?: string;
   backgroundColor?: string;
   alignment?: "left" | "center" | "right";
+  /** Row-level display scaling/formatting. Wins over column number formatting. */
+  quickFormat?: QuickNumberFormat;
+  decimals?: number;
+  numberFormat?: string;
   borderTop?: "none" | "single" | "double" | "thick";
   borderBottom?: "none" | "single" | "double" | "thick";
   /** Visual category: "divider" renders as a thin separator row. */
@@ -182,8 +186,8 @@ export function formatQuickNumber(
 
 /**
  * Compose final React.CSSProperties for a cell. Later layers override
- * earlier ones. The CF `cellStyle` wins for color/bg/fontWeight because it
- * represents an active rule.
+ * earlier ones. Conditional formatting provides a rule-driven base, but
+ * direct user formatting wins when a user explicitly sets color or style.
  */
 export function composeCellStyle(
   settings: VisualSettings,
@@ -193,7 +197,7 @@ export function composeCellStyle(
   isSubtotal: boolean = false,
   isGrandTotal: boolean = false
 ): React.CSSProperties {
-  // Start with global defaults (bold was previously ignored — fixed here).
+  // Start with global defaults.
   const values = settings.values;
   let fontWeight: React.CSSProperties["fontWeight"] = values.bold ? 700 : undefined;
   let fontStyle: React.CSSProperties["fontStyle"] = values.italic ? "italic" : undefined;
@@ -218,8 +222,12 @@ export function composeCellStyle(
     if (settings.totals.subtotalBackgroundColor !== defaultSettings.totals.backgroundColor) backgroundColor = settings.totals.subtotalBackgroundColor;
   }
 
-  // Manual Row Background (banding/hover is handled in CSS, but explicit manual data wins)
-  if (rowFormat?.backgroundColor) backgroundColor = rowFormat.backgroundColor;
+  // Conditional formatting provides a base that explicit manual choices can override.
+  if (cellStyle.backgroundColor) backgroundColor = cellStyle.backgroundColor;
+  if (cellStyle.color) color = cellStyle.color;
+  if (cellStyle.fontWeight) fontWeight = cellStyle.fontWeight as any;
+  if (cellStyle.fontStyle) fontStyle = cellStyle.fontStyle as any;
+  if (cellStyle.textDecoration) textDecoration = cellStyle.textDecoration as any;
 
   // Column format layer.
   if (colFormat) {
@@ -236,21 +244,20 @@ export function composeCellStyle(
     if (rowFormat.italic !== undefined) fontStyle = rowFormat.italic ? "italic" : "normal";
     if (rowFormat.underline !== undefined) textDecoration = rowFormat.underline ? "underline" : "none";
     if (rowFormat.textColor) color = rowFormat.textColor;
-    // backgroundColor already handled above
+    if (rowFormat.backgroundColor) backgroundColor = rowFormat.backgroundColor;
   }
 
-  // CF cellStyle layer — strongest for color/bg/fontWeight (rule-engine intent).
-  if (cellStyle.backgroundColor) backgroundColor = cellStyle.backgroundColor;
-  if (cellStyle.color) color = cellStyle.color;
-  if (cellStyle.fontWeight) fontWeight = cellStyle.fontWeight as any;
-
-  return {
+  const out: React.CSSProperties = {
     fontWeight,
     fontStyle,
     textDecoration,
     color,
     backgroundColor,
   };
+  if (cellStyle.borderStyle && cellStyle.borderStyle !== "none") {
+    out.border = `${cellStyle.borderWidth ?? 1}px ${cellStyle.borderStyle} ${cellStyle.borderColor ?? "#d1d5db"}`;
+  }
+  return out;
 }
 
 /**

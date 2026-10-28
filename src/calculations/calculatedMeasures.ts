@@ -19,6 +19,7 @@ export interface CalculatedMeasureDefinition {
   formula: string;
   format: string;
   aggregationMode: AggregationMode;
+  aggregationType?: "none" | "formula" | "sum" | "first" | "last" | "average" | "min" | "max";
   enabled: boolean;
   order: number;
 }
@@ -48,21 +49,38 @@ export function parseCalculatedMeasures(
   availableMeasures: string[]
 ): CalculatedMeasureState[] {
   const states: CalculatedMeasureState[] = [];
+  const calcNameToId = new Map(
+    definitions.map(def => [def.name.trim().toLowerCase(), def.id])
+  );
+  const availableNameSet = new Set([
+    ...availableMeasures.map(name => name.trim().toLowerCase()),
+    ...definitions.map(def => def.name.trim().toLowerCase()),
+  ]);
 
   for (const def of definitions) {
     const { ast, errors } = parseFormula(def.formula);
     
+    const rawMeasureRefs: string[] = [];
     const referencedMeasures: string[] = [];
     const referencedCalcs: string[] = [];
     
     if (ast) {
-      collectReferences(ast, referencedMeasures, referencedCalcs);
+      collectReferences(ast, rawMeasureRefs, referencedCalcs);
+    }
+
+    for (const ref of rawMeasureRefs) {
+      const normalized = ref.trim().toLowerCase();
+      const calcId = calcNameToId.get(normalized);
+      if (calcId && calcId !== def.id) {
+        referencedCalcs.push(calcId);
+      } else {
+        referencedMeasures.push(ref);
+      }
     }
 
     // Validate measure references
-    const measureSet = new Set(availableMeasures.map(m => m.toLowerCase()));
     const unknownMeasures = referencedMeasures.filter(
-      m => !measureSet.has(m.toLowerCase())
+      m => !availableNameSet.has(m.trim().toLowerCase())
     );
 
     const validationErrors = [...errors];
@@ -167,6 +185,10 @@ export function computeCalculatedMeasures(
   for (const m of baseMeasures) {
     measureNameToIndex.set(m.name.toLowerCase(), m.index);
   }
+  const calcNameToOffset = new Map<string, number>();
+  validCalcs.forEach((calc, index) => {
+    calcNameToOffset.set(calc.definition.name.trim().toLowerCase(), index);
+  });
 
   // Compute values for each cell
   for (const rowKey of rowKeys) {
@@ -180,11 +202,19 @@ export function computeCalculatedMeasures(
 
         const context: EvaluationContext = {
           getMeasureValue: (name: string) => {
-            const idx = measureNameToIndex.get(name.toLowerCase());
-            if (idx === undefined) return null;
-            const cellKey = generateCellKey(rowKey, colKey, idx);
-            const cell = baseCellMap.get(cellKey);
-            return cell?.value ?? null;
+            const normalized = name.trim().toLowerCase();
+            const idx = measureNameToIndex.get(normalized);
+            if (idx !== undefined) {
+              const cellKey = generateCellKey(rowKey, colKey, idx);
+              const cell = baseCellMap.get(cellKey);
+              return cell?.value ?? null;
+            }
+            const calcOffset = calcNameToOffset.get(normalized);
+            if (calcOffset !== undefined && calcOffset < i) {
+              const calcMeasure = validCalcs[calcOffset];
+              return calcCache.get(calcMeasure.definition.name.trim().toLowerCase()) ?? null;
+            }
+            return null;
           },
           getCalculatedValue: (name: string) => {
             // Look up in cache (for chained calcs)
@@ -195,7 +225,9 @@ export function computeCalculatedMeasures(
         };
 
         const result = calc.ast ? evaluateFormula(calc.ast, context) : { value: null };
-        const value = result.value;
+        const value = typeof result.value === "number" && Number.isFinite(result.value)
+          ? result.value
+          : null;
 
         // Store in cache for chaining
         calcCache.set(calc.definition.name.toLowerCase(), value);

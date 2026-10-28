@@ -7,11 +7,17 @@ import {
   RuleOp,
   FormatBy,
   ClassificationRange,
+  ClassificationIconKind,
   parseRules,
+  normalizeRule,
   stringifyRules,
   defaultRule,
   COLOR_SCHEME_PRESETS,
+  CLASSIFICATION_ICON_OPTIONS,
+  CLASSIFICATION_ICON_SETS,
+  ClassificationIcon,
 } from "../format/conditional";
+import { RenderClassificationIcon } from "./Cell";
 
 export interface ConditionalFormattingPanelProps {
   settings: VisualSettings;
@@ -37,13 +43,13 @@ type View = "list" | "edit";
 // ---------- Style primitives --------------------------------------------------
 
 const overlayStyle: React.CSSProperties = {
-  position: "absolute",
+  position: "fixed",
   top: 0, left: 0, right: 0, bottom: 0,
   background: "rgba(15, 23, 42, 0.35)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  zIndex: 9999,
+  zIndex: 100000,
 };
 
 const modalStyle: React.CSSProperties = {
@@ -163,6 +169,108 @@ const FormRow: React.FC<{ label: string; children: React.ReactNode; align?: "cen
   </div>
 );
 
+const RECOMMENDED_ICON_KINDS: ClassificationIconKind[] = [
+  "check", "cross", "flat", "upRight", "downRight", "chevronLeft", "chevronRight",
+  "triangleDown", "triangleUp", "up", "down", "triangleUp", "triangleDown",
+  "caretUp", "caretDown", "doubleUp", "doubleDown", "flagFilled", "flagOutline",
+  "outlineSquare", "filledSquare", "quarterCircle", "halfCircle", "pie", "emptyCircle",
+  "quarterFilledCircle", "halfFilledCircle", "threeQuarterCircle", "filledCircle",
+  "diamond", "heart", "bulb", "warn", "info", "bold", "underline", "italic",
+  "checkCircle", "crossCircle", "starOutline", "starHalf", "starFilled",
+];
+
+const iconButtonStyle: React.CSSProperties = {
+  width: 28,
+  height: 28,
+  border: "1px solid transparent",
+  background: "#ffffff",
+  borderRadius: 5,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  color: "#242424",
+};
+
+const IconPicker: React.FC<{
+  value?: ClassificationIcon;
+  color: string;
+  onChange: (icon: ClassificationIcon | undefined) => void;
+}> = ({ value, color, onChange }) => {
+  const [showMore, setShowMore] = useState(false);
+  const selectedKind = value && value.kind !== "custom" && value.kind !== "text" ? value.kind : "";
+  const safeColor = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color || "") ? color : "#2563eb";
+  const visibleIcons = showMore
+    ? CLASSIFICATION_ICON_OPTIONS.map(option => option.kind)
+    : RECOMMENDED_ICON_KINDS;
+
+  const uploadIcon = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      if (result) onChange({ kind: "custom", src: result, name: file.name });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 10, background: "#fff" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontWeight: 700, color: "#27272a" }}>Recommended</span>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, color: "#0078d4", fontWeight: 700, cursor: "pointer" }}>
+          <span style={{ fontSize: 16 }}>⇧</span>
+          Upload Icon
+          <input
+            type="file"
+            accept="image/svg+xml,image/png,image/jpeg,image/webp"
+            style={{ display: "none" }}
+            onChange={e => uploadIcon(e.target.files?.[0])}
+          />
+        </label>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 28px)", gap: 8 }}>
+        {visibleIcons.map((kind, index) => {
+          const selected = selectedKind === kind;
+          return (
+            <button
+              key={`${kind}-${index}`}
+              type="button"
+              title={CLASSIFICATION_ICON_OPTIONS.find(option => option.kind === kind)?.label ?? kind}
+              onClick={() => onChange({ kind, color: safeColor })}
+              style={{
+                ...iconButtonStyle,
+                borderColor: selected ? "#2563eb" : "transparent",
+                background: selected ? "#eff6ff" : "#ffffff",
+              }}
+            >
+              <RenderClassificationIcon icon={{ kind, color: selected ? "#2563eb" : "#242424" }} size={22} />
+            </button>
+          );
+        })}
+      </div>
+      {value?.kind === "custom" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, padding: 8, borderRadius: 6, background: "#f8fafc" }}>
+          <RenderClassificationIcon icon={value} size={22} />
+          <span style={{ flex: 1, fontSize: 11, color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {value.name || "Custom icon"}
+          </span>
+          <button type="button" onClick={() => onChange(undefined)} style={{ ...secondaryBtn, padding: "3px 8px", fontSize: 11 }}>
+            Remove
+          </button>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => setShowMore(!showMore)}
+        style={{ marginTop: 10, background: "transparent", border: "none", color: "#374151", fontWeight: 700, cursor: "pointer", padding: "4px 0" }}
+      >
+        {showMore ? "⌄ Less" : "› More"}
+      </button>
+    </div>
+  );
+};
+
 // =============================================================================
 // Top-level component
 // =============================================================================
@@ -187,13 +295,23 @@ export const ConditionalFormattingPanel: React.FC<ConditionalFormattingPanelProp
     return initialRuleId;
   });
   const [draft, setDraft] = useState<ConditionalRule | null>(() => {
-    if (initialDraft) return JSON.parse(JSON.stringify(initialDraft));
+    if (initialDraft) return normalizeRule(JSON.parse(JSON.stringify(initialDraft)));
     if (initialRuleId === "new") return defaultRule(`Rule ${initialRules.length + 1}`);
     if (initialRuleId && initialRuleId !== "new") {
-      return initialRules.find(r => r.id === initialRuleId) || null;
+      const found = initialRules.find(r => r.id === initialRuleId);
+      return found ? normalizeRule(JSON.parse(JSON.stringify(found))) : null;
     }
     return null;
   });
+  const [confirmRequest, setConfirmRequest] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  const requestConfirm = useCallback((title: string, message: string, onConfirm: () => void) => {
+    setConfirmRequest({ title, message, onConfirm });
+  }, []);
 
   const persistRules = useCallback((next: ConditionalRule[]) => {
     setRules(next);
@@ -210,13 +328,17 @@ export const ConditionalFormattingPanel: React.FC<ConditionalFormattingPanelProp
   };
 
   const openEdit = (rule: ConditionalRule) => {
-    setDraft(JSON.parse(JSON.stringify(rule)));
+    setDraft(normalizeRule(JSON.parse(JSON.stringify(rule))));
     setEditingId(rule.id);
     setView("edit");
   };
 
   const deleteRule = (id: string) => {
-    persistRules(rules.filter(r => r.id !== id));
+    requestConfirm(
+      "Delete formatting rule?",
+      "This conditional formatting rule will be permanently removed.",
+      () => persistRules(rules.filter(r => r.id !== id))
+    );
   };
 
   const toggleRule = (id: string) => {
@@ -232,13 +354,14 @@ export const ConditionalFormattingPanel: React.FC<ConditionalFormattingPanelProp
 
   const applyDraft = () => {
     if (!draft) return;
-    const existingIdx = rules.findIndex(r => r.id === draft.id);
+    const normalizedDraft = normalizeRule(draft);
+    const existingIdx = rules.findIndex(r => r.id === normalizedDraft.id);
     let next: ConditionalRule[];
     if (existingIdx >= 0) {
       next = rules.slice();
-      next[existingIdx] = draft;
+      next[existingIdx] = normalizedDraft;
     } else {
-      next = [...rules, draft];
+      next = [...rules, normalizedDraft];
     }
     persistRules(next);
     setView("list");
@@ -307,6 +430,7 @@ export const ConditionalFormattingPanel: React.FC<ConditionalFormattingPanelProp
               draft={draft}
               setDraft={setDraft}
               measures={measures}
+              requestConfirm={requestConfirm}
             />
           )
         )}
@@ -319,6 +443,53 @@ export const ConditionalFormattingPanel: React.FC<ConditionalFormattingPanelProp
           </div>
         )}
       </div>
+      {confirmRequest && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 100002,
+            background: "rgba(15, 23, 42, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={confirmRequest.title}
+            style={{
+              width: "min(360px, calc(100vw - 32px))",
+              background: "#ffffff",
+              border: "1px solid #e5e7eb",
+              borderRadius: 12,
+              boxShadow: "0 24px 70px rgba(15, 23, 42, 0.28)",
+              padding: 16,
+              color: "#111827",
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 700 }}>{confirmRequest.title}</div>
+            <div style={{ marginTop: 8, fontSize: 12, color: "#4b5563", lineHeight: 1.5 }}>{confirmRequest.message}</div>
+            <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" style={secondaryBtn} onClick={() => setConfirmRequest(null)}>Cancel</button>
+              <button
+                type="button"
+                style={{ ...primaryBtn, background: "#dc2626" }}
+                onClick={() => {
+                  const action = confirmRequest.onConfirm;
+                  setConfirmRequest(null);
+                  action();
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -488,7 +659,8 @@ const RuleEditor: React.FC<{
   draft: ConditionalRule;
   setDraft: (r: ConditionalRule) => void;
   measures: MeasureInfo[];
-}> = ({ draft, setDraft, measures }) => {
+  requestConfirm: (title: string, message: string, onConfirm: () => void) => void;
+}> = ({ draft, setDraft, measures, requestConfirm }) => {
   const update = (patch: Partial<ConditionalRule>) => setDraft({ ...draft, ...patch });
   const updateScope = (patch: Partial<ConditionalRule["scope"]>) =>
     setDraft({ ...draft, scope: { ...draft.scope, ...patch } });
@@ -521,6 +693,8 @@ const RuleEditor: React.FC<{
         impactOn: ["label"],
         basedOnMeasure: -1,
         displayIcons: true,
+        showValueText: true,
+        iconSet: "target-status",
         applyToCharts: true,
         showAsNewColumn: false,
         iconPosition: "leftOfData",
@@ -567,17 +741,15 @@ const RuleEditor: React.FC<{
         />
       </FormRow>
 
-      <FormRow label="Apply to">
-        <select
-          style={inputStyle}
-          value={draft.scope.targetMeasure}
-          onChange={e => updateScope({ targetMeasure: Number(e.target.value) })}
-        >
-          <option value={-1}>All measures</option>
-          {measures.map(m => (
-            <option key={m.index} value={m.index}>{m.name}</option>
-          ))}
-        </select>
+      <FormRow label="Apply to" align="start">
+        <MultiMeasureSelect
+          measures={measures}
+          selectedIndices={draft.scope.targetMeasures || (draft.scope.targetMeasure !== undefined ? [draft.scope.targetMeasure] : [-1])}
+          onChange={next => {
+            const final = next.length === 0 ? [-1] : next;
+            updateScope({ targetMeasure: final[0], targetMeasures: final });
+          }}
+        />
       </FormRow>
 
       <FormRow label="Target">
@@ -636,6 +808,7 @@ const RuleEditor: React.FC<{
           cfg={draft.rulesConfig}
           onChange={c => update({ rulesConfig: c })}
           measures={measures}
+          requestConfirm={requestConfirm}
         />
       )}
       {draft.formatBy === "colorScale" && draft.colorScaleConfig && (
@@ -650,6 +823,7 @@ const RuleEditor: React.FC<{
           cfg={draft.classificationConfig}
           onChange={c => update({ classificationConfig: c })}
           measures={measures}
+          requestConfirm={requestConfirm}
         />
       )}
       {draft.formatBy === "dataBars" && draft.dataBarsConfig && (
@@ -676,17 +850,21 @@ const RulesConfigEditor: React.FC<{
   cfg: NonNullable<ConditionalRule["rulesConfig"]>;
   onChange: (c: NonNullable<ConditionalRule["rulesConfig"]>) => void;
   measures: MeasureInfo[];
-}> = ({ cfg, onChange, measures }) => {
-  const setStyle = (patch: Partial<typeof cfg.style>) => onChange({ ...cfg, style: { ...cfg.style, ...patch } });
+  requestConfirm: (title: string, message: string, onConfirm: () => void) => void;
+}> = ({ cfg, onChange, measures, requestConfirm }) => {
+  const safeStyle = cfg.style ?? { color: "#111827" };
+  const safeImpactOn = Array.isArray(cfg.impactOn) ? cfg.impactOn : ["label"];
+  const safeConditions = Array.isArray(cfg.conditions) ? cfg.conditions : [];
+  const setStyle = (patch: Partial<typeof safeStyle>) => onChange({ ...cfg, style: { ...safeStyle, ...patch } });
   const setConditions = (next: RulesCondition[]) => onChange({ ...cfg, conditions: next });
-  const impactsLabel = cfg.impactOn.includes("label");
-  const impactsChart = cfg.impactOn.includes("chart");
+  const impactsLabel = safeImpactOn.includes("label");
+  const impactsChart = safeImpactOn.includes("chart");
 
   return (
     <>
       <FormRow label="Impact on">
         <ImpactChipList
-          selected={cfg.impactOn}
+          selected={safeImpactOn}
           onChange={v => onChange({ ...cfg, impactOn: v as any })}
         />
       </FormRow>
@@ -695,24 +873,24 @@ const RulesConfigEditor: React.FC<{
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <StyleToggleButton
             label="B"
-            active={cfg.style.fontWeight === "600" || cfg.style.fontWeight === "700"}
-            onClick={() => setStyle({ fontWeight: cfg.style.fontWeight === "600" ? undefined : "600" })}
+            active={safeStyle.fontWeight === "600" || safeStyle.fontWeight === "700"}
+            onClick={() => setStyle({ fontWeight: safeStyle.fontWeight === "600" ? undefined : "600" })}
           />
           <StyleToggleButton
             label="I"
             italic
-            active={cfg.style.fontStyle === "italic"}
-            onClick={() => setStyle({ fontStyle: cfg.style.fontStyle === "italic" ? undefined : "italic" })}
+            active={safeStyle.fontStyle === "italic"}
+            onClick={() => setStyle({ fontStyle: safeStyle.fontStyle === "italic" ? undefined : "italic" })}
           />
           <StyleToggleButton
             label="U"
-            active={cfg.style.textDecoration === "underline"}
-            onClick={() => setStyle({ textDecoration: cfg.style.textDecoration === "underline" ? undefined : "underline" })}
+            active={safeStyle.textDecoration === "underline"}
+            onClick={() => setStyle({ textDecoration: safeStyle.textDecoration === "underline" ? undefined : "underline" })}
           />
           <StyleToggleButton
             label="H"
-            active={!!cfg.style.hatched}
-            onClick={() => setStyle({ hatched: !cfg.style.hatched })}
+            active={!!safeStyle.hatched}
+            onClick={() => setStyle({ hatched: !safeStyle.hatched })}
             title="Hatched Pattern"
           />
         </div>
@@ -721,7 +899,7 @@ const RulesConfigEditor: React.FC<{
       <FormRow label="Text color">
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <ColorSwatchButton
-            color={cfg.style.color || "#111827"}
+            color={safeStyle.color || "#111827"}
             onChange={c => setStyle({ color: c })}
             icon="text"
             title="Text color"
@@ -735,7 +913,7 @@ const RulesConfigEditor: React.FC<{
       <FormRow label="Background color">
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <ColorSwatchButton
-            color={cfg.style.backgroundColor || "#ffffff"}
+            color={safeStyle.backgroundColor || "#ffffff"}
             onChange={c => setStyle({ backgroundColor: c })}
             icon="fill"
             title="Background color"
@@ -748,8 +926,81 @@ const RulesConfigEditor: React.FC<{
         </div>
       </FormRow>
 
+      <FormRow label="Icon" align="start">
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <IconPicker
+            value={safeStyle.icon}
+            color={safeStyle.icon && safeStyle.icon.kind !== "custom" && safeStyle.icon.kind !== "text" ? safeStyle.icon.color : (safeStyle.color || "#2563eb")}
+            onChange={icon => setStyle({ icon })}
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 42px", gap: 8, alignItems: "center" }}>
+            <select
+              style={inputStyle}
+              value={safeStyle.iconPosition ?? "leftOfData"}
+              onChange={e => setStyle({ iconPosition: e.target.value as any })}
+            >
+              <option value="leftOfData">Dock to left edge</option>
+              <option value="rightOfData">Dock to right edge</option>
+            </select>
+            <input
+              type="color"
+              value={safeStyle.icon && safeStyle.icon.kind !== "custom" && safeStyle.icon.kind !== "text" ? safeStyle.icon.color : (safeStyle.color || "#2563eb")}
+              onChange={e => {
+                const current = safeStyle.icon && safeStyle.icon.kind !== "custom" && safeStyle.icon.kind !== "text" ? safeStyle.icon.kind : "check";
+                setStyle({ icon: { kind: current, color: e.target.value } });
+              }}
+              style={{ width: 38, height: 28, border: "1px solid #d1d5db", borderRadius: 5, padding: 0, background: "none", cursor: "pointer" }}
+              title="Icon color"
+            />
+          </div>
+        </div>
+      </FormRow>
+
+      <FormRow label="Visibility">
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#374151", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={!safeStyle.hideText}
+            onChange={e => setStyle({ hideText: !e.target.checked })}
+          />
+          Display text
+        </label>
+      </FormRow>
+
+      <FormRow label="Borders" align="start">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 42px", gap: 8, alignItems: "center" }}>
+          <select
+            style={inputStyle}
+            value={safeStyle.borderStyle ?? "none"}
+            onChange={e => setStyle({ borderStyle: e.target.value as any })}
+          >
+            <option value="none">No border</option>
+            <option value="solid">Solid</option>
+            <option value="dashed">Dashed</option>
+            <option value="dotted">Dotted</option>
+            <option value="double">Double</option>
+          </select>
+          <input
+            type="number"
+            min={1}
+            max={6}
+            style={inputStyle}
+            value={safeStyle.borderWidth ?? 1}
+            onChange={e => setStyle({ borderWidth: Math.max(1, Number(e.target.value) || 1) })}
+            title="Border width"
+          />
+          <input
+            type="color"
+            value={safeStyle.borderColor || "#d1d5db"}
+            onChange={e => setStyle({ borderColor: e.target.value })}
+            style={{ width: 38, height: 28, border: "1px solid #d1d5db", borderRadius: 5, padding: 0, background: "none", cursor: "pointer" }}
+            title="Border color"
+          />
+        </div>
+      </FormRow>
+
       <SectionTitle>Conditions</SectionTitle>
-      {cfg.conditions.map((cond, i) => (
+      {safeConditions.map((cond, i) => (
         <div
           key={i}
           style={{
@@ -767,7 +1018,7 @@ const RulesConfigEditor: React.FC<{
             style={inputStyle}
             value={cond.basedOnMeasure}
             onChange={e => {
-              const next = cfg.conditions.slice();
+              const next = safeConditions.slice();
               next[i] = { ...cond, basedOnMeasure: Number(e.target.value) };
               setConditions(next);
             }}
@@ -781,7 +1032,7 @@ const RulesConfigEditor: React.FC<{
             style={inputStyle}
             value={cond.op}
             onChange={e => {
-              const next = cfg.conditions.slice();
+              const next = safeConditions.slice();
               next[i] = { ...cond, op: e.target.value as RuleOp };
               setConditions(next);
             }}
@@ -799,14 +1050,20 @@ const RulesConfigEditor: React.FC<{
             type="number"
             value={cond.value}
             onChange={e => {
-              const next = cfg.conditions.slice();
+              const next = safeConditions.slice();
               next[i] = { ...cond, value: Number(e.target.value) };
               setConditions(next);
             }}
           />
           <button
             type="button"
-            onClick={() => setConditions(cfg.conditions.filter((_, idx) => idx !== i))}
+            onClick={() => {
+              requestConfirm(
+                "Remove condition?",
+                "This condition will be removed from the formatting rule.",
+                () => setConditions(safeConditions.filter((_, idx) => idx !== i))
+              );
+            }}
             style={{ background: "transparent", border: "none", color: "#9ca3af", cursor: "pointer", fontSize: 16, padding: 0, lineHeight: 1 }}
             title="Remove condition"
           >
@@ -820,7 +1077,7 @@ const RulesConfigEditor: React.FC<{
           type="button"
           onClick={() =>
             setConditions([
-              ...cfg.conditions,
+              ...safeConditions,
               { basedOnMeasure: -1, op: "greaterThan", value: 0 },
             ])
           }
@@ -832,6 +1089,102 @@ const RulesConfigEditor: React.FC<{
     </>
   );
 };
+const chipStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 4,
+  padding: "2px 8px",
+  background: "#f3f4f6",
+  border: "1px solid #e5e7eb",
+  borderRadius: 4,
+  fontSize: 11,
+  fontWeight: 600,
+  color: "#111827",
+};
+
+const chipRemoveBtn: React.CSSProperties = {
+  background: "transparent",
+  border: "none",
+  color: "#6b7280",
+  cursor: "pointer",
+  fontSize: 14,
+  padding: 0,
+  lineHeight: 1,
+  display: "flex",
+  alignItems: "center",
+};
+
+const MultiMeasureSelect: React.FC<{
+  measures: MeasureInfo[];
+  selectedIndices: number[];
+  onChange: (indices: number[]) => void;
+}> = ({ measures, selectedIndices, onChange }) => {
+  const isAll = selectedIndices.includes(-1) || selectedIndices.length === 0;
+  const selectedMeasures = isAll ? [] : measures.filter(m => selectedIndices.includes(m.index));
+  const remaining = isAll ? [] : measures.filter(m => !selectedIndices.includes(m.index));
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        flexWrap: "wrap",
+        padding: "4px 8px",
+        border: "1px solid #d1d5db",
+        borderRadius: 6,
+        background: "#ffffff",
+        minHeight: 32,
+        boxSizing: "border-box",
+      }}
+    >
+      {isAll ? (
+        <span style={chipStyle}>
+          All measures
+          <button type="button" style={chipRemoveBtn} onClick={() => onChange([])}>×</button>
+        </span>
+      ) : (
+        selectedMeasures.map(m => (
+          <span key={m.index} style={chipStyle}>
+            {m.name}
+            <button type="button" style={chipRemoveBtn} onClick={() => onChange(selectedIndices.filter(i => i !== m.index))}>×</button>
+          </span>
+        ))
+      )}
+      {(remaining.length > 0 || (selectedIndices.length > 0 && !isAll)) && (
+        <select
+          value=""
+          onChange={e => {
+            const val = Number(e.target.value);
+            if (isNaN(val)) return;
+            if (val === -1) onChange([-1]);
+            else {
+              const next = [...selectedIndices.filter(i => i !== -1), val];
+              onChange(next);
+            }
+          }}
+          style={{
+            border: "none",
+            background: "transparent",
+            fontSize: 12,
+            color: "#6b7280",
+            outline: "none",
+            cursor: "pointer",
+            flex: 1,
+            minWidth: 80,
+          }}
+        >
+          <option value="" disabled>+ Add...</option>
+          {!isAll && <option value="-1">All measures</option>}
+          {remaining.map(m => (
+            <option key={m.index} value={m.index}>{m.name}</option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+};
+
 
 // ---------- Impact chip list (removable chips) -------------------------------
 // Renders impactOn as removable chips like the "chart ×" shown in screenshot 3.
@@ -1102,24 +1455,46 @@ const ClassificationEditor: React.FC<{
   cfg: NonNullable<ConditionalRule["classificationConfig"]>;
   onChange: (c: NonNullable<ConditionalRule["classificationConfig"]>) => void;
   measures: MeasureInfo[];
-}> = ({ cfg, onChange, measures }) => {
+  requestConfirm: (title: string, message: string, onConfirm: () => void) => void;
+}> = ({ cfg, onChange, measures, requestConfirm }) => {
+  const safeRanges = Array.isArray(cfg.ranges) ? cfg.ranges.filter(Boolean) : [];
+  const safeImpactOn = Array.isArray(cfg.impactOn) ? cfg.impactOn : ["label"];
   const setRange = (i: number, patch: Partial<ClassificationRange>) => {
-    const next = cfg.ranges.slice();
+    const next = safeRanges.slice();
     next[i] = { ...next[i], ...patch };
     onChange({ ...cfg, ranges: next });
   };
-  const removeRange = (i: number) => onChange({ ...cfg, ranges: cfg.ranges.filter((_, idx) => idx !== i) });
+  const removeRange = (i: number) => {
+    requestConfirm(
+      "Remove classification range?",
+      "This classification range will be removed from the rule.",
+      () => onChange({ ...cfg, ranges: safeRanges.filter((_, idx) => idx !== i) })
+    );
+  };
   const addRange = () =>
     onChange({
       ...cfg,
-      ranges: [...cfg.ranges, { from: 0, to: 100, iconKind: "check", color: "#16a34a" }],
+      ranges: [...safeRanges, { from: 0, to: 100, iconKind: "check", color: "#16a34a" }],
     });
+  const applyIconSet = (setId: string) => {
+    const iconSet = CLASSIFICATION_ICON_SETS.find(set => set.id === setId);
+    if (!iconSet) return;
+    onChange({
+      ...cfg,
+      iconSet: setId,
+      ranges: safeRanges.map((range, index) => ({
+        ...range,
+        icon: undefined as ClassificationIcon | undefined,
+        iconKind: iconSet.icons[Math.min(index, iconSet.icons.length - 1)],
+      })),
+    });
+  };
 
   return (
     <>
       <FormRow label="Impact on">
         <ImpactChipList
-          selected={cfg.impactOn}
+          selected={safeImpactOn}
           onChange={v => onChange({ ...cfg, impactOn: v as any })}
         />
       </FormRow>
@@ -1147,6 +1522,16 @@ const ClassificationEditor: React.FC<{
             <option value="icons">✓ ! ✕ Icon set</option>
             <option value="none">None</option>
           </select>
+          <select
+            style={{ ...inputStyle, marginBottom: 6 }}
+            value={cfg.iconSet ?? "target-status"}
+            onChange={e => applyIconSet(e.target.value)}
+            disabled={!cfg.displayIcons}
+          >
+            {CLASSIFICATION_ICON_SETS.map(set => (
+              <option key={set.id} value={set.id}>{set.name}</option>
+            ))}
+          </select>
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#374151", cursor: "pointer", marginBottom: 4 }}>
             <input
               type="checkbox"
@@ -1162,6 +1547,14 @@ const ClassificationEditor: React.FC<{
               onChange={e => onChange({ ...cfg, showAsNewColumn: e.target.checked })}
             />
             Show as new column
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#374151", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={cfg.showValueText !== false}
+              onChange={e => onChange({ ...cfg, showValueText: e.target.checked })}
+            />
+            Display text
           </label>
         </div>
       </FormRow>
@@ -1232,7 +1625,11 @@ const ClassificationEditor: React.FC<{
         <div />
       </div>
 
-      {cfg.ranges.map((r, i) => (
+      {safeRanges.map((r, i) => {
+        const safeColor = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(r.color || "") ? r.color : "#16a34a";
+        const safeIconKind = CLASSIFICATION_ICON_OPTIONS.some(option => option.kind === r.iconKind) ? r.iconKind : "check";
+        const safeIcon = r.icon ?? { kind: safeIconKind, color: safeColor };
+        return (
         <div
           key={i}
           style={{ display: "grid", gridTemplateColumns: "1fr 1fr 70px 42px 28px", columnGap: 6, alignItems: "center", marginBottom: 6 }}
@@ -1251,17 +1648,43 @@ const ClassificationEditor: React.FC<{
           />
           <select
             style={inputStyle}
-            value={r.iconKind}
+            value={safeIconKind}
             onChange={e => setRange(i, { iconKind: e.target.value as any })}
           >
             <option value="check">✓</option>
             <option value="warn">!</option>
+            {CLASSIFICATION_ICON_OPTIONS
+              .filter(option => !["check", "warn", "cross"].includes(option.kind))
+              .map(option => (
+                <option key={option.kind} value={option.kind}>{option.label}</option>
+              ))}
             <option value="cross">✕</option>
           </select>
+          <div style={{ gridColumn: "1 / -1", marginTop: 6, marginBottom: 6 }}>
+            <IconPicker
+              value={safeIcon}
+              color={safeColor}
+              onChange={icon => {
+                if (!icon) {
+                  setRange(i, { icon: undefined });
+                  return;
+                }
+                setRange(i, {
+                  icon,
+                  iconKind: icon.kind !== "custom" && icon.kind !== "text" ? icon.kind : safeIconKind,
+                });
+              }}
+            />
+          </div>
           <input
             type="color"
-            value={r.color}
-            onChange={e => setRange(i, { color: e.target.value })}
+            value={safeColor}
+            onChange={e => {
+              const nextIcon = r.icon && r.icon.kind !== "custom" && r.icon.kind !== "text"
+                ? { ...r.icon, color: e.target.value }
+                : r.icon;
+              setRange(i, { color: e.target.value, icon: nextIcon });
+            }}
             style={{ width: "100%", height: 26, border: "1px solid #d1d5db", borderRadius: 4, padding: 0, background: "none", cursor: "pointer", boxSizing: "border-box" }}
           />
           <button
@@ -1276,7 +1699,7 @@ const ClassificationEditor: React.FC<{
             </svg>
           </button>
         </div>
-      ))}
+      );})}
       <button
         type="button"
         onClick={addRange}
@@ -1377,7 +1800,8 @@ const RankingEditor: React.FC<{
   onChange: (c: NonNullable<ConditionalRule["rankingConfig"]>) => void;
   measures: MeasureInfo[];
 }> = ({ cfg, onChange, measures }) => {
-  const setStyle = (patch: Partial<typeof cfg.style>) => onChange({ ...cfg, style: { ...cfg.style, ...patch } });
+  const safeStyle = cfg.style ?? { color: "#1d4ed8", fontWeight: "600" };
+  const setStyle = (patch: Partial<typeof safeStyle>) => onChange({ ...cfg, style: { ...safeStyle, ...patch } });
 
   return (
     <>
@@ -1431,29 +1855,29 @@ const RankingEditor: React.FC<{
       <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 10 }}>
         <StyleToggleButton
           label="B"
-          active={cfg.style.fontWeight === "600" || cfg.style.fontWeight === "700"}
-          onClick={() => setStyle({ fontWeight: cfg.style.fontWeight === "600" ? undefined : "600" })}
+          active={safeStyle.fontWeight === "600" || safeStyle.fontWeight === "700"}
+          onClick={() => setStyle({ fontWeight: safeStyle.fontWeight === "600" ? undefined : "600" })}
         />
         <StyleToggleButton
           label="I"
           italic
-          active={cfg.style.fontStyle === "italic"}
-          onClick={() => setStyle({ fontStyle: cfg.style.fontStyle === "italic" ? undefined : "italic" })}
+          active={safeStyle.fontStyle === "italic"}
+          onClick={() => setStyle({ fontStyle: safeStyle.fontStyle === "italic" ? undefined : "italic" })}
         />
         <StyleToggleButton
           label="U"
-          active={cfg.style.textDecoration === "underline"}
-          onClick={() => setStyle({ textDecoration: cfg.style.textDecoration === "underline" ? undefined : "underline" })}
+          active={safeStyle.textDecoration === "underline"}
+          onClick={() => setStyle({ textDecoration: safeStyle.textDecoration === "underline" ? undefined : "underline" })}
         />
         <StyleToggleButton
           label="H"
-          active={!!cfg.style.hatched}
-          onClick={() => setStyle({ hatched: !cfg.style.hatched })}
+          active={!!safeStyle.hatched}
+          onClick={() => setStyle({ hatched: !safeStyle.hatched })}
           title="Hatched Pattern"
         />
         <input
           type="color"
-          value={cfg.style.color || "#000000"}
+          value={safeStyle.color || "#000000"}
           onChange={e => setStyle({ color: e.target.value })}
           title="Font Color"
           style={{ width: 28, height: 28, padding: 0, border: "1px solid #d1d5db", borderRadius: 4, cursor: "pointer" }}
@@ -1461,7 +1885,7 @@ const RankingEditor: React.FC<{
         <div style={{ position: "relative" }}>
           <input
             type="color"
-            value={cfg.style.backgroundColor || "#ffffff"}
+            value={safeStyle.backgroundColor || "#ffffff"}
             onChange={e => setStyle({ backgroundColor: e.target.value })}
             title="Background Color"
             style={{ width: 28, height: 28, padding: 0, border: "1px solid #d1d5db", borderRadius: 4, cursor: "pointer" }}

@@ -10,6 +10,8 @@ interface ErrorBoundaryProps {
   fallback?: ReactNode;
   onError?: (error: Error, errorInfo: ErrorInfo) => void;
   onReset?: () => void;
+  /** When this value changes while showing the error, the boundary resets (e.g. on new data). */
+  resetKey?: unknown;
 }
 
 interface ErrorBoundaryState {
@@ -26,6 +28,12 @@ export class MatrixErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoun
 
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return { hasError: true, error };
+  }
+
+  componentDidUpdate(prevProps: ErrorBoundaryProps): void {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, error: null, errorInfo: null });
+    }
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
@@ -55,7 +63,7 @@ export class MatrixErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoun
             backgroundColor: 'rgba(239, 68, 68, 0.05)',
             border: '1px solid rgba(239, 68, 68, 0.3)',
             borderRadius: 12,
-            fontFamily: 'var(--matrix-font-family)',
+            fontFamily: "var(--matrix-font-family, var(--mx-font-family, -apple-system, 'Segoe UI', sans-serif))",
           }}
           role="alert"
           aria-live="assertive"
@@ -67,7 +75,7 @@ export class MatrixErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoun
                 margin: 0,
                 fontSize: 18,
                 fontWeight: 600,
-                color: 'var(--matrix-text-primary)',
+                color: 'var(--matrix-text-primary, var(--mx-text, #1f2937))',
               }}
             >
               Something went wrong
@@ -78,11 +86,11 @@ export class MatrixErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoun
             style={{
               margin: '0 0 16px 0',
               fontSize: 14,
-              color: 'var(--matrix-text-secondary)',
+              color: 'var(--matrix-text-secondary, var(--mx-text-muted, #4b5563))',
               lineHeight: 1.5,
             }}
           >
-            The matrix encountered an error. Try refreshing the visual or contact support if the problem persists.
+            The matrix encountered an error. It will recover automatically when the data refreshes, or you can try again now.
           </p>
 
           {this.state.error && (
@@ -93,10 +101,10 @@ export class MatrixErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoun
                 backgroundColor: 'rgba(0, 0, 0, 0.05)',
                 borderRadius: 6,
                 fontSize: 12,
-                fontFamily: 'var(--matrix-font-mono)',
+                fontFamily: 'var(--matrix-font-mono, ui-monospace, Consolas, monospace)',
               }}
             >
-              <summary style={{ cursor: 'pointer', color: 'var(--matrix-text-secondary)' }}>
+              <summary style={{ cursor: 'pointer', color: 'var(--matrix-text-secondary, var(--mx-text-muted, #4b5563))' }}>
                 Error details
               </summary>
               <pre
@@ -104,7 +112,7 @@ export class MatrixErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoun
                   margin: '12px 0 0 0',
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
-                  color: 'var(--matrix-error)',
+                  color: 'var(--matrix-error, #dc2626)',
                 }}
               >
                 {this.state.error.toString()}
@@ -117,7 +125,7 @@ export class MatrixErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoun
             onClick={this.handleReset}
             style={{
               padding: '10px 20px',
-              backgroundColor: 'var(--matrix-primary)',
+              backgroundColor: 'var(--matrix-primary, var(--mx-accent, #2563eb))',
               color: 'white',
               border: 'none',
               borderRadius: 6,

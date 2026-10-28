@@ -77,8 +77,8 @@ export const SkipLink: React.FC<SkipLinkProps> = ({
         position: 'absolute',
         top: -40,
         left: 0,
-        background: 'var(--matrix-primary)',
-        color: 'var(--matrix-text-inverse)',
+        background: 'var(--matrix-primary, var(--mx-accent, #2563eb))',
+        color: 'var(--matrix-text-inverse, #ffffff)',
         padding: '8px 16px',
         zIndex: 9999,
         textDecoration: 'none',
@@ -227,11 +227,11 @@ export const AccessibleTooltip: React.FC<AccessibleTooltipProps> = ({
           style={{
             position: 'absolute',
             padding: '6px 12px',
-            backgroundColor: 'var(--matrix-bg-secondary)',
-            color: 'var(--matrix-text-primary)',
+            backgroundColor: 'var(--matrix-bg-secondary, var(--mx-surface-subtle, #f5f5f7))',
+            color: 'var(--matrix-text-primary, var(--mx-text, #1f2937))',
             borderRadius: 4,
             fontSize: 12,
-            boxShadow: 'var(--matrix-shadow-md)',
+            boxShadow: 'var(--matrix-shadow-md, 0 4px 12px rgba(0, 0, 0, 0.15))',
             zIndex: 9999,
             ...getTooltipPosition(position),
           }}
@@ -372,7 +372,7 @@ export const AccessibleProgress: React.FC<AccessibleProgressProps> = ({
       style={{
         width: '100%',
         height: 8,
-        backgroundColor: 'var(--matrix-border-color)',
+        backgroundColor: 'var(--matrix-border-color, var(--mx-border, #e5e7eb))',
         borderRadius: 4,
         overflow: 'hidden',
       }}
@@ -381,7 +381,7 @@ export const AccessibleProgress: React.FC<AccessibleProgressProps> = ({
         style={{
           width: `${percentage}%`,
           height: '100%',
-          backgroundColor: 'var(--matrix-primary)',
+          backgroundColor: 'var(--matrix-primary, var(--mx-accent, #2563eb))',
           transition: 'width 0.3s ease',
         }}
       />
@@ -404,11 +404,12 @@ export const StatusMessage: React.FC<StatusMessageProps> = ({
   type = 'info',
   id,
 }) => {
+  // Literal hex so the 8-digit `${color}15` tint below is valid CSS.
   const colors = {
-    info: 'var(--matrix-info)',
-    success: 'var(--matrix-success)',
-    warning: 'var(--matrix-warning)',
-    error: 'var(--matrix-error)',
+    info: '#2563eb',
+    success: '#16a34a',
+    warning: '#b45309',
+    error: '#dc2626',
   };
 
   const icons = {

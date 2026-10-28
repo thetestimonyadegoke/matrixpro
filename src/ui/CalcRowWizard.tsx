@@ -14,6 +14,8 @@ export interface CalcRowWizardProps {
     placement: "before" | "after" | "child";
     targetRowKey: string;
     style: "normal" | "bold" | "underline" | "doubleUnderline" | "sectionHeader";
+    numberFormat?: string;
+    decimals?: number;
   }) => void;
   onClose: () => void;
   initialData?: any;
@@ -28,6 +30,14 @@ const STYLE_OPTIONS = [
   { value: "sectionHeader", label: "Section Header" },
 ];
 
+const NUMBER_FORMAT_OPTIONS = [
+  { value: "", label: "General" },
+  { value: "#,##0", label: "Number" },
+  { value: "#,##0.00", label: "Number, 2 decimals" },
+  { value: "$#,##0.00", label: "Currency" },
+  { value: "0.0%", label: "Percentage" },
+];
+
 export const CalcRowWizard: React.FC<CalcRowWizardProps> = ({
   rows,
   onSave,
@@ -35,6 +45,7 @@ export const CalcRowWizard: React.FC<CalcRowWizardProps> = ({
   initialData,
   intelliSenseContext,
 }) => {
+  const isEditing = !!initialData?.id;
   const [name, setName] = useState(initialData?.name || "");
   const [formulaType, setFormulaType] = useState<"sum" | "subtract" | "custom">(initialData?.formulaType || "sum");
   const [selectedRows, setSelectedRows] = useState<string[]>(initialData?.sourceRowKeys || []);
@@ -42,6 +53,8 @@ export const CalcRowWizard: React.FC<CalcRowWizardProps> = ({
   const [placement, setPlacement] = useState<"before" | "after" | "child">(initialData?.placement || "after");
   const [targetRowKey, setTargetRowKey] = useState(initialData?.targetRowKey || rows[0]?.key || "");
   const [style, setStyle] = useState<"normal" | "bold" | "underline" | "doubleUnderline" | "sectionHeader">(initialData?.style || "bold");
+  const [numberFormat, setNumberFormat] = useState(initialData?.numberFormat || "");
+  const [decimals, setDecimals] = useState<number>(initialData?.decimals ?? 1);
   const [error, setError] = useState<string | null>(null);
 
   const toggleRowSelection = useCallback((rowKey: string) => {
@@ -84,8 +97,10 @@ export const CalcRowWizard: React.FC<CalcRowWizardProps> = ({
       placement,
       targetRowKey,
       style,
+      numberFormat,
+      decimals,
     });
-  }, [name, formulaType, selectedRows, customFormula, placement, targetRowKey, style, onSave]);
+  }, [initialData?.id, name, formulaType, selectedRows, customFormula, placement, targetRowKey, style, numberFormat, decimals, onSave]);
 
   // Filter to show only leaf rows or rows at same level
   const selectableRows = rows.filter(r => !r.isGrandTotal);
@@ -94,7 +109,7 @@ export const CalcRowWizard: React.FC<CalcRowWizardProps> = ({
     <div className="calc-wizard-overlay" onClick={onClose}>
       <div className="calc-wizard-modal calc-wizard-wide" onClick={e => e.stopPropagation()}>
         <div className="calc-wizard-header">
-          <h2>{initialData ? "Edit Calculated Row" : "New Calculated Row"}</h2>
+          <h2>{isEditing ? "Edit Calculated Row" : "New Calculated Row"}</h2>
           <button className="calc-wizard-close" onClick={onClose} type="button" aria-label="Close">
             ×
           </button>
@@ -250,6 +265,35 @@ export const CalcRowWizard: React.FC<CalcRowWizardProps> = ({
             </select>
           </div>
 
+          <div className="calc-wizard-row">
+            <div className="calc-wizard-section calc-wizard-half">
+              <label className="calc-wizard-label">Number Format</label>
+              <select
+                className="calc-wizard-select"
+                value={numberFormat}
+                onChange={e => setNumberFormat(e.target.value)}
+              >
+                {NUMBER_FORMAT_OPTIONS.map(opt => (
+                  <option key={opt.value || "general"} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="calc-wizard-section calc-wizard-half">
+              <label className="calc-wizard-label">Decimals</label>
+              <input
+                type="number"
+                min={0}
+                max={8}
+                className="calc-wizard-input"
+                value={decimals}
+                onChange={e => setDecimals(Math.max(0, Math.min(8, Number(e.target.value) || 0)))}
+              />
+            </div>
+          </div>
+
           {error && <div className="calc-wizard-error">{error}</div>}
         </div>
 
@@ -258,7 +302,7 @@ export const CalcRowWizard: React.FC<CalcRowWizardProps> = ({
             Cancel
           </button>
           <button type="button" className="calc-wizard-btn primary" onClick={handleSave}>
-            {initialData ? "Save Changes" : "Add Row"}
+            {isEditing ? "Save Changes" : "Add Row"}
           </button>
         </div>
       </div>

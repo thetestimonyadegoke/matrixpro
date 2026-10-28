@@ -74,6 +74,9 @@ export const headerSettingsMetadata: Record<keyof HeaderSettings, SettingMetadat
   colHeaderLevel0Color: { description: "Top level column header color", type: "color", defaultValue: "#f0f2f5", category: "Structural Styling" },
   colHeaderLevel1Color: { description: "Mid level column header color", type: "color", defaultValue: "#f8f9fa", category: "Structural Styling" },
   colHeaderLeafColor: { description: "Leaf column header color", type: "color", defaultValue: "#ffffff", category: "Structural Styling" },
+  colHeaderLevel0Bg: { description: "Level 1 column header background color", type: "color", defaultValue: "", category: "Structural Styling" },
+  colHeaderLevel1Bg: { description: "Level 2 column header background color", type: "color", defaultValue: "", category: "Structural Styling" },
+  colHeaderLeafBg: { description: "Measure header background color", type: "color", defaultValue: "", category: "Structural Styling" },
 };
 
 export const valueSettingsMetadata: Record<keyof ValueSettings, SettingMetadata> = {
@@ -431,10 +434,14 @@ export const settingsMetadata: SettingsMetadata = {
   title: {
     show: { description: "Show the custom in-visual title bar", type: "boolean", defaultValue: false, category: "Title" },
     text: { description: "Title text", type: "string", defaultValue: "", category: "Title" },
+    stylePreset: { description: "Title artistic style preset", type: "enum", defaultValue: "classic", allowedValues: ["classic", "editorial", "hero", "capsule", "mono", "glow", "product", "executive", "spotlight", "glass", "pill", "dashboard", "serif", "banner", "minimal"], category: "Title" },
     fontSize: { description: "Font size in px", type: "number", defaultValue: 16, min: 8, max: 72, category: "Title" },
     color: { description: "Font color", type: "color", defaultValue: "#111827", category: "Title" },
     backgroundColor: { description: "Title bar background", type: "color", defaultValue: "#ffffff", category: "Title" },
     alignment: { description: "Text alignment", type: "enum", defaultValue: "left", allowedValues: ["left", "center", "right"], category: "Title" },
+    uppercase: { description: "Transform title to uppercase", type: "boolean", defaultValue: false, category: "Title" },
+    letterSpacing: { description: "Additional title letter spacing", type: "number", defaultValue: 0, min: 0, max: 12, category: "Title" },
+    italic: { description: "Italic title styling", type: "boolean", defaultValue: false, category: "Title" },
     height: { description: "Bar height in px", type: "number", defaultValue: 40, min: 24, max: 120, category: "Title" },
   },
   layout: {
@@ -553,6 +560,12 @@ export const settingsMetadata: SettingsMetadata = {
       defaultValue: "[]",
       category: "Advanced",
     },
+    levelAwareColumns: {
+      description: "JSON configuration for optional level-aware detail and distributed columns",
+      type: "json",
+      defaultValue: "{\"enabled\":false,\"fields\":[]}",
+      category: "Advanced",
+    },
   },
   manualData: {
     notes: {
@@ -595,6 +608,12 @@ export const settingsMetadata: SettingsMetadata = {
       description: "JSON string array of hidden column/measure keys",
       type: "json",
       defaultValue: "[]",
+      category: "Data",
+    },
+    totalPositions: {
+      description: "JSON record of per-column total/subtotal placement overrides",
+      type: "json",
+      defaultValue: "{}",
       category: "Data",
     },
     colWidths: {
@@ -641,6 +660,18 @@ export const settingsMetadata: SettingsMetadata = {
     },
     hiddenRowLevels: {
       description: "JSON array of hidden row hierarchy level indices",
+      type: "json",
+      defaultValue: "[]",
+      category: "Data",
+    },
+    rowParents: {
+      description: "JSON record of manual row parent overrides from drag/drop nesting",
+      type: "json",
+      defaultValue: "{}",
+      category: "Data",
+    },
+    hiddenRowExpandIcons: {
+      description: "JSON array of row keys whose expand/collapse icon is hidden",
       type: "json",
       defaultValue: "[]",
       category: "Data",

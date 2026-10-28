@@ -5,6 +5,8 @@ import { FormulaEngine } from "../calculations/FormulaEngine";
 import { FlattenedNode } from "../model/tree";
 import { FormulaEditor } from "./IntelliSenseDropdown";
 
+type MeasureAggregationType = "none" | "formula" | "sum" | "first" | "last" | "average" | "min" | "max";
+
 export interface CalcMeasureWizardProps {
   measures: MeasureInfo[];
   onSave: (measure: {
@@ -13,6 +15,7 @@ export interface CalcMeasureWizardProps {
     formula: string;
     format: string;
     aggregation: "afterTotals" | "beforeTotals";
+    aggregationType: MeasureAggregationType;
     id?: string;
   }) => void;
   onClose: () => void;
@@ -26,6 +29,7 @@ export interface CalcMeasureWizardProps {
     formula: string;
     format: string;
     aggregationMode: "afterTotals" | "beforeTotals";
+    aggregationType?: MeasureAggregationType;
   };
 }
 
@@ -50,6 +54,24 @@ const QUICK_FUNCTIONS = [
   { label: "COALESCE", insert: "COALESCE(, 0)" },
 ];
 
+const AGGREGATION_OPTIONS: Array<{ value: MeasureAggregationType; label: string }> = [
+  { value: "none", label: "None" },
+  { value: "formula", label: "Formula" },
+  { value: "sum", label: "Sum" },
+  { value: "first", label: "First" },
+  { value: "last", label: "Last" },
+  { value: "average", label: "Average" },
+  { value: "min", label: "Min" },
+  { value: "max", label: "Max" },
+];
+
+function inferAggregationType(formula: string, format: string, name: string): MeasureAggregationType {
+  if (formula.includes("/") || format.includes("%") || /(?:margin|variance\s*%|completion|rate|unit|per|\$\/)/i.test(name)) {
+    return "formula";
+  }
+  return "sum";
+}
+
 export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
   rows,
   columns,
@@ -65,6 +87,9 @@ export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
   const [format, setFormat] = useState(initialMeasure?.format || "");
   const [aggregation, setAggregation] = useState<"afterTotals" | "beforeTotals">(
     initialMeasure?.aggregationMode || "afterTotals"
+  );
+  const [aggregationType, setAggregationType] = useState<MeasureAggregationType>(
+    initialMeasure?.aggregationType || inferAggregationType(initialMeasure?.formula || "", initialMeasure?.format || "", initialMeasure?.name || "")
   );
   const [error, setError] = useState<string | null>(null);
 
@@ -97,9 +122,10 @@ export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
       formula: formula.trim(),
       format,
       aggregation,
+      aggregationType,
       id: initialMeasure?.id,
     });
-  }, [name, description, formula, format, aggregation, validateCurrentFormula, onSave, initialMeasure]);
+  }, [name, description, formula, format, aggregation, aggregationType, validateCurrentFormula, onSave, initialMeasure]);
 
   const insertMeasureRef = useCallback((measureName: string) => {
     setFormula(prev => prev + `[${measureName}]`);
@@ -250,7 +276,7 @@ export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
             </div>
 
             <div className="calc-wizard-section calc-wizard-half">
-              <label className="calc-wizard-label">Aggregation</label>
+              <label className="calc-wizard-label">Calculation Timing</label>
               <select
                 className="calc-wizard-select"
                 value={aggregation}
@@ -260,6 +286,19 @@ export const CalcMeasureWizard: React.FC<CalcMeasureWizardProps> = ({
                 <option value="beforeTotals">Sum of computed cells</option>
               </select>
             </div>
+          </div>
+
+          <div className="calc-wizard-section">
+            <label className="calc-wizard-label">Aggregation Type</label>
+            <select
+              className="calc-wizard-select"
+              value={aggregationType}
+              onChange={e => setAggregationType(e.target.value as MeasureAggregationType)}
+            >
+              {AGGREGATION_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
           </div>
 
           {previewValues.length > 0 && (

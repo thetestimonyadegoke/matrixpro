@@ -16,6 +16,7 @@ interface FooterProps {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  onRefresh: () => void;
   allowInteractions: boolean;
   titleVisible: boolean;
   onToggleTitle: () => void;
@@ -25,7 +26,7 @@ interface FooterProps {
 export const Footer: React.FC<FooterProps> = ({
   rowCount, zoomLevel, toolbarMode, explorerOpen,
   onZoomIn, onZoomOut, onZoomReset, onZoomSet, onToolbarModeChange, onToggleExplorer,
-  canUndo, canRedo, onUndo, onRedo, allowInteractions,
+  canUndo, canRedo, onUndo, onRedo, onRefresh, allowInteractions,
   titleVisible, onToggleTitle, onEditTitle,
 }) => {
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
@@ -55,6 +56,18 @@ export const Footer: React.FC<FooterProps> = ({
     setZoomEditing(false);
   };
 
+  // Keep the typed value within the valid 50–200 range as the user types so the
+  // input can never momentarily display an out-of-range value before blur.
+  const onZoomInputChange = (raw: string) => {
+    if (raw === "") {
+      setZoomInput("");
+      return;
+    }
+    const parsed = parseInt(raw, 10);
+    if (isNaN(parsed)) return;
+    setZoomInput(String(Math.max(50, Math.min(200, parsed))));
+  };
+
   const modeLabels: Record<ToolbarMode, string> = {
     "full": "Full Toolbar",
     "minimal": "Minimal",
@@ -68,11 +81,11 @@ export const Footer: React.FC<FooterProps> = ({
     alignItems: "center",
     justifyContent: "space-between",
     padding: "0 10px",
-    background: "#f9fafb",
-    borderTop: "1px solid #e5e7eb",
+    background: "var(--mx-surface-subtle, #f9fafb)",
+    borderTop: "1px solid var(--mx-border, #e5e7eb)",
     fontSize: 11,
-    color: "#4b5563",
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    color: "var(--mx-text-muted, #4b5563)",
+    fontFamily: "var(--mx-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif)",
     position: "relative",
     zIndex: 50,
     boxSizing: "border-box"
@@ -80,19 +93,28 @@ export const Footer: React.FC<FooterProps> = ({
 
   const iconBtn: React.CSSProperties = {
     background: "transparent", border: "none", cursor: "pointer",
-    padding: "2px 6px", borderRadius: 3, color: "#4b5563",
+    padding: "2px 6px", borderRadius: 3, color: "var(--mx-text-muted, #4b5563)",
     fontSize: 13, lineHeight: 1, display: "inline-flex", alignItems: "center",
+  };
+
+  const actionBtn: React.CSSProperties = {
+    ...iconBtn,
+    border: "1px solid var(--mx-border, #d1d5db)",
+    background: "var(--mx-surface, #ffffff)",
+    color: "var(--mx-text, #374151)",
+    fontWeight: 700,
+    gap: 4,
   };
 
   return (
     <div style={footerStyle} className="mx-footer">
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <span>Total rows: <strong style={{ color: "#111827" }}>{rowCount.toLocaleString()}</strong></span>
-        <span style={{ color: "#d1d5db" }}>|</span>
+        <span>Total rows: <strong style={{ color: "var(--mx-text, #111827)" }}>{rowCount.toLocaleString()}</strong></span>
+        <span style={{ color: "var(--mx-border, #d1d5db)" }}>|</span>
         <button
           onClick={onToggleTitle}
           disabled={!allowInteractions}
-          style={{ ...iconBtn, fontWeight: titleVisible ? 600 : 400, color: titleVisible ? "#2563eb" : "#4b5563" }}
+          style={{ ...iconBtn, fontWeight: titleVisible ? 600 : 400, color: titleVisible ? "var(--mx-accent, #2563eb)" : "var(--mx-text-muted, #4b5563)" }}
           title={titleVisible ? "Hide visual title" : "Show visual title"}
         >
           {titleVisible ? "Title On" : "Title Off"}
@@ -105,27 +127,35 @@ export const Footer: React.FC<FooterProps> = ({
         >
           Edit Title
         </button>
-        <span style={{ color: "#d1d5db" }}>|</span>
+        <span style={{ color: "var(--mx-border, #d1d5db)" }}>|</span>
         <button
           onClick={onUndo}
           disabled={!canUndo || !allowInteractions}
-          style={{ ...iconBtn, opacity: canUndo && allowInteractions ? 1 : 0.4, cursor: canUndo && allowInteractions ? "pointer" : "not-allowed" }}
+          style={{ ...actionBtn, opacity: canUndo && allowInteractions ? 1 : 0.4, cursor: canUndo && allowInteractions ? "pointer" : "not-allowed" }}
           title="Undo last matrix change (Ctrl+Z)"
         >
-          Undo
+          ↶ Undo
         </button>
         <button
           onClick={onRedo}
           disabled={!canRedo || !allowInteractions}
-          style={{ ...iconBtn, opacity: canRedo && allowInteractions ? 1 : 0.4, cursor: canRedo && allowInteractions ? "pointer" : "not-allowed" }}
+          style={{ ...actionBtn, opacity: canRedo && allowInteractions ? 1 : 0.4, cursor: canRedo && allowInteractions ? "pointer" : "not-allowed" }}
           title="Redo matrix change (Ctrl+Y)"
         >
-          Redo
+          ↷ Redo
         </button>
-        <span style={{ color: "#d1d5db" }}>|</span>
+        <button
+          onClick={onRefresh}
+          disabled={!allowInteractions}
+          style={{ ...actionBtn, color: "#0f766e", opacity: allowInteractions ? 1 : 0.4 }}
+          title="Refresh visual layout and recompute matrix leaves"
+        >
+          ↻ Refresh
+        </button>
+        <span style={{ color: "var(--mx-border, #d1d5db)" }}>|</span>
         <button
           onClick={onToggleExplorer}
-          style={{ ...iconBtn, fontWeight: explorerOpen ? 600 : 400, color: explorerOpen ? "#2563eb" : "#4b5563" }}
+          style={{ ...iconBtn, fontWeight: explorerOpen ? 600 : 400, color: explorerOpen ? "var(--mx-accent, #2563eb)" : "var(--mx-text-muted, #4b5563)" }}
           title="Toggle Explorer"
         >
           {explorerOpen ? "◨" : "◧"} Explorer
@@ -145,7 +175,7 @@ export const Footer: React.FC<FooterProps> = ({
           {modeMenuOpen && (
             <div style={{
               position: "absolute", bottom: "100%", right: 0, marginBottom: 4,
-              background: "#fff", border: "1px solid #d1d5db", borderRadius: 6,
+              background: "var(--mx-surface, #fff)", border: "1px solid var(--mx-border, #d1d5db)", borderRadius: 6,
               boxShadow: "0 4px 12px rgba(0,0,0,0.15)", minWidth: 170, padding: 4,
               zIndex: 9999,
             }}>
@@ -168,7 +198,7 @@ export const Footer: React.FC<FooterProps> = ({
           )}
         </div>
 
-        <span style={{ color: "#d1d5db" }}>|</span>
+        <span style={{ color: "var(--mx-border, #d1d5db)" }}>|</span>
 
         {/* Zoom controls */}
         <button
@@ -181,16 +211,16 @@ export const Footer: React.FC<FooterProps> = ({
           <input
             type="number"
             value={zoomInput}
-            onChange={(e) => setZoomInput(e.target.value)}
+            onChange={(e) => onZoomInputChange(e.target.value)}
             onBlur={commitZoom}
             onKeyDown={(e) => { if (e.key === "Enter") commitZoom(); if (e.key === "Escape") setZoomEditing(false); }}
             autoFocus
-            style={{ width: 50, fontSize: 11, padding: "2px 4px", border: "1px solid #2563eb", borderRadius: 3, textAlign: "center" }}
+            style={{ width: 50, fontSize: 11, padding: "2px 4px", border: "1px solid var(--mx-accent, #2563eb)", borderRadius: 3, textAlign: "center" }}
           />
         ) : (
           <button
             onClick={() => { setZoomInput(String(zoomLevel)); setZoomEditing(true); }}
-            style={{ ...iconBtn, minWidth: 50, justifyContent: "center", border: "1px solid #d1d5db", borderRadius: 3, fontSize: 11 }}
+            style={{ ...iconBtn, minWidth: 50, justifyContent: "center", border: "1px solid var(--mx-border, #d1d5db)", borderRadius: 3, fontSize: 11 }}
             title="Click to reset (double-click to edit)"
             onDoubleClick={onZoomReset}
           >{zoomLevel}%</button>

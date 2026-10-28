@@ -37,6 +37,10 @@ export interface HeaderSettings {
   colHeaderLevel0Color: string;
   colHeaderLevel1Color: string;
   colHeaderLeafColor: string;
+  // Per-hierarchy-level background colors for column headers
+  colHeaderLevel0Bg: string;
+  colHeaderLevel1Bg: string;
+  colHeaderLeafBg: string;
 }
 
 export interface UIState {
@@ -216,6 +220,7 @@ export interface TitleSettings {
   show: boolean;
   /** Title text displayed in the bar. */
   text: string;
+  stylePreset?: string;
   /** Font size in px. */
   fontSize: number;
   /** Font color (CSS color string). */
@@ -224,6 +229,9 @@ export interface TitleSettings {
   backgroundColor: string;
   /** Text alignment. */
   alignment: "left" | "center" | "right";
+  uppercase?: boolean;
+  letterSpacing?: number;
+  italic?: boolean;
   /** Height of the title bar in px. */
   height: number;
 }
@@ -252,6 +260,7 @@ export interface CalculationsSettings {
   rows: string;
   timeIntelligence: string;
   visualColumns: string;
+  levelAwareColumns: string;
 }
 
 // ─── Inserted-row schema ─────────────────────────────────────────────────────
@@ -324,6 +333,12 @@ export interface CalculatedInsertedRow extends InsertedRowBaseFields {
   scalingFactor?: RowScalingFactor;
   /** Per-row quick format override. Default "none". */
   quickFormat?: RowQuickFormat;
+  /** Per-row custom number format string (e.g. "$#,##0.00"). */
+  numberFormat?: string;
+  /** Per-row decimal places. */
+  decimals?: number;
+  /** When true, the calculated row's own scaling/format completely replaces column-level formatting. */
+  overrideColumnFormat?: boolean;
   /** Include in totals (new spelling; prefer this over legacy `includeInTotals`). Default true. */
   includeInTotal?: boolean;
   /**
@@ -448,6 +463,9 @@ export function migrateInsertedRows(raw: string | undefined | null): InsertedRow
           binding,
           scalingFactor,
           quickFormat,
+          numberFormat: typeof r?.numberFormat === "string" ? r.numberFormat : undefined,
+          decimals: typeof r?.decimals === "number" ? r.decimals : undefined,
+          overrideColumnFormat: !!r?.overrideColumnFormat,
           includeInTotal,
           // Legacy entries preserve pre-feature behavior (columns evaluate first).
           evaluateColumnsBeforeRows:
@@ -491,6 +509,10 @@ export interface ManualDataSettings {
   colOrder: string;
   labelOverrides: string;
   locks: string;
+  rowVisibility?: string;
+  totalPositions: string;
+  rowParents: string;
+  hiddenRowExpandIcons: string;
   /** JSON string[] of hidden column/measure keys */
   hiddenCols: string;
   /** JSON Record<key,number> of per-column custom widths */
@@ -577,6 +599,9 @@ export const defaultSettings: VisualSettings = {
     colHeaderLevel0Color: "#111827",
     colHeaderLevel1Color: "#374151",
     colHeaderLeafColor: "#4b5563",
+    colHeaderLevel0Bg: "",
+    colHeaderLevel1Bg: "",
+    colHeaderLeafBg: "",
   },
   values: {
     fontSize: 11,
@@ -671,10 +696,14 @@ export const defaultSettings: VisualSettings = {
   title: {
     show: false,
     text: "",
+    stylePreset: "classic",
     fontSize: 16,
     color: "#111827",
     backgroundColor: "#ffffff",
     alignment: "left",
+    uppercase: false,
+    letterSpacing: 0,
+    italic: false,
     height: 40,
   },
   calculations: {
@@ -682,6 +711,7 @@ export const defaultSettings: VisualSettings = {
     rows: "[]",
     timeIntelligence: "[]",
     visualColumns: "[]",
+    levelAwareColumns: "{\"enabled\":false,\"fields\":[]}",
   },
   manualData: {
     notes: "{}",
@@ -690,6 +720,10 @@ export const defaultSettings: VisualSettings = {
     colOrder: "[]",
     labelOverrides: "{}",
     locks: "[]",
+    rowVisibility: "{}",
+    totalPositions: "{}",
+    rowParents: "{}",
+    hiddenRowExpandIcons: "[]",
     hiddenCols: "[]",
     colWidths: "{}",
     variables: "[]",
@@ -797,6 +831,9 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       colHeaderLevel0Color: getColor(objects, "headers", "colHeaderLevel0Color", defaultSettings.headers.colHeaderLevel0Color),
       colHeaderLevel1Color: getColor(objects, "headers", "colHeaderLevel1Color", defaultSettings.headers.colHeaderLevel1Color),
       colHeaderLeafColor: getColor(objects, "headers", "colHeaderLeafColor", defaultSettings.headers.colHeaderLeafColor),
+      colHeaderLevel0Bg: getColor(objects, "headers", "colHeaderLevel0Bg", defaultSettings.headers.colHeaderLevel0Bg),
+      colHeaderLevel1Bg: getColor(objects, "headers", "colHeaderLevel1Bg", defaultSettings.headers.colHeaderLevel1Bg),
+      colHeaderLeafBg: getColor(objects, "headers", "colHeaderLeafBg", defaultSettings.headers.colHeaderLeafBg),
     },
     values: {
       fontSize: getValue(objects, "values", "fontSize", defaultSettings.values.fontSize),
@@ -899,10 +936,14 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
     title: {
       show: getValue(objects, "title", "show", defaultSettings.title.show),
       text: getValue(objects, "title", "text", defaultSettings.title.text),
+      stylePreset: getValue(objects, "title", "stylePreset", defaultSettings.title.stylePreset),
       fontSize: getValue(objects, "title", "fontSize", defaultSettings.title.fontSize),
       color: getColor(objects, "title", "color", defaultSettings.title.color),
       backgroundColor: getColor(objects, "title", "backgroundColor", defaultSettings.title.backgroundColor),
       alignment: getValue(objects, "title", "alignment", defaultSettings.title.alignment),
+      uppercase: getValue(objects, "title", "uppercase", defaultSettings.title.uppercase),
+      letterSpacing: getValue(objects, "title", "letterSpacing", defaultSettings.title.letterSpacing),
+      italic: getValue(objects, "title", "italic", defaultSettings.title.italic),
       height: getValue(objects, "title", "height", defaultSettings.title.height),
     },
     calculations: {
@@ -910,6 +951,7 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       rows: getValue(objects, "calculations", "rows", defaultSettings.calculations.rows),
       timeIntelligence: getValue(objects, "calculations", "timeIntelligence", defaultSettings.calculations.timeIntelligence),
       visualColumns: getValue(objects, "calculations", "visualColumns", defaultSettings.calculations.visualColumns),
+      levelAwareColumns: getValue(objects, "calculations", "levelAwareColumns", defaultSettings.calculations.levelAwareColumns),
     },
     manualData: {
       notes: getValue(objects, "manualData", "notes", defaultSettings.manualData.notes),
@@ -918,6 +960,10 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       colOrder: getValue(objects, "manualData", "colOrder", defaultSettings.manualData.colOrder),
       labelOverrides: getValue(objects, "manualData", "labelOverrides", defaultSettings.manualData.labelOverrides),
       locks: getValue(objects, "manualData", "locks", defaultSettings.manualData.locks),
+      rowVisibility: getValue(objects, "manualData", "rowVisibility", defaultSettings.manualData.rowVisibility),
+      totalPositions: getValue(objects, "manualData", "totalPositions", defaultSettings.manualData.totalPositions),
+      rowParents: getValue(objects, "manualData", "rowParents", defaultSettings.manualData.rowParents),
+      hiddenRowExpandIcons: getValue(objects, "manualData", "hiddenRowExpandIcons", defaultSettings.manualData.hiddenRowExpandIcons),
       hiddenCols: getValue(objects, "manualData", "hiddenCols", defaultSettings.manualData.hiddenCols),
       colWidths: getValue(objects, "manualData", "colWidths", defaultSettings.manualData.colWidths),
       variables: getValue(objects, "manualData", "variables", defaultSettings.manualData.variables),

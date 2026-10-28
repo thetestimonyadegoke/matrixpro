@@ -8,7 +8,7 @@ import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
 
 import { App } from "./ui/App";
-import { defaultSettings, parseSettings, VisualSettings } from "./settings/settings";
+import { parseSettings, VisualSettings } from "./settings/settings";
 import { getFormattingModel } from "./settings/formattingModel";
 import { buildMatrixModel, MatrixModel } from "./model/pivot";
 import { toggleNodeExpansion } from "./model/tree";
@@ -17,6 +17,8 @@ import { RenderingEventsManager } from "./powerbi/events";
 import { TooltipServiceWrapper } from "./powerbi/tooltip";
 import { getThemePreset, applyThemeTokensToElement, ThemePresetId } from "./themes/themeTokens";
 import { debugMatrixData } from "./debug_logger";
+import { setExportDownloadService } from "./export/download";
+import { MatrixErrorBoundary } from "./ui/errorBoundary";
 
 import "../style/visual.less";
 
@@ -40,6 +42,17 @@ export class Visual implements IVisual {
   private highContrastBackground: string;
   private highContrastForegroundSelected: string;
   private highContrastHyperlink: string;
+  private pendingPropertyOverrides: Map<string, { value: any; expiresAt: number }>;
+  /** Inputs the current model was built from; a match means a rebuild would produce the same model. */
+  private modelInputs: {
+    matrix: powerbi.DataViewMatrix | undefined;
+    shape: string;
+    signature: string;
+    rowExpandedState: Map<string, boolean>;
+    columnExpandedState: Map<string, boolean>;
+  } | null = null;
+  private pendingForceRebuild = false;
+  private loadingSegments = false;
 
   private tryHexToRgb(hex: string): { r: number; g: number; b: number } | null {
     if (!hex) return null;
@@ -62,6 +75,77 @@ export class Visual implements IVisual {
     return null;
   }
 
+  private isColorProperty(objectName: string, propertyName: string): boolean {
+    return new Set([
+      "theme.customAccentColor",
+      "headers.backgroundColor",
+      "headers.textColor",
+      "headers.rowHeaderParentColor",
+      "headers.rowHeaderChildColor",
+      "headers.colHeaderLevel0Color",
+      "headers.colHeaderLevel1Color",
+      "headers.colHeaderLeafColor",
+      "values.textColor",
+      "values.backgroundColor",
+      "values.borderColor",
+      "totals.backgroundColor",
+      "totals.textColor",
+      "totals.grandTotalBackgroundColor",
+      "totals.grandTotalTextColor",
+      "totals.subtotalBackgroundColor",
+      "totals.subtotalTextColor",
+      "conditionalFormatting.lowColor",
+      "conditionalFormatting.midColor",
+      "conditionalFormatting.highColor",
+      "dataBars.positiveColor",
+      "dataBars.negativeColor",
+      "kpiIcons.upColor",
+      "kpiIcons.neutralColor",
+      "kpiIcons.downColor",
+      "sparklines.lineColor",
+      "sparklines.markerColor",
+      "appearance.surfaceColor",
+      "appearance.toolbarBackgroundColor",
+      "appearance.borderColor",
+      "appearance.accentColor",
+      "appearance.gradientStart",
+      "appearance.gradientEnd",
+      "appearance.overlayColor",
+      "title.color",
+      "title.backgroundColor",
+    ]).has(`${objectName}.${propertyName}`);
+  }
+
+  /**
+   * Whether the value parsed back from the dataView matches the value we
+   * optimistically persisted. Colors are compared case-insensitively because
+   * the host may normalize the hex (e.g. "#FF0000" -> "#ff0000"); an exact
+   * comparison would never match and the override would linger until expiry.
+   */
+  private persistedValueMatches(objectName: string, propertyName: string, current: any, pending: any): boolean {
+    if (this.isColorProperty(objectName, propertyName) && typeof current === "string" && typeof pending === "string") {
+      return current.trim().toLowerCase() === pending.trim().toLowerCase();
+    }
+    return current === pending;
+  }
+
+  private normalizePersistedValue(objectName: string, propertyName: string, value: any): any {
+    if (!this.isColorProperty(objectName, propertyName)) {
+      return value;
+    }
+
+    if (typeof value !== "string") {
+      return undefined;
+    }
+
+    const normalized = value.trim();
+    return {
+      solid: {
+        color: normalized,
+      },
+    };
+  }
+
   constructor(options: VisualConstructorOptions) {
     this.target = options.element;
     this.host = options.host;
@@ -72,6 +156,7 @@ export class Visual implements IVisual {
     this.lastDataView = undefined;
     this.lastViewport = null;
     this.rebuildQueued = false;
+    this.pendingPropertyOverrides = new Map();
 
     this.allowInteractions = !!this.host.hostCapabilities?.allowInteractions;
 
@@ -89,9 +174,17 @@ export class Visual implements IVisual {
     this.reactRoot.className = "advanced-matrix-root";
     this.reactRoot.style.width = "100%";
     this.reactRoot.style.height = "100%";
+    this.reactRoot.style.overflow = "hidden";
     this.reactRoot.setAttribute("tabindex", "0");
     this.tooltipServiceWrapper?.setElement(this.reactRoot);
+    
+    // Prevent the visual host container from rendering scrollbars or scrolling when focused
+    this.target.style.overflow = "hidden";
     this.target.appendChild(this.reactRoot);
+
+    // Exports must go through the host download service: the visual runs in a
+    // sandboxed frame where a plain <a download> link is blocked.
+    setExportDownloadService(this.host.downloadService);
   }
 
   private collectKeys(node: any, out: Set<string>): void {
@@ -123,22 +216,89 @@ export class Visual implements IVisual {
     }
   }
 
-  private scheduleRebuildAndRender(): void {
+  /**
+   * Settings that buildMatrixModel reads. Everything else (colors, fonts,
+   * widths, zoom, panel state...) only affects rendering, so changing it must
+   * not trigger a full re-pivot.
+   */
+  private modelSettingsSignature(settings: VisualSettings): string {
+    return JSON.stringify([
+      settings.totals,
+      settings.calculations?.rows,
+      settings.calculations?.measures,
+      settings.manualData?.edits,
+      settings.manualData?.labelOverrides,
+      settings.manualData?.rowOrder,
+    ]);
+  }
+
+  private dataShape(dataView: powerbi.DataView | undefined): string {
+    const matrix = dataView?.matrix;
+    if (!matrix) return "none";
+    return [
+      matrix.rows?.root?.children?.length ?? 0,
+      matrix.columns?.root?.children?.length ?? 0,
+      matrix.valueSources?.length ?? 0,
+      dataView?.metadata?.segment ? 1 : 0,
+    ].join("/");
+  }
+
+  /** Builds the model unless its inputs are unchanged since the last build. */
+  /** @returns build time in ms, or undefined when the existing model was reused. */
+  private ensureModel(dataView: powerbi.DataView | undefined, force: boolean): number | undefined {
+    const signature = this.modelSettingsSignature(this.settings);
+    const shape = this.dataShape(dataView);
+    const inputs = this.modelInputs;
+    if (
+      !force &&
+      this.model &&
+      inputs &&
+      inputs.matrix === dataView?.matrix &&
+      inputs.shape === shape &&
+      inputs.signature === signature &&
+      inputs.rowExpandedState === this.rowExpandedState &&
+      inputs.columnExpandedState === this.columnExpandedState
+    ) {
+      return undefined;
+    }
+
+    const started = performance.now();
+    this.model = buildMatrixModel({
+      dataView,
+      settings: this.settings,
+      selectionIdBuilder: (identity: any, levels?: powerbi.DataViewHierarchyLevel[]) => this.buildSelectionId(identity, levels),
+      rowExpandedState: this.rowExpandedState,
+      columnExpandedState: this.columnExpandedState,
+    });
+
+    this.pruneExpansionState();
+
+    this.modelInputs = {
+      matrix: dataView?.matrix,
+      shape,
+      signature,
+      rowExpandedState: this.rowExpandedState,
+      columnExpandedState: this.columnExpandedState,
+    };
+    return performance.now() - started;
+  }
+
+  /**
+   * @param force rebuild even when inputs look unchanged. Interaction handlers
+   * (expand/collapse/drill) force; persisted-setting changes do not, so purely
+   * cosmetic changes skip the re-pivot.
+   */
+  private scheduleRebuildAndRender(force = true): void {
+    this.pendingForceRebuild = this.pendingForceRebuild || force;
     if (this.rebuildQueued) return;
     this.rebuildQueued = true;
 
     requestAnimationFrame(() => {
       this.rebuildQueued = false;
+      const forceRebuild = this.pendingForceRebuild;
+      this.pendingForceRebuild = false;
 
-      this.model = buildMatrixModel({
-        dataView: this.lastDataView,
-        settings: this.settings,
-        selectionIdBuilder: (identity: any, levels?: powerbi.DataViewHierarchyLevel[]) => this.buildSelectionId(identity, levels),
-        rowExpandedState: this.rowExpandedState,
-        columnExpandedState: this.columnExpandedState,
-      });
-
-      this.pruneExpansionState();
+      this.ensureModel(this.lastDataView, forceRebuild);
 
       const width = this.lastViewport?.width ?? this.target.clientWidth;
       const height = this.lastViewport?.height ?? this.target.clientHeight;
@@ -146,7 +306,35 @@ export class Visual implements IVisual {
     });
   }
 
+  /** @returns true when the host accepted a request for another data segment. */
+  private requestMoreDataIfSegmented(dataView: powerbi.DataView | undefined): boolean {
+    if (!dataView?.metadata?.segment) {
+      return false;
+    }
+
+    try {
+      return this.host.fetchMoreData(true) !== false;
+    } catch (error) {
+      console.warn("fetchMoreData failed:", error);
+      return false;
+    }
+  }
+
   private persistProperty(objectName: string, propertyName: string, value: any): void {
+    const normalizedValue = this.normalizePersistedValue(objectName, propertyName, value);
+    if (this.isColorProperty(objectName, propertyName) && normalizedValue === undefined) {
+      return;
+    }
+    const propertyKey = `${objectName}.${propertyName}`;
+    // Hold the optimistic value until the host round-trips it back through the
+    // dataView (confirmed in applyPendingPropertyOverrides). The long backstop is
+    // only a safety net for genuinely dropped writes — a short TTL used to make
+    // colors (e.g. header background) silently revert to defaults after ~30s.
+    this.pendingPropertyOverrides.set(propertyKey, {
+      value,
+      expiresAt: Date.now() + 600000,
+    });
+
     try {
       (this.host as any).persistProperties?.({
         merge: [
@@ -154,7 +342,7 @@ export class Visual implements IVisual {
             objectName,
             selector: null,
             properties: {
-              [propertyName]: value,
+              [propertyName]: normalizedValue ?? value,
             },
           },
         ],
@@ -176,7 +364,38 @@ export class Visual implements IVisual {
       // ignore
     }
 
-    this.scheduleRebuildAndRender();
+    this.scheduleRebuildAndRender(false);
+  }
+
+  private applyPendingPropertyOverrides(settings: VisualSettings): VisualSettings {
+    if (this.pendingPropertyOverrides.size === 0) {
+      return settings;
+    }
+
+    const now = Date.now();
+    let next: any = settings;
+    for (const [key, pending] of Array.from(this.pendingPropertyOverrides.entries())) {
+      if (pending.expiresAt <= now) {
+        this.pendingPropertyOverrides.delete(key);
+        continue;
+      }
+
+      const [objectName, propertyName] = key.split(".");
+      if (!objectName || !propertyName) continue;
+      const currentObj = next?.[objectName] ?? {};
+      if (this.persistedValueMatches(objectName, propertyName, currentObj[propertyName], pending.value)) {
+        this.pendingPropertyOverrides.delete(key);
+        continue;
+      }
+      next = {
+        ...next,
+        [objectName]: {
+          ...currentObj,
+          [propertyName]: pending.value,
+        },
+      };
+    }
+    return next as VisualSettings;
   }
 
   public update(options: VisualUpdateOptions): void {
@@ -207,13 +426,12 @@ export class Visual implements IVisual {
       }
 
       const dataView = options.dataViews?.[0];
+      const objects = dataView?.metadata?.objects;
       this.lastDataView = dataView;
       this.lastViewport = { width: options.viewport.width, height: options.viewport.height };
-      this.settings = parseSettings(dataView);
+      const moreDataRequested = this.requestMoreDataIfSegmented(dataView);
+      this.settings = this.applyPendingPropertyOverrides(parseSettings(dataView));
 
-      // Restore persisted expansion state on first load (when in-memory state is empty).
-      // Subsequent calls keep the already-toggled in-memory state so user interactions
-      // aren't overwritten by the incoming data view on every Power BI update cycle.
       if (this.rowExpandedState.size === 0 && this.columnExpandedState.size === 0) {
         this.restoreExpansionStateFromSettings();
       }
@@ -222,14 +440,16 @@ export class Visual implements IVisual {
       const themeTokens = getThemePreset(this.settings.theme.preset as ThemePresetId);
       applyThemeTokensToElement(this.reactRoot, themeTokens);
 
+      const isExplicit = (obj: string, prop: string) => objects && (objects as any)[obj] && (objects as any)[obj][prop] !== undefined;
+
       // Apply density-based row height
       const rowHeight = this.settings.theme.density === "compact"
         ? themeTokens.rowHeightCompact
         : themeTokens.rowHeightComfortable;
       this.reactRoot.style.setProperty("--mx-row-height", `${rowHeight}px`);
 
-      // Override with custom accent if provided
-      if (this.settings.theme.customAccentColor) {
+      // Explicit Color Overrides from Format Pane - ensuring they stick regardless of defaults
+      if (this.settings.theme.customAccentColor && isExplicit("theme", "customAccentColor")) {
         const rgb = this.tryHexToRgb(this.settings.theme.customAccentColor);
         if (rgb) {
           this.reactRoot.style.setProperty("--mx-accent", this.settings.theme.customAccentColor);
@@ -239,7 +459,7 @@ export class Visual implements IVisual {
         }
       }
 
-      if (this.settings.appearance.accentColor !== defaultSettings.appearance.accentColor) {
+      if (isExplicit("appearance", "accentColor")) {
         const rgb = this.tryHexToRgb(this.settings.appearance.accentColor);
         this.reactRoot.style.setProperty("--mx-accent", this.settings.appearance.accentColor);
         if (rgb) {
@@ -249,72 +469,72 @@ export class Visual implements IVisual {
         }
       }
 
-      // Legacy appearance overrides (for backward compatibility)
-      if (this.settings.appearance.surfaceColor !== "#ffffff") {
+      if (isExplicit("appearance", "surfaceColor")) {
         this.reactRoot.style.setProperty("--mx-surface", this.settings.appearance.surfaceColor);
         this.reactRoot.style.setProperty("--mx-panel-bg", this.settings.appearance.surfaceColor);
         this.reactRoot.style.setProperty("--mx-cell-bg", this.settings.appearance.surfaceColor);
       }
-      if (this.settings.appearance.toolbarBackgroundColor !== "#f8f9fa") {
+      if (isExplicit("appearance", "toolbarBackgroundColor")) {
         this.reactRoot.style.setProperty("--mx-toolbar-bg", this.settings.appearance.toolbarBackgroundColor);
         this.reactRoot.style.setProperty("--mx-header-bg", this.settings.appearance.toolbarBackgroundColor);
       }
-      if (this.settings.appearance.borderColor !== "#e0e0e0") {
+      if (isExplicit("appearance", "borderColor")) {
         this.reactRoot.style.setProperty("--mx-border", this.settings.appearance.borderColor);
         this.reactRoot.style.setProperty("--mx-panel-border", this.settings.appearance.borderColor);
       }
-      if (this.settings.appearance.cornerRadius !== 8) {
+      if (isExplicit("appearance", "cornerRadius")) {
         this.reactRoot.style.setProperty("--mx-radius", `${this.settings.appearance.cornerRadius}px`);
       }
 
-      if (this.settings.headers.backgroundColor !== defaultSettings.headers.backgroundColor) {
+      if (isExplicit("headers", "backgroundColor")) {
         this.reactRoot.style.setProperty("--mx-header-bg", this.settings.headers.backgroundColor);
       }
-      if (this.settings.headers.textColor !== defaultSettings.headers.textColor) {
+      if (isExplicit("headers", "textColor")) {
         this.reactRoot.style.setProperty("--mx-header-fg", this.settings.headers.textColor);
       }
-      if (this.settings.values.textColor !== defaultSettings.values.textColor) {
+      if (isExplicit("values", "textColor")) {
         this.reactRoot.style.setProperty("--mx-cell-fg", this.settings.values.textColor);
         this.reactRoot.style.setProperty("--mx-text", this.settings.values.textColor);
       }
-      if (this.settings.values.backgroundColor !== defaultSettings.values.backgroundColor) {
+      if (isExplicit("values", "backgroundColor")) {
         this.reactRoot.style.setProperty("--mx-cell-bg", this.settings.values.backgroundColor);
       }
-      if (this.settings.totals.backgroundColor !== defaultSettings.totals.backgroundColor) {
+      if (isExplicit("totals", "backgroundColor")) {
         this.reactRoot.style.setProperty("--mx-total-bg", this.settings.totals.backgroundColor);
         this.reactRoot.style.setProperty("--mx-subtotal-bg", this.settings.totals.backgroundColor);
         this.reactRoot.style.setProperty("--mx-grandtotal-bg", this.settings.totals.backgroundColor);
       }
-      if (this.settings.totals.textColor !== defaultSettings.totals.textColor) {
+      if (isExplicit("totals", "textColor")) {
         this.reactRoot.style.setProperty("--mx-total-fg", this.settings.totals.textColor);
       }
-      if (this.settings.conditionalFormatting.lowColor !== defaultSettings.conditionalFormatting.lowColor) {
+      if (isExplicit("conditionalFormatting", "lowColor")) {
         this.reactRoot.style.setProperty("--mx-cond-low", this.settings.conditionalFormatting.lowColor);
       }
-      if (this.settings.conditionalFormatting.midColor !== defaultSettings.conditionalFormatting.midColor) {
+      if (isExplicit("conditionalFormatting", "midColor")) {
         this.reactRoot.style.setProperty("--mx-cond-mid", this.settings.conditionalFormatting.midColor);
       }
-      if (this.settings.conditionalFormatting.highColor !== defaultSettings.conditionalFormatting.highColor) {
+      if (isExplicit("conditionalFormatting", "highColor")) {
         this.reactRoot.style.setProperty("--mx-cond-high", this.settings.conditionalFormatting.highColor);
       }
-      if (this.settings.dataBars.positiveColor !== defaultSettings.dataBars.positiveColor) {
+      if (isExplicit("dataBars", "positiveColor")) {
         this.reactRoot.style.setProperty("--mx-databar-pos", this.settings.dataBars.positiveColor);
       }
-      if (this.settings.dataBars.negativeColor !== defaultSettings.dataBars.negativeColor) {
+      if (isExplicit("dataBars", "negativeColor")) {
         this.reactRoot.style.setProperty("--mx-databar-neg", this.settings.dataBars.negativeColor);
       }
 
-      this.model = buildMatrixModel({
-        dataView,
-        settings: this.settings,
-        selectionIdBuilder: (identity: any, levels?: powerbi.DataViewHierarchyLevel[]) => this.buildSelectionId(identity, levels),
-        rowExpandedState: this.rowExpandedState,
-        columnExpandedState: this.columnExpandedState,
-      });
+      // While the host streams further segments, each update carries every row
+      // received so far. Re-pivoting all of it per segment made large loads
+      // quadratic; render the first segment, then wait for the final one.
+      if (moreDataRequested && this.loadingSegments && this.model?.hasData) {
+        this.renderingEvents.renderingFinished(options);
+        return;
+      }
+      this.loadingSegments = moreDataRequested;
 
-      this.pruneExpansionState();
+      const buildMs = this.ensureModel(dataView, false);
 
-      debugMatrixData(dataView, this.model);
+      debugMatrixData(dataView, this.model, buildMs);
 
       const width = options.viewport.width;
       const height = options.viewport.height;
@@ -328,7 +548,7 @@ export class Visual implements IVisual {
     }
   }
 
-  // "identity" type is relaxed to any to avoid tight coupling to SDK-specific types
+  // \"identity\" type is relaxed to any to avoid tight coupling to SDK-specific types
   private buildSelectionId(matrixNode: any, levels: powerbi.DataViewHierarchyLevel[] = []): any | undefined {
     if (!matrixNode || !matrixNode.identity) return undefined;
     try {
@@ -365,9 +585,17 @@ export class Visual implements IVisual {
       onDrillColumnToLevel: this.handleDrillColumnToLevel.bind(this),
       onExpandAllUnder: this.handleExpandAllUnder.bind(this),
       onCollapseAllUnder: this.handleCollapseAllUnder.bind(this),
+      downloadService: this.host.downloadService,
+      isLoadingMoreData: this.loadingSegments,
     });
 
-    ReactDOM.render(element, this.reactRoot);
+    // A rendering error shows a recoverable message instead of a blank visual,
+    // and clears automatically once a new model (new data) arrives.
+    const guarded = React.createElement(
+      MatrixErrorBoundary,
+      { resetKey: this.model, onReset: () => this.scheduleRebuildAndRender(true), children: element }
+    );
+    ReactDOM.render(guarded, this.reactRoot);
   }
 
   /** Serialize expansion state to JSON string[] and persist to manualData. */
@@ -402,7 +630,8 @@ export class Visual implements IVisual {
   }
 
   private handleToggleRowExpand(nodeKey: string): void {
-    const currentState = this.rowExpandedState.get(nodeKey) ?? true;
+    const modelRow = this.model?.flattenedRows?.find(row => row.key === nodeKey);
+    const currentState = this.rowExpandedState.get(nodeKey) ?? modelRow?.isExpanded ?? true;
     this.rowExpandedState = toggleNodeExpansion(this.rowExpandedState, nodeKey, currentState);
     this.persistExpansionState();
     this.scheduleRebuildAndRender();
