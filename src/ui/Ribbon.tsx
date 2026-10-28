@@ -33,12 +33,14 @@ import { ConditionalFormattingDropdown } from "./ConditionalFormattingDropdown";
 
 export type RibbonTab = "home" | "insert" | "design" | "export";
 /** "full" shows icon + label; "compact" is icon-only. Both render the same items. */
-export type ToolbarMode = "full" | "compact";
+/** auto: labels drop as the bar narrows. full: always labelled (scrolls if needed). compact: icons only. */
+export type ToolbarMode = "auto" | "full" | "compact";
 export type RowInsertAction = "panel" | "calculated" | "blank" | "group" | "divider";
 
 /** Maps persisted toolbar modes (including the retired "minimal" layouts) onto the current ones. */
 export function normalizeToolbarMode(value: unknown): ToolbarMode {
-  return value === "full" || value === undefined || value === null || value === "" ? "full" : "compact";
+  if (value === undefined || value === null || value === "" || value === "auto") return "auto";
+  return value === "full" ? "full" : "compact";
 }
 
 /** Height of the command bar in px (same for both modes, so switching never shifts the grid). */
@@ -286,14 +288,14 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   const [openMenu, setOpenMenu] = useState<{ id: string; anchor: HTMLElement } | null>(null);
   const [cfAnchor, setCfAnchor] = useState<DOMRect | null>(null);
 
-  // Labels drop automatically when the bar is too narrow to show them, so
-  // "full" degrades into "compact" instead of scrolling or wrapping.
-  // Three steps: 0 = every label, 1 = labels on the main actions only, 2 = icons only.
+  // In "auto" mode labels drop as the bar narrows. Three steps: 0 = every label, 1 = labels on the
+  // main actions only, 2 = icons only. "full" and "compact" are explicit choices and pin the step.
   const [labelStep, setLabelStep] = useState<0 | 1 | 2>(0);
   const stepWidthsRef = useRef<number[]>([0, 0]); // content width steps 0 and 1 needed when they last overflowed
   useLayoutEffect(() => {
     const el = barRef.current;
     if (!el) return undefined;
+    if (toolbarMode !== "auto") return undefined;
     const fit = () => {
       if (labelStep < 2 && el.scrollWidth > el.clientWidth + 1) {
         stepWidthsRef.current[labelStep] = el.scrollWidth;
@@ -308,7 +310,8 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     ro.observe(el);
     return () => ro.disconnect();
   }, [labelStep, toolbarMode]);
-  const showLabels = toolbarMode === "full" && labelStep < 2;
+  const effectiveStep: 0 | 1 | 2 = toolbarMode === "full" ? 0 : toolbarMode === "compact" ? 2 : labelStep;
+  const showLabels = effectiveStep < 2;
 
   const closeMenu = useCallback(() => setOpenMenu(null), []);
   const toggleMenu = (id: string, anchor: HTMLElement) =>
@@ -611,6 +614,23 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     ],
   };
 
+  // Icon-only buttons get an immediate tooltip (the native title is slow and unreliable in embedded hosts).
+  const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const tipTimerRef = useRef<number>(0);
+  const hideTip = useCallback(() => {
+    window.clearTimeout(tipTimerRef.current);
+    setTip(null);
+  }, []);
+  const showTip = useCallback((el: HTMLElement, text: string, delay = 180) => {
+    window.clearTimeout(tipTimerRef.current);
+    tipTimerRef.current = window.setTimeout(() => {
+      const rect = el.getBoundingClientRect();
+      const viewport = document.documentElement.clientWidth || window.innerWidth;
+      setTip({ text, x: Math.max(80, Math.min(viewport - 80, rect.left + rect.width / 2)), y: rect.bottom + 6 });
+    }, delay);
+  }, []);
+  useEffect(() => () => window.clearTimeout(tipTimerRef.current), []);
+
   // ── Building blocks ──
   const button = (opts: {
     id: string;
@@ -626,20 +646,26 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     secondary?: boolean;
   }) => {
     const isMenuOpen = !!opts.menu && openMenu?.id === opts.menu;
-    const labelVisible = showLabels && !opts.iconOnly && !(opts.secondary && labelStep >= 1);
+    const labelVisible = showLabels && !opts.iconOnly && !(opts.secondary && effectiveStep >= 1);
+    const tipText = opts.title && opts.title !== opts.label && !opts.title.startsWith(opts.label) ? `${opts.label} — ${opts.title}` : (opts.title ?? opts.label);
+    const wantsTip = !labelVisible || tipText !== opts.label;
     return (
       <button
         key={opts.id}
         type="button"
         className={`rb-btn ${opts.active ? "is-active" : ""} ${isMenuOpen ? "is-open" : ""} ${labelVisible ? "" : "is-icon"}`}
-        title={opts.title ?? opts.label}
         aria-label={labelVisible ? undefined : opts.label}
+        onMouseEnter={wantsTip ? (e) => showTip(e.currentTarget, tipText) : undefined}
+        onFocus={wantsTip ? (e) => { if (e.currentTarget.matches(":focus-visible")) showTip(e.currentTarget, tipText, 0); } : undefined}
+        onMouseLeave={hideTip}
+        onBlur={hideTip}
         aria-pressed={opts.menu ? undefined : opts.active}
         aria-haspopup={opts.menu ? "menu" : undefined}
         aria-expanded={opts.menu ? isMenuOpen : undefined}
         disabled={opts.disabled}
         onClick={(e) => {
           const el = e.currentTarget;
+          hideTip();
           if (opts.menu) toggleMenu(opts.menu, el);
           else opts.onClick?.(el);
         }}
@@ -677,7 +703,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
       </div>
 
       <div className="rb-group" role="group" aria-label="Format">
-        {labelStep === 0 && <span className="rb-scope" title="Formatting applies to this selection">{scopeLabel}</span>}
+        {effectiveStep === 0 && <span className="rb-scope" title="Formatting applies to this selection">{scopeLabel}</span>}
         {button({ id: "bold", icon: <IconBold size={16} />, label: "Bold", iconOnly: true, onClick: () => handleFormatUpdate({ bold: !effBold }), active: !!effBold, disabled: edit })}
         {button({ id: "italic", icon: <IconItalic size={16} />, label: "Italic", iconOnly: true, onClick: () => handleFormatUpdate({ italic: !effItalic }), active: !!effItalic, disabled: edit })}
         {button({ id: "underline", icon: <IconUnderline size={16} />, label: "Underline", iconOnly: true, onClick: () => handleFormatUpdate({ underline: !effUnderline }), active: !!effUnderline, disabled: edit })}
@@ -707,12 +733,16 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
         {button({ id: "export", icon: <IconDownload size={16} />, label: "Export", menu: "export", disabled: !hasData })}
         {onToolbarModeChange && button({
           id: "mode",
-          icon: toolbarMode === "full" ? <IconCollapse size={16} /> : <IconExpand size={16} />,
-          label: toolbarMode === "full" ? "Compact toolbar" : "Show labels",
+          icon: showLabels ? <IconCollapse size={16} /> : <IconExpand size={16} />,
+          label: showLabels ? "Compact toolbar" : "Show labels",
           iconOnly: true,
-          onClick: () => onToolbarModeChange(toolbarMode === "full" ? "compact" : "full"),
+          onClick: () => onToolbarModeChange(showLabels ? "compact" : "full"),
         })}
       </div>
+
+      {tip && !openMenu && (
+        <div className="rb-tooltip" role="tooltip" style={{ left: tip.x, top: tip.y }}>{tip.text}</div>
+      )}
 
       {openMenu && menus[openMenu.id] && (
         <RibbonMenu

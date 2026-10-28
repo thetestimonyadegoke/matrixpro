@@ -124,6 +124,23 @@
     }
   }
 
+  .rb-tooltip {
+    position: fixed;
+    z-index: 100001;
+    transform: translateX(-50%);
+    max-width: 280px;
+    padding: 5px 9px;
+    border-radius: 6px;
+    background: var(--mx-text, #1a1a1a);
+    color: var(--mx-surface, #fff);
+    font-size: 11.5px;
+    line-height: 1.35;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+    animation: mx-menu-in 0.1s var(--mx-ease);
+  }
+
   .rb-scope {
     font-size: 11px;
     color: var(--mx-text-muted);
@@ -506,7 +523,7 @@
       }
 
       &.commit {
-        color: var(--mx-text-inverse, #fff);
+        color: var(--mx-on-accent, #fff);
         background: var(--mx-accent);
 
         &:hover {

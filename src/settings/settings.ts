@@ -742,7 +742,7 @@ export const defaultSettings: VisualSettings = {
   },
   uiState: {
     explorerOpen: false,
-    toolbarMode: "full",
+    toolbarMode: "auto",
     toolbarPinned: true,
     zoomLevel: 100,
     activeTab: "home",

@@ -386,7 +386,7 @@ export const settingsMetadata: SettingsMetadata = {
   },
   uiState: {
     explorerOpen: { description: "Explorer panel visibility", type: "boolean", defaultValue: false, category: "UI" },
-    toolbarMode: { description: "Current toolbar display mode", type: "string", defaultValue: "full", category: "UI" },
+    toolbarMode: { description: "Toolbar display mode: auto, full or compact", type: "string", defaultValue: "auto", category: "UI" },
     toolbarPinned: { description: "Whether the toolbar is pinned", type: "boolean", defaultValue: true, category: "UI" },
     zoomLevel: { description: "Current zoom level percentage", type: "number", defaultValue: 100, category: "UI" },
     activeTab: { description: "Currently active ribbon tab", type: "string", defaultValue: "home", category: "UI" },

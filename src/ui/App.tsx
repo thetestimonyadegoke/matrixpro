@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { onAccentColor } from "./onAccent";
 import powerbi from "powerbi-visuals-api";
 import { MatrixModel, getCellValue } from "../model/pivot";
 import { VisualSettings } from "../settings/settings";
@@ -172,6 +173,7 @@ export const App: React.FC<AppProps> = ({
 
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
+  const rootRef = useRef<HTMLDivElement>(null);
   const isRestoringHistoryRef = useRef(false);
 
   const getPersistedValue = useCallback((objectName: string, propertyName: string): any => {
@@ -360,6 +362,13 @@ export const App: React.FC<AppProps> = ({
       hiddenRowKeys: JSON.stringify(hiddenRowKeysState),
     },
   }), [settings, hiddenColsState, hiddenRowKeysState]);
+
+  // Text on accent fills (primary buttons, switches) is chosen from the accent's luminance.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    root.style.setProperty("--mx-on-accent", onAccentColor(getComputedStyle(root).getPropertyValue("--mx-accent")));
+  }, [effectiveSettings.theme.preset, effectiveSettings.theme.customAccentColor]);
 
   const persistHiddenColumns = useCallback((nextKeys: string[]) => {
     const normalized = Array.from(new Set(nextKeys.filter(Boolean).map(key => {
@@ -1272,6 +1281,7 @@ export const App: React.FC<AppProps> = ({
 
   return (
     <div
+      ref={rootRef}
       className={`advanced-matrix-visual ${effectiveSettings.general.showGridlines ? "show-gridlines" : ""} theme-${effectiveSettings.theme.preset}`}
       style={{
         width,

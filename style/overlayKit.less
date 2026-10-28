@@ -195,7 +195,7 @@
 
     &.is-primary {
       background: var(--mx-accent);
-      color: var(--mx-text-inverse, #fff);
+      color: var(--mx-on-accent, #fff);
 
       &:hover:not(:disabled) {
         filter: brightness(1.08);
@@ -283,6 +283,14 @@
       opacity: 0.3;
       cursor: default;
     }
+  }
+
+  // The formula editor wraps its textarea in a plain div, which would shrink to its text.
+  .mx-field-control > .formula-editor,
+  .mx-ov .formula-editor {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
   }
 
   // ── Fields ────────────────────────────────────────────────────────────────
