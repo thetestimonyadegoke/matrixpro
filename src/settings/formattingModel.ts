@@ -294,6 +294,46 @@ export function getFormattingModel(settings: VisualSettings): powerbi.visuals.Fo
         ],
       },
       {
+        displayName: "Viewing",
+        uid: "viewing_card",
+        groups: [
+          {
+            displayName: undefined,
+            uid: "viewing_group",
+            slices: [
+              {
+                uid: "viewing_mode",
+                displayName: "Mode",
+                control: {
+                  type: powerbi.visuals.FormattingComponent.Dropdown,
+                  properties: {
+                    descriptor: {
+                      objectName: "viewing",
+                      propertyName: "mode",
+                    },
+                    value: settings.viewing.mode,
+                  },
+                },
+              },
+              {
+                uid: "viewing_readOnlyToolbar",
+                displayName: "Toolbar for readers",
+                control: {
+                  type: powerbi.visuals.FormattingComponent.Dropdown,
+                  properties: {
+                    descriptor: {
+                      objectName: "viewing",
+                      propertyName: "readOnlyToolbar",
+                    },
+                    value: settings.viewing.readOnlyToolbar,
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
         displayName: "Headers",
         uid: "headers_card",
         groups: [

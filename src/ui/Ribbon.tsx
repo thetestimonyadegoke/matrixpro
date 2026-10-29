@@ -67,6 +67,8 @@ export interface RibbonProps {
   onToolbarModeChange?: (mode: ToolbarMode) => void;
   /** Reports the bar's rendered height (it grows when it wraps onto two rows). */
   onHeightChange?: (height: number) => void;
+  /** Reader toolbar: sort, filter, search and export only, for a read-only visual. */
+  viewer?: boolean;
   onCopyToClipboard?: () => void;
   onOpenSortPanel?: () => void;
   /** Opens the Find (Ctrl+F) panel over the matrix. */
@@ -265,6 +267,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   onOpenBulkOperations,
   onToolbarModeChange,
   onHeightChange,
+  viewer = false,
   onCopyToClipboard,
   onOpenSortPanel,
   onOpenFind,
@@ -296,19 +299,22 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
   // labels (Explore, Build and Analyze above; Format and Output below), then two rows of icons.
   // "full" stops at two rows with labels; "compact" is icons on one row, or two when one won't fit.
   // Only when the last layout still overflows does the bar fall back to scrolling.
-  const layouts: Array<{ rows: 1 | 2; labels: boolean }> = toolbarMode === "compact"
+  const layouts: Array<{ rows: 1 | 2; labels: boolean }> = viewer
+    ? [{ rows: 1, labels: true }, { rows: 1, labels: false }]
+    : toolbarMode === "compact"
     ? [{ rows: 1, labels: false }, { rows: 2, labels: false }]
     : toolbarMode === "full"
       ? [{ rows: 1, labels: true }, { rows: 2, labels: true }]
       : [{ rows: 1, labels: true }, { rows: 2, labels: true }, { rows: 2, labels: false }];
   const [stage, setStage] = useState(0);
   const failWidthsRef = useRef<number[]>([0, 0, 0]); // width each layout needed when it last overflowed
-  const lastModeRef = useRef(toolbarMode);
+  const modeKey = viewer ? "viewer" : toolbarMode;
+  const lastModeRef = useRef(modeKey);
   useLayoutEffect(() => {
     const el = barRef.current;
     if (!el) return undefined;
-    if (lastModeRef.current !== toolbarMode) {
-      lastModeRef.current = toolbarMode;
+    if (lastModeRef.current !== modeKey) {
+      lastModeRef.current = modeKey;
       failWidthsRef.current = [0, 0, 0];
       if (stage !== 0) {
         setStage(0);
@@ -333,7 +339,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [stage, toolbarMode]);
+  }, [stage, modeKey]);
   const layout = layouts[Math.min(stage, layouts.length - 1)];
   const twoRow = layout.rows === 2;
   const effectiveStep: 0 | 2 = layout.labels ? 0 : 2;
@@ -729,7 +735,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
       {button({ id: "filter", icon: <IconFilter size={16} />, label: "Filter", onClick: () => onOpenFilterPanel?.(), active: filterActive, disabled: needsData })}
       {button({ id: "topn", secondary: true, icon: <IconTopN size={16} />, label: "Top N", onClick: () => onOpenTopNPanel?.(), active: topNActive, disabled: !hasData })}
       {button({ id: "levels", secondary: true, icon: <IconLevels size={16} />, label: "Levels", title: "Show or hide hierarchy levels", onClick: () => onOpenLevelPanel?.(), active: levelsActive, disabled: needsData })}
-      {button({ id: "find", secondary: true, icon: <IconSearch size={16} />, label: "Find", title: "Find in labels and values (Ctrl+F)", onClick: () => onOpenFind?.(), disabled: !hasData || !onOpenFind })}
+      {button({ id: "find", secondary: true, icon: <IconSearch size={16} />, label: "Search", title: "Find in labels and values (Ctrl+F)", onClick: () => onOpenFind?.(), disabled: !hasData || !onOpenFind })}
     </div>
   );
 
@@ -814,6 +820,20 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
       )}
     </>
   );
+
+  if (viewer) {
+    return (
+      <div className={`${barClass} is-viewer`} role="toolbar" aria-label="Matrix tools" ref={barRef}>
+        {groupExplore}
+        <div className="rb-spacer" />
+        <div className="rb-group is-trailing" role="group" aria-label="Output">
+          <span className="rb-scope" title="Readers can sort, filter and search, but cannot change this report.">View only</span>
+          {button({ id: "export", icon: <IconDownload size={16} />, label: "Export", menu: "export", disabled: !hasData })}
+        </div>
+        {overlays}
+      </div>
+    );
+  }
 
   return twoRow ? (
     <div className={barClass} role="toolbar" aria-label="Matrix commands" ref={barRef}>

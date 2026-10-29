@@ -1356,6 +1356,30 @@
         }
       }
     },
+    "viewing": {
+      "displayName": "Viewing",
+      "properties": {
+        "mode": {
+          "displayName": "Mode",
+          "type": {
+            "enumeration": [
+              { "value": "auto", "displayName": "Automatic (read-only in reading view)" },
+              { "value": "readOnly", "displayName": "Always read-only" },
+              { "value": "edit", "displayName": "Always editable" }
+            ]
+          }
+        },
+        "readOnlyToolbar": {
+          "displayName": "Toolbar for readers",
+          "type": {
+            "enumeration": [
+              { "value": "viewer", "displayName": "Sort, filter and search" },
+              { "value": "hidden", "displayName": "Hidden" }
+            ]
+          }
+        }
+      }
+    },
     "uiState": {
       "displayName": "UI State",
       "properties": {

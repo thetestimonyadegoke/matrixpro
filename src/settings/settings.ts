@@ -244,6 +244,14 @@ export interface TitleSettings {
   height: number;
 }
 
+/** Who can change the report from the visual. */
+export interface ViewingSettings {
+  /** auto: read-only while Power BI is in reading view; readOnly / edit force it either way. */
+  mode: "auto" | "readOnly" | "edit";
+  /** What readers see above the grid while the visual is read-only. */
+  readOnlyToolbar: "viewer" | "hidden";
+}
+
 export interface VisualSettings {
   general: GeneralSettings;
   layout: LayoutSettings;
@@ -261,6 +269,7 @@ export interface VisualSettings {
   calculations: CalculationsSettings;
   manualData: ManualDataSettings;
   uiState: UIState;
+  viewing: ViewingSettings;
 }
 
 export interface CalculationsSettings {
@@ -760,6 +769,10 @@ export const defaultSettings: VisualSettings = {
     zoomLevel: 100,
     activeTab: "home",
   },
+  viewing: {
+    mode: "auto",
+    readOnlyToolbar: "viewer",
+  },
 };
 
 function getValue<T>(
@@ -1004,6 +1017,10 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       toolbarPinned: getValue(objects, "uiState", "toolbarPinned", defaultSettings.uiState.toolbarPinned),
       zoomLevel: getValue(objects, "uiState", "zoomLevel", defaultSettings.uiState.zoomLevel),
       activeTab: getValue(objects, "uiState", "activeTab", defaultSettings.uiState.activeTab),
+    },
+    viewing: {
+      mode: getValue(objects, "viewing", "mode", defaultSettings.viewing.mode),
+      readOnlyToolbar: getValue(objects, "viewing", "readOnlyToolbar", defaultSettings.viewing.readOnlyToolbar),
     },
   };
 }

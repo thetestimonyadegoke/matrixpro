@@ -37,6 +37,10 @@ export class Visual implements IVisual {
   private reactRoot: HTMLElement;
   private tooltipServiceWrapper: TooltipServiceWrapper | null;
   private allowInteractions: boolean;
+  /** Power BI's view mode for this update (powerbi.ViewMode: 0 reading, 1 editing, 2 focus-mode editing). */
+  private viewMode: number | undefined;
+  /** Readers can sort, filter and search, but cannot change the report. */
+  private readOnly = false;
   private isHighContrast: boolean;
   private highContrastForeground: string;
   private highContrastBackground: string;
@@ -324,7 +328,47 @@ export class Visual implements IVisual {
     }
   }
 
+  /**
+   * Whether the visual is read-only for this update. "auto" follows Power BI: reading view is
+   * read-only, any editing view is not. Hosts that report no view mode (the dev server) stay editable.
+   */
+  private computeReadOnly(): boolean {
+    const mode = this.settings?.viewing?.mode ?? "auto";
+    if (mode === "readOnly") return true;
+    if (mode === "edit") return false;
+    return this.viewMode === 0;
+  }
+
+  /**
+   * What a reader may still change, kept for the session only. Everything else is refused, so no
+   * path through the UI can alter the saved report while the visual is read-only.
+   */
+  private static readonly READER_SESSION_PROPERTIES = new Set([
+    "manualData.sortRules",
+    "manualData.filterRules",
+    "manualData.topNConfig",
+    "manualData.hiddenRowLevels",
+    "manualData.hiddenColumnLevels",
+    "manualData.expandedRows",
+    "manualData.expandedCols",
+    "uiState.zoomLevel",
+  ]);
+
   private persistProperty(objectName: string, propertyName: string, value: any): void {
+    if (this.readOnly) {
+      const key = `${objectName}.${propertyName}`;
+      if (!Visual.READER_SESSION_PROPERTIES.has(key)) return;
+      // Session-only: shown to this reader, never written to the report.
+      this.pendingPropertyOverrides.set(key, { value, expiresAt: Number.POSITIVE_INFINITY });
+      try {
+        const currentObj = (this.settings as any)?.[objectName] ?? {};
+        this.settings = { ...(this.settings as any), [objectName]: { ...currentObj, [propertyName]: value } };
+      } catch {
+        // ignore
+      }
+      this.scheduleRebuildAndRender(false);
+      return;
+    }
     const normalizedValue = this.normalizePersistedValue(objectName, propertyName, value);
     if (this.isColorProperty(objectName, propertyName) && normalizedValue === undefined) {
       return;
@@ -434,7 +478,10 @@ export class Visual implements IVisual {
       this.lastDataView = dataView;
       this.lastViewport = { width: options.viewport.width, height: options.viewport.height };
       const moreDataRequested = this.requestMoreDataIfSegmented(dataView);
+      this.viewMode = (options as any).viewMode;
       this.settings = this.applyPendingPropertyOverrides(parseSettings(dataView));
+      this.readOnly = this.computeReadOnly();
+      this.reactRoot.dataset.readOnly = String(this.readOnly);
 
       if (this.rowExpandedState.size === 0 && this.columnExpandedState.size === 0) {
         this.restoreExpansionStateFromSettings();
@@ -571,6 +618,7 @@ export class Visual implements IVisual {
       selectionManager: this.selectionManager,
       tooltipService: this.tooltipServiceWrapper,
       allowInteractions: this.allowInteractions,
+      readOnly: this.readOnly,
       isHighContrast: this.isHighContrast,
       highContrastColors: {
         foreground: this.highContrastForeground,

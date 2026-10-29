@@ -235,6 +235,21 @@
     }
   }
 
+  // ── Read-only: nothing that suggests the grid can be rearranged or edited ──
+  .matrix-container.is-read-only {
+    .col-resize-handle,
+    .row-resize-handle,
+    .row-header-width-resize-handle,
+    .row-drag-handle,
+    .cell-edit-affordance {
+      display: none;
+    }
+
+    .matrix-row-header {
+      cursor: default;
+    }
+  }
+
   // ── Expanding and collapsing: rows settle in, a beat apart ────────────────
   .matrix-container[data-motion="expand"] {
     .matrix-row,

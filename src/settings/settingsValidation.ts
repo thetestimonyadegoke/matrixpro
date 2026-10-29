@@ -386,6 +386,22 @@ export const settingsMetadata: SettingsMetadata = {
       category: "Calculations",
     },
   },
+  viewing: {
+    mode: {
+      description: "Who can change the report from the visual: auto (read-only in reading view), read-only, or editable",
+      type: "enum",
+      defaultValue: "auto",
+      allowedValues: ["auto", "readOnly", "edit"],
+      category: "Viewing",
+    },
+    readOnlyToolbar: {
+      description: "Toolbar shown to readers while the visual is read-only",
+      type: "enum",
+      defaultValue: "viewer",
+      allowedValues: ["viewer", "hidden"],
+      category: "Viewing",
+    },
+  },
   uiState: {
     explorerOpen: { description: "Explorer panel visibility", type: "boolean", defaultValue: false, category: "UI" },
     toolbarMode: { description: "Toolbar display mode: auto, full or compact", type: "string", defaultValue: "auto", category: "UI" },

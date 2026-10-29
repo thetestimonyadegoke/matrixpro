@@ -24,7 +24,7 @@ import { createCellStyleEvaluator, computeAllGlobalStats } from "../format/cellS
 import { parseColFormats, parseRowFormats } from "../format/directFormats";
 import { getRowStyle } from "../format/styles";
 import { TooltipServiceWrapper } from "../powerbi/tooltip";
-import { ContextMenu, ContextMenuItem, buildCellMenuItems, buildRowHeaderMenuItems, buildColumnHeaderMenuItems } from "./ContextMenu";
+import { ContextMenu, ContextMenuItem, ContextMenuType, buildCellMenuItems, buildRowHeaderMenuItems, buildColumnHeaderMenuItems } from "./ContextMenu";
 import { FormulaBar, FormulaBarRef } from "./FormulaBar";
 import { BulkOperationsPanel, BulkOperationType } from "./BulkOperationsPanel";
 import { generateCellLabel, formatCellReferenceForFormula } from "../utils/cellNaming";
@@ -38,6 +38,29 @@ import {
   upsertFieldConfig,
 } from "../model/levelAwareColumns";
 
+/** What a reader may still do from a right-click menu: copy, expand or collapse, sort, drill through, export. */
+const READER_MENU_IDS = new Set(["copy", "copyRow", "export", "drillThrough", "expandAll", "collapseAll", "sortAsc", "sortDesc"]);
+
+function contextMenuFor(
+  readOnly: boolean,
+  x: number,
+  y: number,
+  type: ContextMenuType,
+  items: ContextMenuItem[]
+): { x: number; y: number; type: ContextMenuType; items: ContextMenuItem[] } | null {
+  if (!readOnly) return { x, y, type, items };
+  const kept: ContextMenuItem[] = [];
+  for (const item of items) {
+    if (item.divider) {
+      if (kept.length > 0 && !kept[kept.length - 1].divider) kept.push(item);
+    } else if (READER_MENU_IDS.has(item.id)) {
+      kept.push(item);
+    }
+  }
+  while (kept.length > 0 && kept[kept.length - 1].divider) kept.pop();
+  return kept.length > 0 ? { x, y, type, items: kept } : null;
+}
+
 export interface MatrixProps {
   rows: FlattenedNode[];
   columns: FlattenedNode[];
@@ -46,6 +69,8 @@ export interface MatrixProps {
   settings: VisualSettings;
   tooltipService: TooltipServiceWrapper | null;
   allowInteractions: boolean;
+  /** Readers can sort, filter and search, but cannot change the report. */
+  readOnly?: boolean;
   width: number;
   height: number;
   sortConfig: SortConfig;
@@ -100,6 +125,7 @@ export const Matrix: React.FC<MatrixProps> = ({
   settings,
   tooltipService,
   allowInteractions,
+  readOnly = false,
   width,
   height,
   sortConfig,
@@ -178,6 +204,9 @@ export const Matrix: React.FC<MatrixProps> = ({
   // each other; without this, the lagging echo of one write overrides the other mid-animation
   // (a click on the scrollbar track would spring back).
   const containerRef = useRef<HTMLDivElement>(null);
+  // Read by long-lived handlers so they never act on a stale mode.
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
   const hScrollSourceRef = useRef<"body" | "bar" | null>(null);
   const hScrollSourceTimerRef = useRef<number>(0);
   const claimHScroll = useCallback((source: "body" | "bar") => {
@@ -309,7 +338,7 @@ export const Matrix: React.FC<MatrixProps> = ({
   }, [formulaBarEditMode, columns, measures, cellMap, settings.manualData.edits, onRowSelectionForFormatChange]);
 
   const handleCommitEdit = useCallback((newValue: string) => {
-    if (!activeCell) return;
+    if (!activeCell || readOnlyRef.current) return;
     const prevJson = settings.manualData.edits || "{}";
     const edits = JSON.parse(prevJson);
     const key = `${activeCell.rowKey}|${activeCell.colKey}|${activeCell.measureIndex}`;
@@ -333,6 +362,10 @@ export const Matrix: React.FC<MatrixProps> = ({
   }, [onRowSelectionForFormatChange]);
 
   const handleRowDragStart = useCallback((e: React.DragEvent, rowKey: string) => {
+    if (readOnlyRef.current) {
+      e.preventDefault();
+      return;
+    }
     rowDropCommittedRef.current = false;
     setDraggedRowKey(rowKey);
     e.dataTransfer.setData("text/plain", rowKey);
@@ -579,7 +612,7 @@ export const Matrix: React.FC<MatrixProps> = ({
   // cell never shifts the grid.
   const FORMULA_BAR_HEIGHT = 34;
   const HORIZONTAL_SCROLLBAR_HEIGHT = 24;
-  const formulaBarHeight = allowInteractions ? FORMULA_BAR_HEIGHT : 0;
+  const formulaBarHeight = allowInteractions && !readOnly ? FORMULA_BAR_HEIGHT : 0;
 
   const minRowHeightPx = useMemo(() => {
     const headerFontPx = Math.max(8, Math.round(settings.headers.fontSize || 0));
@@ -879,7 +912,7 @@ export const Matrix: React.FC<MatrixProps> = ({
         { id: "cell-level-aware-parent", label: "Show only on parent rows", action: () => persistLevelAwareField(measureIndex, { rowVisibility: "parent" }) },
         { id: "cell-level-aware-distribute", label: "Distribute across column group", action: () => persistLevelAwareField(measureIndex, { displayMode: "distributed", rowVisibility: "all", columnGroupVisibility: "all", placement: "beforeDistributed" }) }
       );
-      setContextMenu({ x, y, type: "cell", items });
+      setContextMenu(contextMenuFor(readOnlyRef.current, x, y, "cell", items));
     } else if (row) {
       // Row Header Context Menu
       const items = buildRowHeaderMenuItems(
@@ -965,7 +998,7 @@ export const Matrix: React.FC<MatrixProps> = ({
           ? () => selectionManager.showContextMenu(row.selectionId!, { x, y })
           : undefined
       );
-      setContextMenu({ x, y, type: "rowHeader", items });
+      setContextMenu(contextMenuFor(readOnlyRef.current, x, y, "rowHeader", items));
     } else if (colKey !== undefined && measureIndex !== undefined) {
       // Column Header Context Menu
       const clickedColumnKey = `${colKey}::m${measureIndex}`;
@@ -1025,7 +1058,7 @@ export const Matrix: React.FC<MatrixProps> = ({
         { id: "level-aware-parent", label: "Show only on parent rows", action: () => persistLevelAwareField(measureIndex, { rowVisibility: "parent" }) },
         { id: "level-aware-distribute", label: "Distribute across column group", action: () => persistLevelAwareField(measureIndex, { displayMode: "distributed", rowVisibility: "all", columnGroupVisibility: "all", placement: "beforeDistributed" }) }
       );
-      setContextMenu({ x, y, type: "columnHeader", items });
+      setContextMenu(contextMenuFor(readOnlyRef.current, x, y, "columnHeader", items));
     }
   }, [allowInteractions, cellMap, columns, measures, onToggleRowExpand, onOpenCalcMeasureWizard, onOpenCalcRowWizard, onSort, onPersistProperty, settings.manualData, settings.general, gridColumns, onAddQuickVariance, selectionManager, onExpandAllUnder, onCollapseAllUnder, rows, selectedColumnKeysArr, onHideColumns, onSetSortDirection, persistLevelAwareField, hiddenRowExpandIconSet]);
 
@@ -1483,6 +1516,7 @@ export const Matrix: React.FC<MatrixProps> = ({
   }, [totalContentHeight, totalContentWidth, viewportHeight, viewportWidth, hasHorizontalOverflow]);
 
   const startRowResize = useCallback((clientY: number) => {
+    if (readOnlyRef.current) return;
     if (!allowInteractions) return;
     const startY = clientY;
     const startH = safeRowHeightPx;
@@ -1506,6 +1540,7 @@ export const Matrix: React.FC<MatrixProps> = ({
   }, [allowInteractions, safeRowHeightPx, minRowHeightPx, onPersistProperty]);
 
   const startColumnResize = useCallback((clientX: number) => {
+    if (readOnlyRef.current) return;
     if (!allowInteractions) return;
     const startX = clientX;
     const startW = safeColumnWidthPx;
@@ -1526,6 +1561,7 @@ export const Matrix: React.FC<MatrixProps> = ({
   }, [allowInteractions, safeColumnWidthPx, onPersistProperty]);
 
   const startRowHeaderWidthResize = useCallback((clientX: number) => {
+    if (readOnlyRef.current) return;
     if (!allowInteractions) return;
     const startX = clientX;
     const startW = rowHeaderWidth;
@@ -1757,9 +1793,9 @@ export const Matrix: React.FC<MatrixProps> = ({
   } as React.CSSProperties), [gridCellBackground, rowBandBackground, shellStrongBackground, settings.headers, settings.totals, quietGrandTotal, quietSubtotal]);
 
   return (
-    <div ref={containerRef} className={`matrix-container ${quietGrandTotal || quietSubtotal ? "mx-quiet-totals" : ""} ${formulaBarEditMode ? "formula-edit-mode" : ""} ${(settings.appearance as any).glassmorphism ? "is-glassmorphic" : ""}`} style={{ height, ...designStyles, ...structuralStyleVars }} onClick={handleBackgroundClick} onScroll={handleContainerScroll}>
+    <div ref={containerRef} className={`matrix-container ${readOnly ? "is-read-only" : ""} ${quietGrandTotal || quietSubtotal ? "mx-quiet-totals" : ""} ${formulaBarEditMode ? "formula-edit-mode" : ""} ${(settings.appearance as any).glassmorphism ? "is-glassmorphic" : ""}`} style={{ height, ...designStyles, ...structuralStyleVars }} onClick={handleBackgroundClick} onScroll={handleContainerScroll}>
       <div style={{ position: "absolute", inset: 0, ...glassEffect, pointerEvents: "none", zIndex: 0 }} />
-      {allowInteractions && (
+      {allowInteractions && !readOnly && (
         <div
           className={`matrix-formula-shell ${showFormulaBar ? "has-cell" : "is-idle"}`}
           style={{ height: FORMULA_BAR_HEIGHT, background: shellStrongBackground }}
@@ -1789,7 +1825,7 @@ export const Matrix: React.FC<MatrixProps> = ({
               sortConfig={sortConfig}
               onSort={onSort}
               onContextMenu={(e, c, m) => handleContextMenu(e, undefined, c, m)}
-              onColumnReorder={handleColumnReorder}
+              onColumnReorder={readOnly ? undefined : handleColumnReorder}
               allowInteractions={allowInteractions}
               rowHeaderWidth={rowHeaderWidth}
               columnWidth={safeColumnWidthPx}

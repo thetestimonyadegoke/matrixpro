@@ -49,6 +49,8 @@ export interface AppProps {
   selectionManager: SelectionManagerWrapper;
   tooltipService: TooltipServiceWrapper | null;
   allowInteractions: boolean;
+  /** Readers can sort, filter and search, but cannot change the report. */
+  readOnly?: boolean;
   isHighContrast: boolean;
   highContrastColors: {
     foreground: string;
@@ -140,6 +142,7 @@ export const App: React.FC<AppProps> = ({
   selectionManager,
   tooltipService,
   allowInteractions,
+  readOnly = false,
   isHighContrast: _isHighContrast,
   highContrastColors: _highContrastColors,
   width,
@@ -1215,15 +1218,16 @@ export const App: React.FC<AppProps> = ({
     onPersistProperty("manualData", "rowFormats", JSON.stringify(current));
   }, [onPersistProperty, settings.manualData.rowFormats]);
 
-  const ribbonHeight = effectiveSettings.appearance.showToolbar
-    ? ribbonMeasuredHeight
-    : 0;
+  // Readers get a reduced toolbar, or none; authors keep the full one.
+  const showRibbon = effectiveSettings.appearance.showToolbar
+    && !(readOnly && effectiveSettings.viewing.readOnlyToolbar === "hidden");
+  const ribbonHeight = showRibbon ? ribbonMeasuredHeight : 0;
   const titleBarHeight = effectiveSettings.title.show ? Math.max(0, effectiveSettings.title.height || 0) : 0;
 
   if (!model.hasData) {
     return (
       <div className="advanced-matrix-visual" style={{ width, height }}>
-        {effectiveSettings.appearance.showToolbar && (
+        {showRibbon && (
             <Ribbon
             settings={effectiveSettings}
             allowInteractions={allowInteractions}
@@ -1232,6 +1236,7 @@ export const App: React.FC<AppProps> = ({
             toolbarMode={toolbarMode}
             onToolbarModeChange={setToolbarMode}
             onHeightChange={setRibbonMeasuredHeight}
+          viewer={readOnly}
             onPersistProperty={onPersistProperty}
             onExportCSV={handleExportCSV}
             onExportXLSX={handleExportXLSX}
@@ -1282,7 +1287,8 @@ export const App: React.FC<AppProps> = ({
   const footerHeight = 28;
   const workspaceHeight = Math.max(0, height - ribbonHeight - titleBarHeight - simulateBarHeight - footerHeight);
 
-  const explorerWidth = explorerOpen ? 280 : 0;
+  const explorerVisible = explorerOpen && !readOnly;
+  const explorerWidth = explorerVisible ? 280 : 0;
   const matrixWidth = Math.max(0, width - explorerWidth);
   const layoutStyle = effectiveSettings.appearance.layoutStyle || "standard";
   const canvasPadding = layoutStyle === "floating" ? 18 : layoutStyle === "framed" ? 22 : layoutStyle === "spotlight" ? 26 : 0;
@@ -1301,7 +1307,7 @@ export const App: React.FC<AppProps> = ({
         "--mx-font-family": effectiveSettings.general.fontFamily || "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
       }}
     >
-      {effectiveSettings.appearance.showToolbar && (
+      {showRibbon && (
         <Ribbon
           settings={effectiveSettings}
           allowInteractions={allowInteractions}
@@ -1310,6 +1316,7 @@ export const App: React.FC<AppProps> = ({
           toolbarMode={toolbarMode}
           onToolbarModeChange={setToolbarMode}
             onHeightChange={setRibbonMeasuredHeight}
+          viewer={readOnly}
           onPersistProperty={onPersistProperty}
           onExportCSV={handleExportCSV}
           onExportXLSX={handleExportXLSX}
@@ -1364,7 +1371,7 @@ export const App: React.FC<AppProps> = ({
       )}
 
       <div className="mx-workspace animate-in" style={{ height: workspaceHeight }}>
-        {explorerOpen && (
+        {explorerVisible && (
           <ExplorerPanel
             model={model}
             width={explorerWidth}
@@ -1451,12 +1458,13 @@ export const App: React.FC<AppProps> = ({
               onDeleteCalcRow={handleDeleteCalcRow}
               onToggleGroupCollapsed={handleToggleGroupCollapsed}
               findRequest={findRequest}
+              readOnly={readOnly}
             />
           </div>
         </div>
       </div>
 
-      {!effectiveSettings.appearance.showToolbar && allowInteractions && (
+      {!effectiveSettings.appearance.showToolbar && allowInteractions && !readOnly && (
         <button
           className="mx-restore-toolbar-btn"
           onClick={() => onPersistProperty("appearance", "showToolbar", true)}
@@ -1509,6 +1517,7 @@ export const App: React.FC<AppProps> = ({
       )}
 
       <Footer
+        readOnly={readOnly}
         rowCount={displayRows.length}
         zoomLevel={zoomLevel}
         explorerOpen={explorerOpen}
@@ -1612,7 +1621,7 @@ export const App: React.FC<AppProps> = ({
       )}
 
       {/* Floating Restore Ribbon Button (Only shown when toolbar is OFF) */}
-      {!settings.appearance.showToolbar && (
+      {!settings.appearance.showToolbar && !readOnly && (
         <button
           className="restore-ribbon-fab"
           onClick={() => onPersistProperty("appearance", "showToolbar", true)}
