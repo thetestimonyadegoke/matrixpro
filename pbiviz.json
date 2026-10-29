@@ -4,7 +4,7 @@
     "displayName": "Advanced Matrix",
     "guid": "advancedMatrix1A2B3C4D5E6F",
     "visualClassName": "Visual",
-    "version": "1.0.2.0",
+    "version": "1.0.3.0",
     "description": "High-performance matrix visual with virtualization, hierarchies, conditional formatting, data bars, KPI icons, sparklines, and export capabilities.",
     "supportUrl": "https://matrixpro.local/support",
     "gitHubUrl": ""
