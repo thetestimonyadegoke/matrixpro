@@ -139,6 +139,25 @@ describe("an edited rule survives save and reload", () => {
   });
 });
 
+describe("switching a text style off is persisted", () => {
+  it("keeps bold, italic and underline off for every rule type that defaults them on", () => {
+    // The panel writes explicit "off" values; omitting them would let the rule's defaults come back.
+    const off = { fontWeight: "normal", fontStyle: "normal", textDecoration: "none", hatched: false };
+    const rules = [
+      edited({ formatBy: "ranking", rankingConfig: { basedOnMeasure: 1, topCount: 5, mode: "top", usePercentage: false, impactOn: ["label"], style: { color: "#112233", ...off } } as any }),
+      edited({ formatBy: "rules", rulesConfig: { impactOn: ["label"], conditions: [{ basedOnMeasure: 1, op: "greaterThan", value: 1 }], style: { color: "#112233", ...off } } as any }),
+    ];
+    for (const rule of rules) {
+      const back = saveAndReload(rule);
+      const style = (back.rankingConfig ?? back.rulesConfig)!.style;
+      expect(style.fontWeight).toBe("normal");
+      expect(style.fontStyle).toBe("normal");
+      expect(style.textDecoration).toBe("none");
+      expect(style.hatched).toBe(false);
+    }
+  });
+});
+
 describe("rules saved by earlier versions", () => {
   it("reads null range bounds as the open ends", () => {
     // JSON.stringify used to write Infinity as null.

@@ -1464,19 +1464,19 @@ const TextStyleToggles: React.FC<{
       label="Bold"
       icon={<IconBold size={14} />}
       active={style.fontWeight === "600" || style.fontWeight === "700"}
-      onClick={() => setStyle({ fontWeight: style.fontWeight === "600" ? undefined : "600" })}
+      onClick={() => setStyle({ fontWeight: style.fontWeight === "600" || style.fontWeight === "700" ? "normal" : "600" })}
     />
     <StyleToggleButton
       label="Italic"
       icon={<IconItalic size={14} />}
       active={style.fontStyle === "italic"}
-      onClick={() => setStyle({ fontStyle: style.fontStyle === "italic" ? undefined : "italic" })}
+      onClick={() => setStyle({ fontStyle: style.fontStyle === "italic" ? "normal" : "italic" })}
     />
     <StyleToggleButton
       label="Underline"
       icon={<IconUnderline size={14} />}
       active={style.textDecoration === "underline"}
-      onClick={() => setStyle({ textDecoration: style.textDecoration === "underline" ? undefined : "underline" })}
+      onClick={() => setStyle({ textDecoration: style.textDecoration === "underline" ? "none" : "underline" })}
     />
     <StyleToggleButton
       label="Hatched pattern"
