@@ -446,22 +446,36 @@ function normalizeColorScheme(value: unknown, fallback: string[]): string[] {
   return colors.length >= 2 ? colors : fallback;
 }
 
+/**
+ * A range bound. Open-ended ranges use -Infinity / Infinity, which JSON writes as null, so a saved
+ * rule may hold null, "Infinity" or "-Infinity" there. Returns undefined when the value is unusable.
+ */
+function parseRangeBound(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isNaN(value) ? undefined : value;
+  if (value === "Infinity") return Infinity;
+  if (value === "-Infinity") return -Infinity;
+  return undefined;
+}
+
 function normalizeRanges(value: unknown, fallback: ClassificationRange[]): ClassificationRange[] {
   if (!Array.isArray(value)) return fallback;
-  const normalized = value
-    .filter(isRecord)
-    .map((range, index): ClassificationRange => {
-      const fallbackRange = fallback[Math.min(index, fallback.length - 1)];
-      const color = hexOr(range.color, fallbackRange.color);
-      const iconKind = normalizeIconKind(range.iconKind, fallbackRange.iconKind);
-      return {
-        from: typeof range.from === "number" && Number.isFinite(range.from) ? range.from : fallbackRange.from,
-        to: typeof range.to === "number" && Number.isFinite(range.to) ? range.to : fallbackRange.to,
-        iconKind,
-        icon: normalizeIcon(range.icon, color, iconKind),
-        color,
-      };
-    });
+  const records = value.filter(isRecord);
+  const normalized = records.map((range, index): ClassificationRange => {
+    const fallbackRange = fallback[Math.min(index, fallback.length - 1)];
+    const color = hexOr(range.color, fallbackRange.color);
+    const iconKind = normalizeIconKind(range.iconKind, fallbackRange.iconKind);
+    const last = index === records.length - 1;
+    const from = parseRangeBound(range.from);
+    const to = parseRangeBound(range.to);
+    return {
+      // A missing bound at either end is the open end; between ranges it joins its neighbour.
+      from: from ?? (index === 0 ? -Infinity : parseRangeBound(records[index - 1].to) ?? fallbackRange.from),
+      to: to ?? (last ? Infinity : parseRangeBound(records[index + 1].from) ?? fallbackRange.to),
+      iconKind,
+      icon: normalizeIcon(range.icon, color, iconKind),
+      color,
+    };
+  });
   return normalized.length ? normalized : fallback;
 }
 
@@ -590,7 +604,10 @@ export function normalizeRule(rule: ConditionalRule): ConditionalRule {
 }
 
 export function stringifyRules(rules: ConditionalRule[]): string {
-  return JSON.stringify(rules);
+  // JSON would turn the open ends of a classification range (±Infinity) into null; keep them readable.
+  return JSON.stringify(rules, (_key, value) =>
+    value === Infinity ? "Infinity" : value === -Infinity ? "-Infinity" : value
+  );
 }
 
 export function newRuleId(): string {

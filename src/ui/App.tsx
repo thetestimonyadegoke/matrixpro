@@ -814,6 +814,7 @@ export const App: React.FC<AppProps> = ({
     formula: string;
     format: string;
     aggregation: "afterTotals" | "beforeTotals";
+    aggregationType?: string;
   }) => {
     try {
       const currentMeasures: any[] = JSON.parse(settings.calculations.measures || "[]");
@@ -827,6 +828,7 @@ export const App: React.FC<AppProps> = ({
             formula: measure.formula,
             format: measure.format,
             aggregationMode: measure.aggregation,
+            aggregationType: measure.aggregationType,
           };
         }
       } else {
@@ -837,6 +839,7 @@ export const App: React.FC<AppProps> = ({
           formula: measure.formula,
           format: measure.format,
           aggregationMode: measure.aggregation,
+          aggregationType: measure.aggregationType,
           enabled: true,
           order: currentMeasures.length,
         };
@@ -868,6 +871,8 @@ export const App: React.FC<AppProps> = ({
     placement: "before" | "after" | "child";
     targetRowKey: string;
     style: "normal" | "bold" | "underline" | "doubleUnderline" | "sectionHeader";
+    numberFormat?: string;
+    decimals?: number;
   }) => {
     try {
       const currentRows = JSON.parse(settings.calculations.rows || "[]");
@@ -880,19 +885,22 @@ export const App: React.FC<AppProps> = ({
         formulaType: row.formulaType,
         rowReferences: row.sourceRowKeys,
         customFormula: row.customFormula,
-        enabled: true,
+        // Editing must not undo what was set elsewhere: hiding the row, or leaving it out of totals.
+        enabled: existingRow.enabled ?? true,
+        numberFormat: row.numberFormat || undefined,
+        decimals: row.numberFormat ? row.decimals : undefined,
         placement: row.placement,
         targetRowKey: row.targetRowKey,
         style: {
           bold: row.style === "bold" || row.style === "sectionHeader",
-          italic: false,
+          italic: existingRow.style?.italic ?? false,
           backgroundColor: row.style === "sectionHeader" ? "rgba(0,0,0,0.05)" : (existingRow.style?.backgroundColor || ""),
           textColor: existingRow.style?.textColor || "",
           borderTop: existingRow.style?.borderTop || "none",
           borderBottom: row.style === "underline" ? "single" : row.style === "doubleUnderline" ? "double" : (existingRow.style?.borderBottom || "none"),
           indentOverride: existingRow.style?.indentOverride !== undefined ? existingRow.style.indentOverride : null,
         },
-        includeInTotals: true,
+        includeInTotals: existingRow.includeInTotals ?? true,
         isSubtotal: row.style === "sectionHeader",
         parentRowKey: row.placement === "child" ? row.targetRowKey : null,
         insertAfterRowKey: row.placement === "after" ? row.targetRowKey : null,
@@ -952,6 +960,8 @@ export const App: React.FC<AppProps> = ({
         customFormula: row.customFormula,
         placement: row.placement || (row.insertAtTop ? "before" : row.insertAfterRowKey ? "after" : row.parentRowKey ? "child" : "after"),
         targetRowKey: row.targetRowKey || row.insertAfterRowKey || row.parentRowKey || "",
+        numberFormat: row.numberFormat,
+        decimals: row.decimals,
         style: row.isSubtotal ? "sectionHeader" : row.style?.borderBottom === "double" ? "doubleUnderline" : row.style?.borderBottom === "single" ? "underline" : row.style?.bold ? "bold" : "normal"
       };
       setEditingCalcRow(wizardData);

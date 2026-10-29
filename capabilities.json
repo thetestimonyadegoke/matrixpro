@@ -109,10 +109,7 @@
   },
   "supportsHighlight": true,
   "sorting": {
-    "default": {
-      "Rows": {},
-      "Columns": {}
-    }
+    "default": {}
   },
   "objects": {
     "general": {
@@ -171,6 +168,30 @@
           "type": {
             "numeric": true
           }
+        },
+        "invertRows": {
+          "displayName": "Invert Rows",
+          "type": {
+            "bool": true
+          }
+        },
+        "simulateMode": {
+          "displayName": "Simulate Mode",
+          "type": {
+            "bool": true
+          }
+        },
+        "wrapText": {
+          "displayName": "Wrap Text",
+          "type": {
+            "bool": true
+          }
+        },
+        "strikethrough": {
+          "displayName": "Strikethrough",
+          "type": {
+            "bool": true
+          }
         }
       }
     },
@@ -208,8 +229,14 @@
           "displayName": "Page Mode",
           "type": {
             "enumeration": [
-              { "value": "single", "displayName": "Single Page" },
-              { "value": "multi", "displayName": "Multi Page" }
+              {
+                "value": "single",
+                "displayName": "Single Page"
+              },
+              {
+                "value": "multi",
+                "displayName": "Multi Page"
+              }
             ]
           }
         },
@@ -217,9 +244,18 @@
           "displayName": "Row Break",
           "type": {
             "enumeration": [
-              { "value": "none", "displayName": "None" },
-              { "value": "page", "displayName": "Page" },
-              { "value": "section", "displayName": "Section" }
+              {
+                "value": "none",
+                "displayName": "None"
+              },
+              {
+                "value": "page",
+                "displayName": "Page"
+              },
+              {
+                "value": "section",
+                "displayName": "Section"
+              }
             ]
           }
         },
@@ -227,9 +263,18 @@
           "displayName": "Column Break",
           "type": {
             "enumeration": [
-              { "value": "none", "displayName": "None" },
-              { "value": "page", "displayName": "Page" },
-              { "value": "section", "displayName": "Section" }
+              {
+                "value": "none",
+                "displayName": "None"
+              },
+              {
+                "value": "page",
+                "displayName": "Page"
+              },
+              {
+                "value": "section",
+                "displayName": "Section"
+              }
             ]
           }
         },
@@ -237,9 +282,18 @@
           "displayName": "Style Preset",
           "type": {
             "enumeration": [
-              { "value": "modern", "displayName": "Modern" },
-              { "value": "ledger", "displayName": "Ledger" },
-              { "value": "editorial", "displayName": "Editorial" }
+              {
+                "value": "modern",
+                "displayName": "Modern"
+              },
+              {
+                "value": "ledger",
+                "displayName": "Ledger"
+              },
+              {
+                "value": "editorial",
+                "displayName": "Editorial"
+              }
             ]
           }
         }
@@ -447,9 +501,18 @@
           "displayName": "Group Highlight Strength",
           "type": {
             "enumeration": [
-              { "value": "subtle", "displayName": "Subtle" },
-              { "value": "normal", "displayName": "Normal" },
-              { "value": "strong", "displayName": "Strong" }
+              {
+                "value": "subtle",
+                "displayName": "Subtle"
+              },
+              {
+                "value": "normal",
+                "displayName": "Normal"
+              },
+              {
+                "value": "strong",
+                "displayName": "Strong"
+              }
             ]
           }
         },
@@ -457,9 +520,93 @@
           "displayName": "Group Highlight Levels",
           "type": {
             "enumeration": [
-              { "value": "top", "displayName": "Top level only" },
-              { "value": "two", "displayName": "Top two levels" }
+              {
+                "value": "top",
+                "displayName": "Top level only"
+              },
+              {
+                "value": "two",
+                "displayName": "Top two levels"
+              }
             ]
+          }
+        },
+        "backgroundImage": {
+          "displayName": "Background Image",
+          "type": {
+            "text": true
+          }
+        },
+        "backgroundBlur": {
+          "displayName": "Background Blur",
+          "type": {
+            "numeric": true
+          }
+        },
+        "glassmorphism": {
+          "displayName": "Glass Surface",
+          "type": {
+            "bool": true
+          }
+        },
+        "surfaceOpacity": {
+          "displayName": "Surface Opacity",
+          "type": {
+            "numeric": true
+          }
+        },
+        "gradientStart": {
+          "displayName": "Gradient Start",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "gradientEnd": {
+          "displayName": "Gradient End",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "gradientAngle": {
+          "displayName": "Gradient Angle",
+          "type": {
+            "numeric": true
+          }
+        },
+        "overlayColor": {
+          "displayName": "Overlay Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "overlayOpacity": {
+          "displayName": "Overlay Opacity",
+          "type": {
+            "numeric": true
+          }
+        },
+        "backgroundEffect": {
+          "displayName": "Background Effect",
+          "type": {
+            "text": true
+          }
+        },
+        "layoutStyle": {
+          "displayName": "Layout Style",
+          "type": {
+            "text": true
           }
         }
       }
@@ -716,6 +863,12 @@
           "displayName": "Decimals",
           "type": {
             "numeric": true
+          }
+        },
+        "quickFormat": {
+          "displayName": "Quick Format",
+          "type": {
+            "text": true
           }
         }
       }
@@ -1214,29 +1367,35 @@
           },
           "suppressFormatPainterCopy": true
         },
-          "rows": {
-            "displayName": "Calculated Rows JSON",
-            "type": {
-              "text": true
-            },
-            "suppressFormatPainterCopy": true
+        "rows": {
+          "displayName": "Calculated Rows JSON",
+          "type": {
+            "text": true
           },
-          "timeIntelligence": {
-            "displayName": "Time Intelligence JSON",
-            "type": {
-              "text": true
-            },
-            "suppressFormatPainterCopy": true
+          "suppressFormatPainterCopy": true
+        },
+        "timeIntelligence": {
+          "displayName": "Time Intelligence JSON",
+          "type": {
+            "text": true
           },
-          "visualColumns": {
-            "displayName": "Visual Columns JSON",
-            "type": {
-              "text": true
-            },
-            "suppressFormatPainterCopy": true
+          "suppressFormatPainterCopy": true
+        },
+        "visualColumns": {
+          "displayName": "Visual Columns JSON",
+          "type": {
+            "text": true
+          },
+          "suppressFormatPainterCopy": true
+        },
+        "levelAwareColumns": {
+          "displayName": "Level-Aware Columns",
+          "type": {
+            "text": true
           }
         }
-      },
+      }
+    },
     "manualData": {
       "displayName": "Manual Adjustments",
       "properties": {
@@ -1353,6 +1512,42 @@
           "type": {
             "text": true
           }
+        },
+        "rowVisibility": {
+          "displayName": "Row Visibility",
+          "type": {
+            "text": true
+          }
+        },
+        "totalPositions": {
+          "displayName": "Total Positions",
+          "type": {
+            "text": true
+          }
+        },
+        "rowParents": {
+          "displayName": "Row Parents",
+          "type": {
+            "text": true
+          }
+        },
+        "hiddenRowExpandIcons": {
+          "displayName": "Hidden Row Expand Icons",
+          "type": {
+            "text": true
+          }
+        },
+        "variables": {
+          "displayName": "Variables",
+          "type": {
+            "text": true
+          }
+        },
+        "groupings": {
+          "displayName": "Groupings",
+          "type": {
+            "text": true
+          }
         }
       }
     },
@@ -1363,9 +1558,18 @@
           "displayName": "Mode",
           "type": {
             "enumeration": [
-              { "value": "auto", "displayName": "Automatic (read-only in reading view)" },
-              { "value": "readOnly", "displayName": "Always read-only" },
-              { "value": "edit", "displayName": "Always editable" }
+              {
+                "value": "auto",
+                "displayName": "Automatic (read-only in reading view)"
+              },
+              {
+                "value": "readOnly",
+                "displayName": "Always read-only"
+              },
+              {
+                "value": "edit",
+                "displayName": "Always editable"
+              }
             ]
           }
         },
@@ -1373,8 +1577,14 @@
           "displayName": "Toolbar for readers",
           "type": {
             "enumeration": [
-              { "value": "viewer", "displayName": "Sort, filter and search" },
-              { "value": "hidden", "displayName": "Hidden" }
+              {
+                "value": "viewer",
+                "displayName": "Sort, filter and search"
+              },
+              {
+                "value": "hidden",
+                "displayName": "Hidden"
+              }
             ]
           }
         }
@@ -1414,15 +1624,92 @@
           }
         }
       }
+    },
+    "title": {
+      "displayName": "Title",
+      "properties": {
+        "show": {
+          "displayName": "Show Title",
+          "type": {
+            "bool": true
+          }
+        },
+        "text": {
+          "displayName": "Title Text",
+          "type": {
+            "text": true
+          }
+        },
+        "stylePreset": {
+          "displayName": "Title Style",
+          "type": {
+            "text": true
+          }
+        },
+        "fontSize": {
+          "displayName": "Title Font Size",
+          "type": {
+            "numeric": true
+          }
+        },
+        "color": {
+          "displayName": "Title Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "backgroundColor": {
+          "displayName": "Title Background",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "alignment": {
+          "displayName": "Title Alignment",
+          "type": {
+            "text": true
+          }
+        },
+        "uppercase": {
+          "displayName": "Title Uppercase",
+          "type": {
+            "bool": true
+          }
+        },
+        "letterSpacing": {
+          "displayName": "Title Letter Spacing",
+          "type": {
+            "numeric": true
+          }
+        },
+        "italic": {
+          "displayName": "Title Italic",
+          "type": {
+            "bool": true
+          }
+        },
+        "height": {
+          "displayName": "Title Height",
+          "type": {
+            "numeric": true
+          }
+        }
+      }
     }
   },
-  "supportsHighlight": true,
   "supportsMultiVisualSelection": true,
   "supportsSynchronizingFilterState": true,
   "supportsKeyboardFocus": true,
   "supportsLandingPage": true,
   "supportsEmptyDataView": true,
-  "supportsHighlight": true,
   "tooltips": {
     "supportedTypes": {
       "default": true,
@@ -1478,9 +1765,6 @@
         "defaultValue": "Bottom"
       }
     }
-  },
-  "sorting": {
-    "default": {}
   },
   "privileges": [
     {

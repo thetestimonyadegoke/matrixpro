@@ -11,9 +11,18 @@ interface TopNPanelProps {
 }
 
 export const TopNPanel: React.FC<TopNPanelProps> = ({ settings, measures, onClose, onApply }) => {
-  const [n, setN] = useState<string>(String(settings.general.topN || 10));
-  const [measureIndex, setMeasureIndex] = useState<number>(0);
-  const [direction, setDirection] = useState<"top" | "bottom">("top");
+  // Reopening shows what is applied now, so editing one thing doesn't reset the rest to defaults.
+  const saved = (() => {
+    try {
+      const parsed = JSON.parse(settings.manualData.topNConfig || "{}");
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  })() as { topN?: number; measureIndex?: number; direction?: string };
+  const [n, setN] = useState<string>(String(typeof saved.topN === "number" ? saved.topN : (settings.general.topN || 10)));
+  const [measureIndex, setMeasureIndex] = useState<number>(typeof saved.measureIndex === "number" ? saved.measureIndex : 0);
+  const [direction, setDirection] = useState<"top" | "bottom">(saved.direction === "bottom" ? "bottom" : "top");
 
   const handleApply = () => {
     const parsed = parseInt(n, 10);
