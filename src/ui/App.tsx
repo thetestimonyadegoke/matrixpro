@@ -1131,6 +1131,8 @@ export const App: React.FC<AppProps> = ({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // Readers have no undo history to rewind; leave Ctrl+Z to the host.
+      if (readOnly) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]')) {
         return;
@@ -1151,7 +1153,7 @@ export const App: React.FC<AppProps> = ({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleUndo, handleRedo]);
+  }, [handleUndo, handleRedo, readOnly]);
 
   /**
    * Merge a direct-format patch into `manualData.colFormats` for every
