@@ -538,9 +538,16 @@ function buildContiguousHeaderCells(
     const pathLength = current.col.path ? current.col.path.length : 1;
     const groupPath = (current.col.path || []).slice(0, level + 1).map(value => String(value ?? ""));
     const groupKey = groupPath.join("\u0001") || current.col.key;
+    // Total columns carry no value of their own, so their path is empty or just the parent's.
+    // Name them on the first header row they own; the rows beneath stay blank.
+    const totalLabel = current.col.isGrandTotal || (current.col.isSubtotal && pathLength === 0)
+      ? (level === 0 ? "Grand Total" : "")
+      : current.col.isSubtotal && level === pathLength
+        ? "Total"
+        : "";
     const groupLabel = level < pathLength
       ? (groupPath[groupPath.length - 1] || current.col.label || "")
-      : "";
+      : totalLabel;
     let span = 1;
 
     while (index + span < gridColumns.length) {
