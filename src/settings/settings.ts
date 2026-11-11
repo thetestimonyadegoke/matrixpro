@@ -280,6 +280,10 @@ export interface CalculationsSettings {
   timeIntelligence: string;
   visualColumns: string;
   levelAwareColumns: string;
+  /** Add a year-to-date column for every regular measure (measures with their own visual-column rule are skipped). */
+  ytdEnabled: boolean;
+  /** Where the year-to-date columns go: at the start or the end of the matrix. */
+  ytdPlacement: "start" | "end";
 }
 
 // ─── Inserted-row schema ─────────────────────────────────────────────────────
@@ -737,6 +741,8 @@ export const defaultSettings: VisualSettings = {
     timeIntelligence: "[]",
     visualColumns: "[]",
     levelAwareColumns: "{\"enabled\":false,\"fields\":[]}",
+    ytdEnabled: false,
+    ytdPlacement: "end",
   },
   manualData: {
     notes: "{}",
@@ -987,6 +993,8 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       timeIntelligence: getValue(objects, "calculations", "timeIntelligence", defaultSettings.calculations.timeIntelligence),
       visualColumns: getValue(objects, "calculations", "visualColumns", defaultSettings.calculations.visualColumns),
       levelAwareColumns: getValue(objects, "calculations", "levelAwareColumns", defaultSettings.calculations.levelAwareColumns),
+      ytdEnabled: getValue(objects, "calculations", "ytdEnabled", defaultSettings.calculations.ytdEnabled),
+      ytdPlacement: getValue(objects, "calculations", "ytdPlacement", defaultSettings.calculations.ytdPlacement) === "start" ? "start" : "end",
     },
     manualData: {
       notes: getValue(objects, "manualData", "notes", defaultSettings.manualData.notes),

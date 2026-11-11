@@ -1406,6 +1406,21 @@
           "type": {
             "text": true
           }
+        },
+        "ytdEnabled": {
+          "displayName": "Year-to-date Columns",
+          "type": {
+            "bool": true
+          }
+        },
+        "ytdPlacement": {
+          "displayName": "Year-to-date Placement",
+          "type": {
+            "enumeration": [
+              { "value": "start", "displayName": "Start" },
+              { "value": "end", "displayName": "End" }
+            ]
+          }
         }
       }
     },

@@ -1,5 +1,10 @@
 import { FlattenedNode } from "./tree";
 import { MeasureInfo } from "./pivot";
+import {
+  YtdContext,
+  getActiveCalcStates,
+  parseCalculatedMeasures,
+} from "../calculations/calculatedMeasures";
 import { VisualSettings } from "../settings/settings";
 import {
   LevelAwareFieldConfig,
@@ -21,6 +26,8 @@ export type GridColumn = {
   measureIndex: number;
   synthetic?: "ytd" | "detail" | "rowDetail";
   sourceColumnKeys?: string[];
+  /** Set on the "all measures" YTD columns: how to value calculated measures over the source columns. */
+  ytdContext?: YtdContext;
   levelAwareField?: LevelAwareFieldConfig;
   detailSourceColumnKeys?: string[];
   rowDetailLevelIndex?: number;
@@ -375,6 +382,53 @@ export function buildGridColumns(
       }
     }
     baseResult = sorted;
+  }
+
+  // Year-to-date for every regular measure: one column each, valued over the latest year's periods.
+  // A measure with its own visual-column rule is an exception and is left out.
+  if (settings.calculations.ytdEnabled) {
+    const periodLeafs = visualLeafs.filter(c => !c.isSubtotal && !c.isGrandTotal);
+    const latestYear = periodLeafs.length > 0 ? yearKey(periodLeafs[periodLeafs.length - 1]) : "";
+    const sourceKeys = periodLeafs.filter(c => yearKey(c) === latestYear).map(c => c.key);
+    if (sourceKeys.length > 0) {
+      const baseCount = measures.filter(m => !String(m.queryName || "").startsWith("__calc__")).length;
+      let defs: any[] = [];
+      try { defs = JSON.parse(settings.calculations.measures || "[]"); } catch { defs = []; }
+      const ytdContext: YtdContext = {
+        baseCount,
+        measures,
+        states: getActiveCalcStates(parseCalculatedMeasures(defs, measures.slice(0, baseCount).map(m => m.name))),
+      };
+      const block: GridColumn[] = [];
+      for (const m of orderedMeasureIndexes) {
+        if (ruleForMeasure(measures[m], m)) continue;
+        if (isHiddenMeasureAtColumn(periodLeafs[0], measures[m], m)) continue;
+        const ytdColKey = `__ytd_all__::m${m}`;
+        const ytdCol: FlattenedNode = {
+          ...periodLeafs[periodLeafs.length - 1],
+          key: ytdColKey,
+          label: "YTD",
+          path: ["YTD"],
+          value: "YTD",
+          level: 0,
+          isSubtotal: false,
+          isGrandTotal: false,
+          isLeaf: true,
+          hasChildren: false,
+        };
+        block.push({
+          key: `${ytdColKey}::m${m}`,
+          col: ytdCol,
+          measure: measures[m],
+          measureIndex: m,
+          synthetic: "ytd",
+          sourceColumnKeys: sourceKeys,
+          ytdContext,
+        });
+      }
+      if (settings.calculations.ytdPlacement === "start") groupedYtdStart.push(...block);
+      else groupedYtdEnd.push(...block);
+    }
   }
 
   // Grouped YTD blocks go after any manual column order so they stay at the matrix edges.

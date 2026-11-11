@@ -543,6 +543,7 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
       { kind: "action", label: "Calculated measure", onSelect: () => onOpenCalcMeasurePanel?.(), disabled: needsValues },
       { kind: "action", label: "Variance from selected column", onSelect: () => onAddQuickVariance?.(), disabled: needsValues || colCount === 0 || !onAddQuickVariance },
       { kind: "action", label: "Aggregation overrides…", onSelect: () => onOpenAggregation?.(), disabled: needsValues },
+      { kind: "check", label: "Year-to-date column", checked: !!settings.calculations.ytdEnabled, onSelect: () => onPersistProperty("calculations", "ytdEnabled", !settings.calculations.ytdEnabled), disabled: needsValues },
       { kind: "separator" },
       { kind: "action", label: "Manage columns…", onSelect: () => onOpenManageColumnsPanel?.(), disabled: edit },
     ],

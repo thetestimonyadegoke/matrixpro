@@ -605,6 +605,19 @@ export const settingsMetadata: SettingsMetadata = {
       defaultValue: "{\"enabled\":false,\"fields\":[]}",
       category: "Advanced",
     },
+    ytdEnabled: {
+      description: "Add a year-to-date column for every regular measure",
+      type: "boolean",
+      defaultValue: false,
+      category: "Advanced",
+    },
+    ytdPlacement: {
+      description: "Where year-to-date columns are placed: start or end of the matrix",
+      type: "enum",
+      defaultValue: "end",
+      allowedValues: ["start", "end"],
+      category: "Advanced",
+    },
   },
   manualData: {
     notes: {

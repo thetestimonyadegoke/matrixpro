@@ -487,17 +487,24 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
     onPersistProperty("calculations", "visualColumns", JSON.stringify(next));
   }, [onPersistProperty]);
 
-  const addVisualColumnRule = useCallback(() => {
-    const firstMeasure = measures[0];
+  const addVisualColumnRule = useCallback((preset?: Partial<VisualColumnRule>) => {
+    // Only the first rule for a measure takes effect, so start on a measure that has none yet.
+    const hasRule = (m: MeasureInfo) => visualColumnRules.some(rule =>
+      (rule.sourceMeasureId !== undefined && rule.sourceMeasureId === m.id) ||
+      (rule.sourceMeasureIndex !== undefined && rule.sourceMeasureIndex === m.index) ||
+      rule.sourceMeasureName === m.name
+    );
+    const source = measures.find(m => !hasRule(m)) ?? measures[0];
     const next: VisualColumnRule = {
       id: `visual_${secureRandomId(8)}`,
       enabled: true,
-      sourceMeasureId: firstMeasure?.id,
-      sourceMeasureName: firstMeasure?.name,
-      sourceMeasureIndex: firstMeasure?.index ?? 0,
+      sourceMeasureId: source?.id,
+      sourceMeasureName: source?.name,
+      sourceMeasureIndex: source?.index ?? 0,
       frequency: "all",
       position: "normal",
       specificColumnKeys: [],
+      ...preset,
     };
     persistVisualColumnRules([...visualColumnRules, next]);
   }, [measures, persistVisualColumnRules, visualColumnRules]);
@@ -1192,18 +1199,49 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
   );
 
   const renderVisualColumns = () => {
+    const ytdSection = (
+      <Section
+        title="Year to date"
+        description="One YTD column for every regular measure, valued over the latest year's periods. Measures with their own rule below are left out."
+      >
+        <div className="mx-row is-between">
+          <span className="mx-item-title">Add a YTD column</span>
+          <Switch checked={!!settings.calculations.ytdEnabled} onChange={on => onPersistProperty("calculations", "ytdEnabled", on)} />
+        </div>
+        {settings.calculations.ytdEnabled && (
+          <Field label="Placement">
+            <Segmented
+              block
+              ariaLabel="YTD placement"
+              value={settings.calculations.ytdPlacement === "start" ? "start" : "end"}
+              onChange={v => onPersistProperty("calculations", "ytdPlacement", v)}
+              options={[
+                { value: "start", label: "Start of matrix" },
+                { value: "end", label: "End of matrix" },
+              ]}
+            />
+          </Field>
+        )}
+      </Section>
+    );
     if (filteredVisualColumnRules.length === 0) {
-      return search ? (
-        <EmptyNote title="No matches" hint="Try a different search." />
-      ) : (
-        <EmptyNote
-          title="No visual columns"
-          hint="Add a rule here, or use Visual on a measure or column."
-        />
+      return (
+        <>
+          {ytdSection}
+          {search ? (
+            <EmptyNote title="No matches" hint="Try a different search." />
+          ) : (
+            <EmptyNote
+              title="No exception rules"
+              hint="Add a rule to show a measure only at some periods, or to give it its own YTD behaviour."
+            />
+          )}
+        </>
       );
     }
     return (
       <div className="mx-stack is-tight">
+        {ytdSection}
         {filteredVisualColumnRules.map(rule => (
           <div key={rule.id} className="mx-item" style={{ flexDirection: "column", alignItems: "stretch", gap: 10, padding: 10 }}>
             <div className="mx-row">
@@ -1415,7 +1453,7 @@ export const ManageColumnsPanel: React.FC<ManageColumnsPanelProps> = ({
                 </Button>
               )}
               {activeTab === "visualColumns" && (
-                <Button variant="primary" icon={<IconPlus size={14} />} onClick={addVisualColumnRule}>
+                <Button variant="primary" icon={<IconPlus size={14} />} onClick={() => addVisualColumnRule()} title="Add a rule, then choose its frequency and position">
                   Add rule
                 </Button>
               )}

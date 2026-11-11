@@ -165,6 +165,71 @@ export function resolveCalcRollupKind(def: CalculatedMeasureDefinition): CalcRol
   return mode === "beforeTotals" || mode === "calc-then-aggregate" ? "sum" : "formula";
 }
 
+/** What a year-to-date column needs to value a calculated measure from the columns it covers. */
+export interface YtdContext {
+  /** Number of measures that come from the data (calculated measures follow them). */
+  baseCount: number;
+  measures: MeasureInfo[];
+  /** Active calculated measures, in display order (measure index = baseCount + position). */
+  states: CalculatedMeasureState[];
+}
+
+/**
+ * The year-to-date value of one measure on one row, over the given source columns.
+ * Data measures add up. A formula-style calculated measure is re-evaluated on the
+ * year-to-date totals (so a ratio is total ÷ total, never a sum of ratios); the other
+ * aggregation types combine the per-column calculated values.
+ */
+export function computeYtdValue(
+  measureIndex: number,
+  rowKey: string,
+  sourceColumnKeys: string[],
+  ctx: YtdContext,
+  cellMap: { get: (key: string) => CellValue | undefined },
+  depth = 0
+): number | null {
+  const valuesFor = (index: number): number[] => {
+    const values: number[] = [];
+    for (const colKey of sourceColumnKeys) {
+      const v = cellMap.get(generateCellKey(rowKey, colKey, index))?.value;
+      if (typeof v === "number" && Number.isFinite(v)) values.push(v);
+    }
+    return values;
+  };
+  const sum = (values: number[]): number | null => (values.length ? values.reduce((a, b) => a + b, 0) : null);
+
+  if (measureIndex < ctx.baseCount) return sum(valuesFor(measureIndex));
+
+  const state = ctx.states[measureIndex - ctx.baseCount];
+  if (!state) return null;
+  const kind = resolveCalcRollupKind(state.definition);
+
+  if (kind === "formula") {
+    if (!state.ast || depth > 8) return null;
+    const nameToIndex = new Map<string, number>();
+    ctx.measures.forEach((m, i) => nameToIndex.set(m.name.trim().toLowerCase(), i));
+    const read = (name: string): number | null => {
+      const index = nameToIndex.get(name.trim().toLowerCase());
+      // A calculated measure may only read measures that come before it.
+      if (index === undefined || index >= measureIndex) return null;
+      return computeYtdValue(index, rowKey, sourceColumnKeys, ctx, cellMap, depth + 1);
+    };
+    const result = evaluateFormula(state.ast, { getMeasureValue: read, getCalculatedValue: read });
+    return typeof result.value === "number" && Number.isFinite(result.value) ? result.value : null;
+  }
+
+  const values = valuesFor(measureIndex);
+  if (kind === "none" || values.length === 0) return null;
+  switch (kind) {
+    case "first": return values[0];
+    case "last": return values[values.length - 1];
+    case "min": return Math.min(...values);
+    case "max": return Math.max(...values);
+    case "average": return values.reduce((a, b) => a + b, 0) / values.length;
+    default: return sum(values);
+  }
+}
+
 /**
  * Compute calculated measures for all cells
  */

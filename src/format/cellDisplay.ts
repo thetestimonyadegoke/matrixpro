@@ -11,6 +11,7 @@ import {
 } from "./directFormats";
 import { resolveDetailCell, rowMatchesLevelAwareField, rowMatchesRowFieldDisplay } from "../model/levelAwareColumns";
 import { GridColumn } from "../model/gridColumns";
+import { computeYtdValue } from "../calculations/calculatedMeasures";
 import { parseManualEditNumber } from "../utils/manualEditValue";
 
 /**
@@ -176,7 +177,11 @@ export function resolveCellDisplay(input: CellDisplayInput): CellDisplay {
     displayFormatted = detailValue !== undefined && detailValue !== null ? String(detailValue) : "";
   }
 
-  if (gridCol.synthetic === "ytd" && gridCol.sourceColumnKeys?.length) {
+  if (gridCol.synthetic === "ytd" && gridCol.sourceColumnKeys?.length && gridCol.ytdContext) {
+    const ytd = computeYtdValue(mIdx, row.key, gridCol.sourceColumnKeys, gridCol.ytdContext, cellMap);
+    displayValue = ytd;
+    displayFormatted = ytd === null ? "—" : formatValue(ytd, gridCol.measure.format || "");
+  } else if (gridCol.synthetic === "ytd" && gridCol.sourceColumnKeys?.length) {
     const total = gridCol.sourceColumnKeys.reduce((sum, sourceColKey) => {
       const sourceCell = getCellValue(cellMap, row.key, sourceColKey, mIdx);
       return sum + (sourceCell?.value ?? 0);
