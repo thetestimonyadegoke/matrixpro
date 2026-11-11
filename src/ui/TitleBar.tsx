@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { TitleSettings } from "../settings/settings";
+import { TitleSettings, defaultSettings } from "../settings/settings";
 
 export interface TitleBarProps {
   settings: TitleSettings;
@@ -153,7 +153,14 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     return presets[settings.stylePreset] || presets.classic;
   }, [settings.stylePreset]);
   const isCompact = settings.height <= 40;
-  const baseFontSize = Math.max(12, settings.fontSize);
+  // A preset supplies the look; anything the user has changed from the default wins over it.
+  const defaults = defaultSettings.title;
+  const customBackground = settings.backgroundColor !== defaults.backgroundColor;
+  const customColor = settings.color !== defaults.color;
+  const customSize = settings.fontSize !== defaults.fontSize;
+  const customSpacing = (settings.letterSpacing ?? 0) !== (defaults.letterSpacing ?? 0);
+  const customAlignment = settings.alignment !== defaults.alignment;
+  const baseFontSize = Math.max(10, settings.fontSize);
 
   const barStyle: React.CSSProperties = {
     minHeight: settings.height,
@@ -163,11 +170,11 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     alignItems: "center",
     gap: 10,
     padding: isCompact ? "0 12px" : "0 16px",
-    backgroundColor: settings.backgroundColor,
     boxSizing: "border-box",
     position: "relative",
     overflow: "hidden",
     ...preset.shell,
+    ...(customBackground ? { background: settings.backgroundColor, backgroundColor: settings.backgroundColor } : {}),
   };
 
   const textStyle: React.CSSProperties = {
@@ -180,10 +187,12 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     textOverflow: "ellipsis",
     cursor: allowInteractions ? "text" : "default",
     userSelect: "none",
-    letterSpacing: `${settings.letterSpacing}px`,
-    fontStyle: settings.italic ? "italic" : "normal",
     ...preset.text,
-    color: settings.color,
+    ...(customSize ? { fontSize: baseFontSize } : {}),
+    ...(customAlignment ? { textAlign: alignMap[settings.alignment] ?? "left" } : {}),
+    ...(customSpacing ? { letterSpacing: `${settings.letterSpacing}px` } : {}),
+    ...(customColor ? { color: settings.color, WebkitTextFillColor: settings.color, background: "none", WebkitBackgroundClip: "border-box" } : {}),
+    ...(settings.italic ? { fontStyle: "italic" } : {}),
     textTransform: settings.uppercase ? "uppercase" : preset.text.textTransform,
   };
 
@@ -224,7 +233,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           style={{
             border: "1px solid rgba(15,23,42,0.12)",
             background: "rgba(255,255,255,0.52)",
-            color: settings.color,
+            color: customColor ? settings.color : preset.text.color ?? settings.color,
             borderRadius: 999,
             padding: "4px 8px",
             fontSize: 9,

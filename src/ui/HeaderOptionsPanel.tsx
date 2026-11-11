@@ -94,7 +94,7 @@ export const HeaderOptionsPanel: React.FC<HeaderOptionsPanelProps> = memo(({
 
   const updateHeader = (key: keyof HeaderSettings, value: any) => onPersistProperty("headers", key, value);
   const updateTitle = (key: keyof TitleSettings, value: any) => {
-    onPersistProperty("title", key === "stylePreset" ? "titleStyle" : key, value);
+    onPersistProperty("title", key, value);
   };
   const updateAppearance = (key: string, value: any) => onPersistProperty("appearance", key, value);
 
