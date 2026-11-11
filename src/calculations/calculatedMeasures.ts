@@ -145,6 +145,26 @@ function collectReferences(
   if (node.elseBranch) collectReferences(node.elseBranch, measures, calcs);
 }
 
+/** The calculated measures that actually render, in display order (same filter as computeCalculatedMeasures). */
+export function getActiveCalcStates(calcStates: CalculatedMeasureState[]): CalculatedMeasureState[] {
+  return calcStates
+    .filter(s => s.isValid && s.definition.enabled)
+    .sort((a, b) => a.definition.order - b.definition.order);
+}
+
+/**
+ * How a calculated measure is combined on parent rows, subtotals and grand totals.
+ * "formula" re-evaluates the formula on the totalled inputs (right for ratios);
+ * the other kinds combine the already-computed child values.
+ */
+export type CalcRollupKind = "formula" | "none" | "sum" | "first" | "last" | "average" | "min" | "max";
+
+export function resolveCalcRollupKind(def: CalculatedMeasureDefinition): CalcRollupKind {
+  if (def.aggregationType) return def.aggregationType;
+  const mode = def.aggregationMode as string | undefined;
+  return mode === "beforeTotals" || mode === "calc-then-aggregate" ? "sum" : "formula";
+}
+
 /**
  * Compute calculated measures for all cells
  */

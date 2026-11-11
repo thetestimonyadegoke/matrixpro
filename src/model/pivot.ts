@@ -10,7 +10,8 @@ function computeParentKey(row: FlattenedNode): string {
   return generateRowKey(row.path.slice(0, -1) as (string | number)[]);
 }
 import { VisualSettings } from "../settings/settings";
-import { parseCalculatedMeasures, computeCalculatedMeasures, CalculatedMeasureDefinition } from "../calculations/calculatedMeasures";
+import { parseCalculatedMeasures, computeCalculatedMeasures, CalculatedMeasureDefinition, CalculatedMeasureState, CalcRollupKind, getActiveCalcStates, resolveCalcRollupKind } from "../calculations/calculatedMeasures";
+import { evaluateFormula } from "../calculations/formulaEvaluator";
 import { applyCalculatedRows, CalculatedRowDefinition } from "../calculations/calculatedRows";
 import { FormulaEngine } from "../calculations/FormulaEngine";
 import { parseManualEditNumber } from "../utils/manualEditValue";
@@ -200,7 +201,10 @@ export function buildMatrixModel(options: DataModelBuilderOptions): MatrixModel 
   );
 
   // 5. Hierarchy Rollups: ensure parent nodes aggregate child values from FULL tree
-  applyHierarchyRollupsFromTree(overridenRows, overridenCellMap, allMeasures, rowTree, columnTree, flattenedColumns);
+  applyHierarchyRollupsFromTree(overridenRows, overridenCellMap, allMeasures, rowTree, columnTree, flattenedColumns, {
+    baseCount: measures.length,
+    states: getActiveCalcStates(calcMeasureStates),
+  });
 
   return {
     rowTree,
@@ -902,10 +906,61 @@ function applyHierarchyRollupsFromTree(
   rowTree: TreeNode | null,
   columnTree: TreeNode | null,
   flattenedColumns?: FlattenedNode[],
+  calcPlan?: { baseCount: number; states: CalculatedMeasureState[] },
 ): void {
   if (!rowTree || !columnTree || measures.length === 0) {
     return;
   }
+
+  // Base measures always add up. Calculated measures follow their own Aggregation
+  // setting: ratios must be re-evaluated on the totalled inputs, never summed.
+  const baseCount = calcPlan?.baseCount ?? measures.length;
+  const activeCalcs = calcPlan?.states ?? [];
+  const kindOf = (m: number): CalcRollupKind => {
+    const state = m < baseCount ? undefined : activeCalcs[m - baseCount];
+    return state ? resolveCalcRollupKind(state.definition) : "sum";
+  };
+  const formulaTargets = new Map<string, { rowKey: string; colKey: string }>();
+
+  const writeCell = (rowKey: string, colKey: string, m: number, value: number | null): void => {
+    const cellKey = generateCellKey(rowKey, colKey, m);
+    const existing = cellMap.get(cellKey);
+    const base: CellValue = existing || {
+      value: null,
+      formattedValue: "—",
+      measureIndex: m,
+      rowKey,
+      colKey,
+    };
+    cellMap.set(cellKey, {
+      ...base,
+      value,
+      formattedValue: value === null ? "—" : formatValue(value, measures[m]?.format || ""),
+    });
+  };
+
+  const writeRollup = (rowKey: string, colKey: string, m: number, values: number[]): void => {
+    const kind = kindOf(m);
+    if (kind === "formula") {
+      formulaTargets.set(`${rowKey}${colKey}`, { rowKey, colKey });
+      return;
+    }
+    if (kind === "none") {
+      writeCell(rowKey, colKey, m, null);
+      return;
+    }
+    if (values.length === 0) return;
+    let result: number;
+    switch (kind) {
+      case "first": result = values[0]; break;
+      case "last": result = values[values.length - 1]; break;
+      case "min": result = Math.min(...values); break;
+      case "max": result = Math.max(...values); break;
+      case "average": result = values.reduce((acc, v) => acc + v, 0) / values.length; break;
+      default: result = values.reduce((acc, v) => acc + v, 0);
+    }
+    writeCell(rowKey, colKey, m, result);
+  };
 
   // Build a map of row keys to tree nodes for quick lookup
   const rowKeyToNode = new Map<string, TreeNode>();
@@ -974,24 +1029,7 @@ function applyHierarchyRollupsFromTree(
           }
         }
 
-        if (values.length === 0) continue;
-
-        const sum = values.reduce((acc, v) => acc + v, 0);
-        const cellKey = generateCellKey(parent.key, colKey, m);
-        const existing = cellMap.get(cellKey);
-        const base: CellValue = existing || {
-          value: null,
-          formattedValue: "—",
-          measureIndex: m,
-          rowKey: parent.key,
-          colKey: colKey,
-        };
-
-        cellMap.set(cellKey, {
-          ...base,
-          value: sum,
-          formattedValue: formatValue(sum, measures[m]?.format || ""),
-        });
+        writeRollup(parent.key, colKey, m, values);
       }
     }
   }
@@ -1063,24 +1101,7 @@ function applyHierarchyRollupsFromTree(
             }
           }
 
-          if (values.length === 0) continue;
-
-          const sum = values.reduce((acc, v) => acc + v, 0);
-          const cellKey = generateCellKey(rowKey, parentCol.key, m);
-          const existing = cellMap.get(cellKey);
-          const base: CellValue = existing || {
-            value: null,
-            formattedValue: "—",
-            measureIndex: m,
-            rowKey: rowKey,
-            colKey: parentCol.key,
-          };
-
-          cellMap.set(cellKey, {
-            ...base,
-            value: sum,
-            formattedValue: formatValue(sum, measures[m]?.format || ""),
-          });
+          writeRollup(rowKey, parentCol.key, m, values);
         }
       }
     }
@@ -1130,24 +1151,7 @@ function applyHierarchyRollupsFromTree(
           }
         }
 
-        if (values.length === 0) continue;
-
-        const sum = values.reduce((acc, value) => acc + value, 0);
-        const cellKey = generateCellKey(row.key, subtotalCol.key, m);
-        const existing = cellMap.get(cellKey);
-        const base: CellValue = existing || {
-          value: null,
-          formattedValue: "—",
-          measureIndex: m,
-          rowKey: row.key,
-          colKey: subtotalCol.key,
-        };
-
-        cellMap.set(cellKey, {
-          ...base,
-          value: sum,
-          formattedValue: formatValue(sum, measures[m]?.format || ""),
-        });
+        writeRollup(row.key, subtotalCol.key, m, values);
       }
     }
   }
@@ -1192,25 +1196,31 @@ function applyHierarchyRollupsFromTree(
           }
         }
 
-        if (values.length === 0) continue;
-
-        const sum = values.reduce((acc, value) => acc + value, 0);
-        const cellKey = generateCellKey(subtotalRow.key, col.key, m);
-        const existing = cellMap.get(cellKey);
-        const base: CellValue = existing || {
-          value: null,
-          formattedValue: "—",
-          measureIndex: m,
-          rowKey: subtotalRow.key,
-          colKey: col.key,
-        };
-
-        cellMap.set(cellKey, {
-          ...base,
-          value: sum,
-          formattedValue: formatValue(sum, measures[m]?.format || ""),
-        });
+        writeRollup(subtotalRow.key, col.key, m, values);
       }
+    }
+  }
+
+  // Every total above is now in place for the base measures, so evaluate the
+  // formula-style calculated measures against them (e.g. total A / total B).
+  if (formulaTargets.size > 0 && activeCalcs.length > 0) {
+    const nameToIndex = new Map<string, number>();
+    measures.forEach((measure, index) => nameToIndex.set(measure.name.trim().toLowerCase(), index));
+
+    for (const target of formulaTargets.values()) {
+      activeCalcs.forEach((state, i) => {
+        const m = baseCount + i;
+        if (!state.ast || kindOf(m) !== "formula") return;
+        const read = (name: string): number | null => {
+          const index = nameToIndex.get(name.trim().toLowerCase());
+          // A calculated measure may only read measures that come before it.
+          if (index === undefined || index >= m) return null;
+          return getCellValue(cellMap, target.rowKey, target.colKey, index)?.value ?? null;
+        };
+        const result = evaluateFormula(state.ast, { getMeasureValue: read, getCalculatedValue: read });
+        const value = typeof result.value === "number" && Number.isFinite(result.value) ? result.value : null;
+        writeCell(target.rowKey, target.colKey, m, value);
+      });
     }
   }
 }
