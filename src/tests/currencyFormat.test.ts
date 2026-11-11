@@ -67,3 +67,19 @@ describe("applyRowQuickFormat currency", () => {
     expect(applyRowQuickFormat(1234.5, "currency", 2, "#,0.00")).toBe(usd);
   });
 });
+
+describe("currency styles", () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { normalizeCurrencyStyle, splitFormattedValue } = require("../ui/FormattedValue");
+
+  it("falls back to standard for unknown styles", () => {
+    expect(normalizeCurrencyStyle(undefined)).toBe("standard");
+    expect(normalizeCurrencyStyle("nonsense")).toBe("standard");
+    expect(normalizeCurrencyStyle("edgeBadge")).toBe("edgeBadge");
+  });
+
+  it("still finds the symbol among the affixes of a negative or suffix value", () => {
+    expect(splitFormattedValue("($1,234.00)").map((p: any) => p.text)).toEqual(["(", "$", "1,234.00", ")"]);
+    expect(splitFormattedValue("1,234.50 €").some((p: any) => p.kind === "affix" && p.text.includes("€"))).toBe(true);
+  });
+});

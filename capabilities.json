@@ -870,6 +870,19 @@
           "type": {
             "text": true
           }
+        },
+        "currencyStyle": {
+          "displayName": "Currency Style",
+          "type": {
+            "enumeration": [
+              { "value": "standard", "displayName": "Standard" },
+              { "value": "subtle", "displayName": "Subtle symbol" },
+              { "value": "raised", "displayName": "Raised symbol" },
+              { "value": "badge", "displayName": "Icon badge" },
+              { "value": "edge", "displayName": "Pinned left" },
+              { "value": "edgeBadge", "displayName": "Pinned left, icon badge" }
+            ]
+          }
         }
       }
     },

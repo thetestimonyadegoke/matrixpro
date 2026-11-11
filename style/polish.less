@@ -55,6 +55,73 @@
       }
     }
 
+    // ── Currency styles (Values → Currency style) ──────────────────────────
+    .num-currency {
+      display: inline-block;
+      line-height: 1;
+      font-variant-numeric: normal;
+
+      // Same quiet symbol as always, a touch smaller and lighter.
+      &.is-subtle {
+        font-size: 0.78em;
+        font-weight: 500;
+        opacity: 0.55;
+        margin-right: 0.2em;
+      }
+
+      // Lifted to the top of the figure, like a price tag.
+      &.is-raised {
+        font-size: 0.64em;
+        font-weight: 600;
+        opacity: 0.7;
+        vertical-align: 0.5em;
+        margin-right: 0.18em;
+      }
+
+      // A small round chip carrying the symbol, set just before the figure.
+      &.is-badge {
+        min-width: 1.45em;
+        height: 1.45em;
+        padding: 0 0.3em;
+        box-sizing: border-box;
+        border-radius: 999px;
+        font-size: 0.78em;
+        font-weight: 700;
+        line-height: 1.45em;
+        text-align: center;
+        vertical-align: 0.06em;
+        margin-right: 0.45em;
+        color: var(--mx-accent, #2563eb);
+        background: color-mix(in srgb, var(--mx-accent, #2563eb) 12%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-accent, #2563eb) 28%, transparent);
+      }
+    }
+
+    // Accounting layout: the symbol holds the left edge, the figure stays right-aligned.
+    .num-edge {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.6em;
+      width: 100%;
+
+      .num-currency {
+        flex: 0 0 auto;
+        margin-right: 0;
+        opacity: 0.6;
+
+        &.is-badge {
+          opacity: 1;
+        }
+      }
+
+      .num-edge-value {
+        flex: 1 1 auto;
+        text-align: right;
+        white-space: nowrap;
+      }
+    }
+
     &.is-empty .cell-value {
       opacity: 0.32;
     }

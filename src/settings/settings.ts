@@ -68,6 +68,8 @@ export interface ValueSettings {
   borderColor: string;
   quickFormat: string; // "none" | "thousands" | "millions" | "billions"
   decimals: number;
+  /** How a currency symbol is drawn: standard, subtle, raised, badge, edge (pinned left) or edgeBadge. */
+  currencyStyle: string;
 }
 
 export interface TotalSettings {
@@ -635,6 +637,7 @@ export const defaultSettings: VisualSettings = {
     borderColor: "#d0d0d0",
     quickFormat: "none",
     decimals: 0,
+    currencyStyle: "standard",
   },
   totals: {
     showRowSubtotals: true,
@@ -876,6 +879,7 @@ export function parseSettings(dataView: DataView | undefined): VisualSettings {
       borderColor: getColor(objects, "values", "borderColor", defaultSettings.values.borderColor),
       quickFormat: getValue(objects, "values", "quickFormat", defaultSettings.values.quickFormat),
       decimals: getValue(objects, "values", "decimals", defaultSettings.values.decimals),
+      currencyStyle: getValue(objects, "values", "currencyStyle", defaultSettings.values.currencyStyle),
     },
     totals: {
       showRowSubtotals: (rowSubtotalsFromApi !== undefined

@@ -522,6 +522,20 @@ export function getFormattingModel(settings: VisualSettings): powerbi.visuals.Fo
                   },
                 },
               },
+              {
+                uid: "values_currencyStyle",
+                displayName: "Currency Style",
+                control: {
+                  type: powerbi.visuals.FormattingComponent.Dropdown,
+                  properties: {
+                    descriptor: {
+                      objectName: "values",
+                      propertyName: "currencyStyle",
+                    },
+                    value: settings.values.currencyStyle,
+                  },
+                },
+              },
             ],
           },
         ],

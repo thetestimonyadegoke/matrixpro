@@ -229,7 +229,7 @@ export const Cell: React.FC<CellProps> = memo(({
         />
       )}
       {iconLeft && <CFIcon icon={cfIcon!} dock="left" />}
-      <span className="cell-value">{hideValueText ? "" : <FormattedValue text={formattedValue} />}</span>
+      <span className="cell-value">{hideValueText ? "" : <FormattedValue text={formattedValue} currencyStyle={settings.values.currencyStyle} />}</span>
       {iconRight && <CFIcon icon={cfIcon!} dock="right" />}
       {showKPI && kpiDelta !== null && (
         <KPIIcon

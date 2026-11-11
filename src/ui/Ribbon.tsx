@@ -592,6 +592,14 @@ export const Ribbon: React.FC<RibbonProps> = memo(({
       { kind: "check", label: "Currency  $1,234.00", checked: effNumberFormat === "$#,##0.00", onSelect: () => handleFormatUpdate({ numberFormat: "$#,##0.00" }), disabled: edit },
       { kind: "check", label: "Percent  12.3%", checked: effNumberFormat === "0.0%", onSelect: () => handleFormatUpdate({ numberFormat: "0.0%" }), disabled: edit },
       { kind: "separator" },
+      { kind: "heading", label: "Currency style" },
+      ...([
+        ["standard", "Standard  $1,234"], ["subtle", "Subtle symbol"], ["raised", "Raised symbol"],
+        ["badge", "Icon badge  (S) 1,234"], ["edge", "Pinned left  $      1,234"], ["edgeBadge", "Pinned left, icon badge"],
+      ] as Array<[string, string]>).map(([value, label]): MenuEntry => ({
+        kind: "check", label, checked: (settings.values.currencyStyle || "standard") === value, onSelect: () => onPersistProperty("values", "currencyStyle", value), disabled: edit,
+      })),
+      { kind: "separator" },
       { kind: "heading", label: "Display units" },
       ...([
         ["none", "None"], ["auto", "Auto"], ["thousands", "Thousands  K"], ["millions", "Millions  M"], ["billions", "Billions  B"],

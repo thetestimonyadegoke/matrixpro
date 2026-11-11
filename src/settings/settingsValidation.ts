@@ -93,6 +93,7 @@ export const valueSettingsMetadata: Record<keyof ValueSettings, SettingMetadata>
   borderStyle: { description: "Cell border style", type: "enum", defaultValue: "none", allowedValues: ["none", "all", "horizontal", "vertical", "outline"], category: "Appearance", excelEquivalent: "Borders" },
   borderColor: { description: "Cell border color", type: "color", defaultValue: "#d0d0d0", category: "Appearance", excelEquivalent: "Border Color" },
   quickFormat: { description: "Quick formatting profile", type: "string", defaultValue: "none", category: "Formatting" },
+  currencyStyle: { description: "How currency symbols are drawn in values", type: "enum", defaultValue: "standard", allowedValues: ["standard", "subtle", "raised", "badge", "edge", "edgeBadge"], category: "Formatting" },
   decimals: { description: "Decimal places for numeric values", type: "number", defaultValue: 0, min: 0, max: 10, category: "Formatting", excelEquivalent: "Increase/Decrease Decimal" },
 };
 
